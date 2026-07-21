@@ -1,0 +1,608 @@
+@import "tailwindcss";
+
+:root {
+  /* Pure, deep black — a clean canvas the accent can light up. */
+  --background: #060708;
+  --surface: #101115;
+  --surface-2: #181a20;
+  --border: #262830;
+  --foreground: #f4f5f7;
+  --muted: #8b8d98;
+  /* Deep fuchsia — magnetic, sensual, alive. The one accent that carries the room. */
+  --accent: #e0319c;
+  --accent-strong: #ff63c1;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: dark;
+}
+
+/* The glows bleed past the right edge by design — but on mobile that used to
+   widen the layout viewport, and every fixed full-width surface (the deck, the
+   dock) sized to the widened viewport and hung off-screen. Clip the bleed at
+   the root: `clip` (with `hidden` as the legacy fallback) never creates a
+   scroll container, so nothing else changes. */
+html,
+body {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+/* iOS Safari AUTO-ZOOMS the whole page when a focused input's font-size is
+   under 16px — and often leaves it zoomed after blur. Every one of our inputs
+   sits at 14–15px by design, so on phones typing an edit or a new-loop prompt
+   lurched the viewport. Floor them at 16px on touch-size screens only; desktop
+   keeps the designed sizes. */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+body {
+  color: var(--foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background-color: var(--background);
+  /* Atmosphere: an electric aurora — azure into indigo into a breath of violet,
+     bleeding from the top and fading to black. Optimistic, alive, never loud. */
+  background-image:
+    radial-gradient(125% 80% at 50% -22%, rgba(224, 49, 156, 0.22), transparent 60%),
+    radial-gradient(85% 60% at 86% 2%, rgba(168, 85, 247, 0.15), transparent 58%),
+    radial-gradient(75% 60% at 10% 6%, rgba(236, 72, 153, 0.1), transparent 55%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/* A slow-drifting light behind everything — the room feels alive, not static. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -25%;
+  z-index: -2;
+  pointer-events: none;
+  background-image:
+    radial-gradient(38% 38% at 28% 16%, rgba(224, 49, 156, 0.16), transparent 70%),
+    radial-gradient(40% 40% at 78% 12%, rgba(236, 72, 153, 0.13), transparent 70%);
+  filter: blur(30px);
+  animation: aurora 24s ease-in-out infinite alternate;
+}
+@keyframes aurora {
+  from {
+    transform: translate3d(-3%, -2%, 0) scale(1.05);
+  }
+  to {
+    transform: translate3d(4%, 3%, 0) scale(1.16);
+  }
+}
+
+/* Playhead sweep — a compositor-driven scaleX so the progress bar moves at a
+   perfectly constant speed (GPU, display-refresh rate), immune to main-thread
+   jank. Duration = the loop length; it loops in lockstep with the music. */
+@keyframes playhead-sweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Gentle fade-in for cycling status lines (build/compose progress). */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in {
+  animation: fade-in 0.35s ease both;
+}
+
+/* Cards rise into place — a breath of physics, staggered per item via --i.
+   The page doesn't appear; it ARRIVES. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-rise {
+  animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise {
+    animation: none;
+  }
+}
+
+/* Faint film grain over the whole canvas — gives the dark "tooth" and depth.
+   Behind all content, never visible as noise, never intercepts clicks. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.038;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Live visuals — a reactive backdrop that plays behind the UI while a loop
+   runs. The engine prepends its canvas (fixed, full-screen) with NO z-index,
+   so it would otherwise paint OVER the content. Push it behind: above the
+   dark background, below the cards (whose own surfaces keep text readable).
+   The canvas only renders while playing, so when idle this is inert.
+   TWO ids on purpose: the build scrub (vite.config.ts) renames the canvas id
+   to #k1-canvas in production chunks; dev keeps the library's original. */
+#hydra-canvas,
+#k1-canvas {
+  z-index: -1 !important;
+  /* Present, not shouting: 0.16 vanished into the black — you couldn't tell the
+     visuals were playing at all. The glass cards (backdrop-blur + white tint) are
+     what keep text readable, so the backdrop can genuinely glow. Immerse = full. */
+  opacity: 0.45;
+  transition: opacity 0.6s ease;
+}
+body.immersive #hydra-canvas,
+body.immersive #k1-canvas {
+  opacity: 1;
+}
+/* THE LIVE LISTENER'S STAGE — a streamed set's visuals are rendered NATIVELY on
+   this phone (lib/hydra-live) and ARE the screen, so lift them to full. */
+body.live-stage #hydra-canvas,
+body.live-stage #k1-canvas {
+  opacity: 1 !important;
+}
+
+pre,
+code,
+textarea.code {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+/* Premium feel: quick, smooth transitions on anything interactive. */
+a,
+button,
+input,
+textarea,
+[role="button"] {
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+::selection {
+  background: rgba(224, 49, 156, 0.4);
+  color: #fff;
+}
+
+/* Slim, dark scrollbar — part of the room, not a system afterthought. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #38383f;
+}
+
+/* Keyboard focus: a magnetic fuchsia ring, never the default blue. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Text fields catch the light when focused — a hairline of accent plus a soft
+   bloom, so typing somewhere always feels like the room turned toward you. */
+input:where([type="text"], [type="email"], [type="search"], :not([type])):focus,
+textarea:focus {
+  box-shadow:
+    0 0 0 1px rgba(224, 49, 156, 0.38),
+    0 0 28px -12px rgba(224, 49, 156, 0.55);
+  outline: none;
+}
+
+/* The command bar is ONE object: the pill carries the focus cue (its glow), so nothing INSIDE it —
+   field or buttons — may draw its own ring. This kills the global :focus-visible outline and the
+   text-field bloom scoped to the bar only (they showed as a "border within" the pill). */
+.cmdbar :focus,
+.cmdbar :focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.cmdbar {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* --- expressive utilities (used sparingly) --- */
+.wordmark {
+  letter-spacing: -0.045em;
+  font-weight: 600;
+}
+/* A whisper of azure glow — sex appeal through depth, not brightness. */
+.text-glow {
+  text-shadow: 0 0 38px rgba(224, 49, 156, 0.45);
+}
+.ring-glow {
+  box-shadow: 0 14px 54px -20px rgba(224, 49, 156, 0.55);
+}
+
+/* The hero call-to-action. ONE pink, everywhere: the same bright-pink → accent
+   → deep-magenta family as the home play orbs — the purple detour (#a855f7) is
+   gone, so every hot surface in the app speaks the identical shade. */
+.btn-primary {
+  background-image: linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%);
+  color: #fff;
+  /* the inset top highlight is the "machined edge" — light catching the bevel */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 16px 46px -18px rgba(224, 49, 156, 0.7);
+}
+.btn-primary:hover {
+  background-image: linear-gradient(135deg, #ff7fce 0%, #ee4fb0 55%, #c9247f 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 20px 56px -16px rgba(224, 49, 156, 0.8);
+}
+.btn-primary:disabled {
+  box-shadow: none;
+}
+
+/* Gradient ink — a keyword that catches the light. Use sparingly. */
+.text-gradient {
+  background-image: linear-gradient(116deg, #ffffff 0%, #ffb3e6 52%, #d9b8ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Premium range slider (the Tweak panel). The accent fill is set inline per
+   value as a linear-gradient sized to the slider position. */
+input[type="range"].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  outline: none;
+}
+input[type="range"].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow:
+    0 2px 8px -1px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(0, 0, 0, 0.15);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+input[type="range"].slider:hover::-webkit-slider-thumb {
+  transform: scale(1.13);
+}
+input[type="range"].slider:active::-webkit-slider-thumb {
+  transform: scale(1.06);
+  box-shadow:
+    0 2px 10px -1px rgba(0, 0, 0, 0.8),
+    0 0 0 6px rgba(224, 49, 156, 0.2);
+}
+input[type="range"].slider::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border: none;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+}
+input[type="range"].slider::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* The living glow on whatever is currently playing. */
+@keyframes pulseGlow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(224, 49, 156, 0.5),
+      0 18px 60px -28px rgba(224, 49, 156, 0.55);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(168, 85, 247, 0.85),
+      0 22px 80px -22px rgba(168, 85, 247, 0.7);
+  }
+}
+.playing-glow {
+  animation: pulseGlow 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before {
+    animation: none;
+  }
+  .playing-glow {
+    animation: none;
+    box-shadow:
+      0 0 0 1px rgba(224, 49, 156, 0.6),
+      0 18px 60px -28px rgba(224, 49, 156, 0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a,
+  button,
+  input,
+  textarea,
+  [role="button"] {
+    transition: none;
+  }
+}
+
+/* Numeric fields (e.g. the BPM box) — the native spinner arrows eat the narrow
+   field and clip the digits; the steppers/typing are the real interface. */
+input.no-spin::-webkit-outer-spin-button,
+input.no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input.no-spin {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Working shimmer — loading states are WORDS with a slow specular sweep, no
+   ornaments (no dots, no spinners). One element, doing one job, quietly. */
+.shimmer-text {
+  display: inline-block;
+  background-image: linear-gradient(
+    100deg,
+    rgba(234, 228, 247, 0.35) 42%,
+    rgba(255, 255, 255, 0.95) 50%,
+    rgba(234, 228, 247, 0.35) 58%
+  );
+  background-size: 200% 100%;
+  background-position-x: 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer-sweep 2.4s linear infinite;
+}
+@keyframes shimmer-sweep {
+  to {
+    background-position-x: -200%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    animation: none;
+    background: none;
+    color: var(--accent);
+  }
+}
+
+/* The "live build" loading state — each layer that lands becomes an animated mixer
+   channel that breathes, so the loop visibly ASSEMBLES instead of sitting as empty
+   placeholders. Decorative motion (not a real meter); honest about the count. */
+@keyframes channel-level {
+  0%,
+  100% {
+    width: 26%;
+  }
+  50% {
+    width: 84%;
+  }
+}
+@keyframes channel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.channel-level {
+  animation-name: channel-level;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+.channel-in {
+  animation: channel-in 0.5s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .channel-level {
+    animation: none;
+    width: 60%;
+  }
+  .channel-in {
+    animation: none;
+  }
+}
+
+/* Horizontal strips (the song map) scroll without a visible scrollbar — clean edge. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Dragging a tweak knob must OWN the gesture — without this, a vertical-ish
+   drag starts a page scroll, the browser CANCELS the pointer, and the change
+   never commits (the "slider twitches back" bug on touch). */
+input[type="range"].slider {
+  touch-action: none;
+}
+
+/* Sliders that live INSIDE a flex row (label | track | value). The base
+   rule's width:100% resolves against the row the slider's own width defines —
+   a feedback loop that inflates the row past its card on narrow screens (the
+   voice-studio knobs bled off the phone edge). width:0 + flex-grow sizes the
+   track purely from the leftover space, no loop. */
+input[type="range"].slider.knob-flex {
+  width: 0;
+  flex: 1 1 0%;
+}
+
+/* TOUCH devices: a 15px thumb on a 4px track is a miss-fest on a phone. A chunky
+   pill track + a big thumb is easy to grab and drag with a thumb (near Apple's
+   44px target). touch-action:none (above) already stops the page scrolling. */
+/* Touch-friendly ONLY on the DECK dials (the sets DJ controller) — a fat, easy
+   pill for the thumb. Scoped to .deck-slider on purpose: the other .slider
+   inputs (song page etc.) keep their slim default everywhere. */
+@media (pointer: coarse) {
+  input[type="range"].deck-slider {
+    height: 18px;
+  }
+  input[type="range"].deck-slider::-webkit-slider-thumb {
+    width: 26px;
+    height: 26px;
+  }
+  input[type="range"].deck-slider:active::-webkit-slider-thumb {
+    transform: scale(1.04);
+  }
+  input[type="range"].deck-slider::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+  }
+  input[type="range"].deck-slider::-moz-range-track {
+    height: 18px;
+  }
+}
+
+/* The bottom command bar slides up + fades in when you tap a loop's edit button. */
+@keyframes cmdbar-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cmdbar-in { animation: cmdbar-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .cmdbar-in { animation: none; }
+}
+
+/* Live equalizer — three breathing bars wherever the music is audibly alive.
+   Decorative (not a real meter); staggered per-bar via animation-delay. */
+@keyframes eq-bounce {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.eq-bar {
+  transform-origin: bottom;
+  animation: eq-bounce 1.05s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .eq-bar {
+    animation: none;
+    transform: scaleY(0.6);
+  }
+}
+
+/* A slow breath for ambient glows (landing, empty states) — the light is alive, never static. */
+@keyframes glow-breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.8; }
+}
+.glow-breathe { animation: glow-breathe 7s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .glow-breathe { animation: none; }
+}
+
+/* --- THE AURA — the home page's heat. ONE object: a huge soft gradient of hot
+   pink falling through violet, swaying slow and breathing. No shapes, no
+   ornaments — clean like a machined surface, alive like a room with music in
+   it. Two layers moving against each other so the light never sits still. --- */
+.aura-a,
+.aura-b {
+  position: absolute;
+  inset: -30%;
+  will-change: transform;
+}
+.aura-a {
+  background:
+    radial-gradient(48% 40% at 26% 24%, rgba(224, 49, 156, 0.5), transparent 70%),
+    radial-gradient(40% 34% at 80% 8%, rgba(168, 85, 247, 0.36), transparent 72%);
+  filter: blur(52px);
+  animation: aura-sway-a 26s ease-in-out infinite alternate;
+}
+.aura-b {
+  background:
+    radial-gradient(44% 38% at 78% 82%, rgba(255, 99, 193, 0.3), transparent 72%),
+    radial-gradient(34% 30% at 8% 88%, rgba(224, 49, 156, 0.22), transparent 74%);
+  filter: blur(60px);
+  animation: aura-sway-b 34s ease-in-out infinite alternate;
+}
+@keyframes aura-sway-a {
+  from { transform: translate3d(-4%, -2%, 0) rotate(-2deg) scale(1); }
+  to { transform: translate3d(4%, 3%, 0) rotate(2deg) scale(1.12); }
+}
+@keyframes aura-sway-b {
+  from { transform: translate3d(3%, 2%, 0) scale(1.1); }
+  to { transform: translate3d(-4%, -3%, 0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aura-a,
+  .aura-b {
+    animation: none;
+  }
+}
+
+/* Gradient ink, turned up — white heat falling into hot pink. The home hero. */
+.text-gradient-hot {
+  background-image: linear-gradient(120deg, #ffffff 0%, #ffc2e9 38%, #ff63c1 72%, #e0319c 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

@@ -1,0 +1,58 @@
+{
+  // Klappn Workflows Worker — hosts the two durable Workflows. Deploy with:
+  //   cd workflows && npx wrangler deploy
+  // Set the API key first:  npx wrangler secret put ANTHROPIC_API_KEY
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "klappn-workflows",
+  "main": "src/index.ts",
+  // Persistent, queryable logs (Workers Logs in the dashboard) — without this,
+	// console.error from a failed request vanishes unless a live tail was open
+	// (a vanished eager-transcribe left zero trace; never again).
+	"observability": { "enabled": true },
+	"compatibility_date": "2025-05-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // LLM_PROVIDER selects the composer model ("minimax" | "deepseek" | "anthropic");
+  // keep in sync with the app worker. Keys (MINIMAX_API_KEY / DEEPSEEK_API_KEY /
+  // ANTHROPIC_API_KEY) are set as secrets via `wrangler secret put`.
+  "vars": {
+    "LLM_PROVIDER": "anthropic",
+    // The Anthropic env default; lib/llm.ts hard-pins Fable 5 per call
+    // regardless (see completeRoute — a soft pin once lost to this value).
+    "CLAUDE_MODEL": "claude-opus-4-8",
+  },
+
+  // Neutralise @strudel/core's eager @kabelsalat/web import (a WebAudio synth
+  // REPL it only uses inside repl(), which we never call) so the REAL Strudel
+  // engine loads headless and lib/strudel-eval.ts can build+query patterns to
+  // validate generated code server-side.
+  "alias": {
+    "@kabelsalat/web": "../vite-stubs/kabelsalat-web.js"
+  },
+
+  // Durable Workflows defined in THIS worker. The Next.js app references these
+  // by name through the Cloudflare REST API (lib/workflows.ts).
+  "workflows": [
+    {
+      "name": "klappn-generation",
+      "binding": "GENERATION_WORKFLOW",
+      "class_name": "GenerationWorkflow"
+    },
+    {
+      "name": "klappn-edit",
+      "binding": "EDIT_WORKFLOW",
+      "class_name": "EditWorkflow"
+    }
+  ],
+
+  // Hyperdrive → PlanetScale Postgres. Create with:
+  //   npx wrangler hyperdrive create klappn-pg --connection-string="postgres://..."
+  // then paste the returned id below. localConnectionString is used by `wrangler dev`.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "cc55a8abb77a4f64aaa393b0a68894a4",
+      "localConnectionString": "postgres://postgres:postgres@localhost:5432/klappn"
+    }
+  ]
+}

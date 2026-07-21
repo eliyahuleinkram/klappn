@@ -1,0 +1,4 @@
+PASS       Ascending the Vine/Rolling bass foundation: corr=0.9999 corr100=1.0000 lvl=-0.01dB tilt=0.1%
+PASS       Ascending the Vine/Halo pads breathe: corr=0.9999 corr100=0.9999 lvl=0.02dB tilt=0.2%
+
+TOTALS: pass=2 ear=0 fail=0 skip=0

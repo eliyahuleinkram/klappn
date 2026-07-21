@@ -1,0 +1,110 @@
+{
+	// Cloudflare Workers config for the Klappn Next.js app (built by `vinext deploy`).
+	// The durable Workflows live in a SEPARATE worker — see ./workflows/wrangler.jsonc.
+	// This app triggers them over the Cloudflare REST API (lib/workflows.ts), which
+	// keeps the Next.js code framework-neutral (no Workers-binding access needed
+	// from route handlers).
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "klappn",
+	// Persistent, queryable logs (Workers Logs in the dashboard) — without this,
+	// console.error from a failed request vanishes unless a live tail was open
+	// (a vanished eager-transcribe left zero trace; never again).
+	"observability": { "enabled": true },
+	"compatibility_date": "2025-05-01",
+	"compatibility_flags": [
+		"nodejs_compat",
+		// CRITICAL for the cached postgres.js connection pool. The pool persists
+		// across requests; postgres.js's `reserve()` (used by Better Auth's Kysely
+		// driver for every query) resolves its connection callback in whatever
+		// request happens to be active when the socket event fires — often a
+		// DIFFERENT request than the one that opened the connection. By default the
+		// runtime CANCELS such cross-request promise continuations, so reserve()
+		// never resolves and the request hangs (the auth sign-in / magic-link
+		// verify 500/hang). This flag lets those continuations run, which is the
+		// intended behaviour for a long-lived connection pool. The runtime itself
+		// recommends this flag in the cross-request-promise warning.
+		"no_handle_cross_request_promise_resolution"
+	],
+	// The Worker entry. main = ./worker/index.ts makes the @cloudflare/vite-plugin
+	// build the vinext App Router handler (resolving its virtual: app-server
+	// import) instead of shipping assets-only. The handler serves static files
+	// through the ASSETS binding and renders SSR/RSC routes for everything else.
+	"main": "./worker/index.ts",
+	// run_worker_first lists the dynamic/app routes so the Worker receives them
+	// pristinely (it routes them via vinext SSR/RSC). Everything else (/_next/*,
+	// images, etc.) is served straight from static assets. Without this, asset-
+	// first handling rewrites the request before the Worker sees it and every
+	// route 404s; with `true` the Worker also intercepts static assets (which it
+	// won't serve) — the array is the correct middle ground for SSR.
+	"assets": {
+		"directory": "dist/client",
+		"binding": "ASSETS",
+		"not_found_handling": "none",
+		// The icon paths ride worker-first so zaltz.klappn.com can answer them
+		// with the grain (host-aware favicon rewrite in worker/index.ts).
+		"run_worker_first": ["/", "/song/*", "/api/*", "/engine", "/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"]
+	},
+	// Non-secret config. Secrets (ANTHROPIC_API_KEY, XAI_API_KEY, BETTER_AUTH_SECRET,
+	// BETTER_AUTH_URL, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, EMAIL_FROM)
+	// are set with `wrangler secret put <NAME>` and read via process.env.
+	// (XAI_API_KEY powers the "grok" model toggle — the derive call runs on the app worker.)
+	"vars": {
+		// LLM_PROVIDER selects the composer model: "minimax" (MiniMax-M3, max
+		// thinking), "deepseek" (deepseek-v4-pro, agent pipeline) or "anthropic"
+		// (ONE-SHOT mode — a single steered call, no jury/refine). Flip this one
+		// value to switch — all three stay wired (see lib/llm.ts). Keys are secrets.
+		"LLM_PROVIDER": "anthropic",
+		// Claude Opus 4.8 — the composer (layer engine) runs on this via the anthropic
+		// provider; high adaptive thinking, no gate/regenerate net (see lib/anthropic.ts).
+		"CLAUDE_MODEL": "claude-opus-4-8",
+		"GENERATION_WORKFLOW_NAME": "klappn-generation",
+		"EDIT_WORKFLOW_NAME": "klappn-edit",
+		// Stripe PRICE ids (public identifiers, not secrets — the keys are secrets):
+		// the recurring monthly prices for the paid tiers (lib/billing.ts).
+		"STRIPE_PRICE_CREATOR": "price_1TgqP5CLcLj9DKVx0zv4Ym2y",
+		"STRIPE_PRICE_STUDIO": "price_1TgqP7CLcLj9DKVxz9KlieBb",
+		"STRIPE_PRICE_LABEL": "price_1TpswuCLcLj9DKVxW6iz6MDV",
+		// Cloudflare Realtime SFU (live-set audio/video streaming): the DJ's
+		// computer publishes ONE mix stream, the SFU fans it out to every
+		// listener's phone (no per-phone synthesis). App ID is a public
+		// identifier; REALTIME_APP_TOKEN is the Bearer secret (wrangler secret
+		// put) — all SFU calls proxy through /api/rtc so the token never ships
+		// to the browser. See app/api/rtc.
+		"REALTIME_APP_ID": "4811e9b5be53adf83be1e591e6b90842",
+		// (wrangler secret put).
+	},
+	// Keep the *.workers.dev URL enabled.
+	"workers_dev": true,
+	// Custom domains. The apex is canonical; www is attached too (it had no DNS
+	// record at all, so the bare hostname didn't resolve) and the Worker 301s it
+	// to the apex — one host keeps auth cookies and canonical URLs sane.
+	"routes": [
+		{ "pattern": "klappn.com", "custom_domain": true },
+		{ "pattern": "www.klappn.com", "custom_domain": true },
+		// The engine's front door — the Worker rewrites its root to /engine
+		// (the playground; /zaltz itself IS the wasm binary, extensionless).
+		{ "pattern": "zaltz.klappn.com", "custom_domain": true }
+	],
+	// DB: lib/db.ts reads this Hyperdrive binding's connectionString at runtime
+	// (via `cloudflare:workers` env), so no DATABASE_URL secret is needed in prod.
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "cc55a8abb77a4f64aaa393b0a68894a4"
+		}
+	],
+	// Workers AI — the vocal transcription fallback (@cf/openai/whisper). The
+	// primary ASR is NVIDIA's nemotron streaming model when NVIDIA_ASR_URL +
+	// NVIDIA_API_KEY secrets are set (see app/api/songs/[id]/vocal/[takeId]/transcribe).
+	"ai": { "binding": "AI" },
+	// R2 store for user-uploaded + generated ASSETS: event posters (events/poster/*),
+	// vocal takes (vocals/*). Named RENDER_CACHE for historical reasons (it once held
+	// the parked stem-render audio cache — now removed); the binding name is load-
+	// bearing (code reads env.RENDER_CACHE, keys already live under it), so it stays.
+	"r2_buckets": [
+		{
+			"binding": "RENDER_CACHE",
+			"bucket_name": "klappn-render-cache"
+		}
+	]
+}
