@@ -77,13 +77,9 @@ function Aura({ dim }: { dim: boolean }) {
 export default function HomeClient({
   initialSongs,
   userEmail,
-  isOwner,
 }: {
   initialSongs: SongRowRich[];
   userEmail?: string | null;
-  /** The house account curates THE DOOR (the signed-out gallery) — everyone
-   *  else never sees the control. */
-  isOwner?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -268,39 +264,6 @@ export default function HomeClient({
     if (results.some((ok) => !ok)) setError("Couldn’t update some loops.");
     setSongs((prev) =>
       prev.map((s) => (selected.has(s.id) ? { ...s, playlist: clean } : s)),
-    );
-    exitSelect();
-    router.refresh();
-  }
-
-  // OWNER ONLY — put the selection on (or take it off) THE DOOR, the
-  // signed-out gallery. One tap: if every selected song is already out
-  // there, the same tap brings them home.
-  async function assignDoor() {
-    const ids = [...selected];
-    if (ids.length === 0 || deleting) return;
-    const featured = !ids.every(
-      (id) => songs.find((s) => s.id === id)?.featured_at,
-    );
-    setError(null);
-    const results = await Promise.all(
-      ids.map((id) =>
-        fetch(`/api/songs/${id}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ featured }),
-        })
-          .then((r) => r.ok)
-          .catch(() => false),
-      ),
-    );
-    if (results.some((ok) => !ok)) setError("Couldn’t update some loops.");
-    setSongs((prev) =>
-      prev.map((s) =>
-        selected.has(s.id)
-          ? { ...s, featured_at: featured ? new Date().toISOString() : null }
-          : s,
-      ),
     );
     exitSelect();
     router.refresh();
@@ -853,12 +816,6 @@ export default function HomeClient({
                           <span className="truncate text-muted/60">{s.playlist}</span>
                         </>
                       )}
-                      {isOwner && s.featured_at && (
-                        <>
-                          <span className="text-muted/30">·</span>
-                          <span className="text-accent/70">Door</span>
-                        </>
-                      )}
                     </div>
                   </div>
                 </>
@@ -963,27 +920,6 @@ export default function HomeClient({
                 − {activePlaylist}
               </button>
             )}
-            {/* OWNER ONLY — the door curator's one control: put the selection on
-                the signed-out gallery, or (same tap, all already out) bring it home. */}
-            {isOwner &&
-              (() => {
-                const allOut = [...selected].every(
-                  (id) => songs.find((s) => s.id === id)?.featured_at,
-                );
-                return (
-                  <button
-                    onClick={() => void assignDoor()}
-                    title={allOut ? "Take off the door" : "Put on the door"}
-                    className={`rounded-full px-3 py-1.5 text-[12.5px] font-medium transition active:scale-[.97] ${
-                      allOut
-                        ? "bg-accent/15 text-accent hover:bg-white/[0.08] hover:text-muted"
-                        : "bg-white/[0.05] text-muted hover:bg-accent/15 hover:text-accent"
-                    }`}
-                  >
-                    {allOut ? "− Door" : "Door"}
-                  </button>
-                );
-              })()}
             {/* new playlist — an inline borderless field, right in the pill */}
             <input
               value={playlistName}

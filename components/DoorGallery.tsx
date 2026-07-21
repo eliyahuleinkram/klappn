@@ -385,47 +385,51 @@ export default function DoorGallery({
         </span>
       </button>
 
-      {!isPlaying ? (
-        <p className="mt-7 text-[15px] text-muted">It sounds like this.</p>
-      ) : (
-        <>
-          {/* THE DECK — the parts of the song, held in your hand. Lit = in the
-              mix; tap = gone, instantly, tails and all. */}
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
-            {CHANNELS.map((ch) => (
-              <button
-                key={ch}
-                onClick={() => toggleKill(ch)}
-                aria-pressed={!kills[ch]}
-                className={`${pill} ${
-                  kills[ch]
-                    ? "border border-white/[0.08] bg-white/[0.03] text-muted/50 line-through"
-                    : "border border-accent/25 bg-accent/[0.12] text-foreground shadow-[0_0_24px_-8px_rgba(224,49,156,.8)]"
-                }`}
-              >
-                {ch === "drums" ? "Drums" : ch === "bass" ? "Bass" : "Melody"}
-              </button>
-            ))}
-          </div>
-          {/* the room — colour the sound */}
-          <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
-            {FX_KEYS.map((k) => (
-              <button
-                key={k}
-                onClick={() => toggleFx(k)}
-                aria-pressed={fx[k]}
-                className={`${pill} ${
-                  fx[k]
-                    ? "border border-accent/30 bg-accent/20 text-accent"
-                    : "border border-white/[0.08] bg-white/[0.04] text-muted hover:text-foreground"
-                }`}
-              >
-                {FX_LABEL[k]}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+      {/* Fixed-height stage below the orb: the idle line and the deck live in
+          the SAME reserved space, so the orb never moves when play begins. */}
+      <div className="mt-7 flex min-h-[6.75rem] w-full flex-col items-center justify-start">
+        {!isPlaying ? (
+          <p className="mt-8 text-[15px] text-muted">It sounds like this.</p>
+        ) : (
+          <>
+            {/* THE DECK — the parts of the song, held in your hand. Lit = in
+                the mix; tap = gone, instantly, tails and all. */}
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {CHANNELS.map((ch) => (
+                <button
+                  key={ch}
+                  onClick={() => toggleKill(ch)}
+                  aria-pressed={!kills[ch]}
+                  className={`${pill} ${
+                    kills[ch]
+                      ? "border border-white/[0.08] bg-white/[0.03] text-muted/50 line-through"
+                      : "border border-accent/25 bg-accent/[0.12] text-foreground shadow-[0_0_24px_-8px_rgba(224,49,156,.8)]"
+                  }`}
+                >
+                  {ch === "drums" ? "Drums" : ch === "bass" ? "Bass" : "Melody"}
+                </button>
+              ))}
+            </div>
+            {/* the room — colour the sound */}
+            <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
+              {FX_KEYS.map((k) => (
+                <button
+                  key={k}
+                  onClick={() => toggleFx(k)}
+                  aria-pressed={fx[k]}
+                  className={`${pill} ${
+                    fx[k]
+                      ? "border border-accent/30 bg-accent/20 text-accent"
+                      : "border border-white/[0.08] bg-white/[0.04] text-muted hover:text-foreground"
+                  }`}
+                >
+                  {FX_LABEL[k]}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
 
       {error && (
         <p className="mt-3 text-[13px] text-red-400">

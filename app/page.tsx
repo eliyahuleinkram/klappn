@@ -2,7 +2,6 @@ import { headers } from "next/headers";
 import { getAuth } from "@/lib/auth";
 import { warmPool } from "@/lib/db";
 import { listDoorSongs, listSongsRich, type SongRowRich } from "@/lib/songs";
-import { getBilling } from "@/lib/billing";
 import SignIn from "@/components/SignIn";
 import HomeClient from "@/components/HomeClient";
 import type { DoorSong } from "@/components/DoorGallery";
@@ -37,15 +36,11 @@ export default async function Home() {
   }
 
   let songs: SongRowRich[] = [];
-  let isOwner = false;
   try {
-    [songs, isOwner] = await Promise.all([
-      listSongsRich(userId),
-      getBilling(userId).then((b) => b.plan === "owner"),
-    ]);
+    songs = await listSongsRich(userId);
   } catch {
     songs = [];
   }
 
-  return <HomeClient initialSongs={songs} userEmail={email} isOwner={isOwner} />;
+  return <HomeClient initialSongs={songs} userEmail={email} />;
 }
