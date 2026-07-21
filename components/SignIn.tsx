@@ -98,6 +98,132 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
   const gateUp = state === "sent" || state === "verifying";
   const canResend = now >= resendAt;
 
+  // THE DOOR — when curated songs exist, the signed-out page IS the
+  // instrument: the visual owns the room, the orb and deck hold the center,
+  // the brand signs the corner, and the ask is one glass bar at the bottom.
+  // A different flavor from the app on purpose: fullscreen, cinematic, alive.
+  if (door.length > 0) {
+    return (
+      <main className="relative flex flex-1 flex-col overflow-x-clip px-6">
+        {/* ambient glow — yields the moment a picture holds the room */}
+        <div
+          aria-hidden
+          className={`glow-breathe pointer-events-none absolute left-1/2 top-1/2 h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity duration-[1400ms] ease-out ${
+            visualUp ? "opacity-0" : "opacity-100"
+          }`}
+          style={{
+            background:
+              "radial-gradient(closest-side, rgba(224,49,156,.14), rgba(168,85,247,.05) 55%, transparent 75%)",
+          }}
+        />
+        {/* the brand signs the corner — the room belongs to the music */}
+        <div className="relative z-10 flex items-center gap-2.5 pt-6">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/icon.svg"
+            alt=""
+            aria-hidden
+            className="h-8 w-8 select-none shadow-[0_8px_28px_-8px_rgba(224,49,156,.65)]"
+            style={{ borderRadius: "7px" }}
+            draggable={false}
+          />
+          <span className="wordmark text-[22px] tracking-tight text-foreground">
+            Klappn
+          </span>
+        </div>
+
+        <div className="relative z-10 flex flex-1 items-center justify-center py-10">
+          <DoorGallery songs={door} onVisual={setVisualUp} />
+        </div>
+
+        {/* THE ASK — one glass bar. The line is the product; the field is the door. */}
+        <div className="relative z-10 mx-auto mb-6 w-full max-w-xl">
+          <div className="rounded-2xl border border-white/[0.09] bg-black/45 p-4 shadow-[0_30px_90px_-30px_rgba(0,0,0,.9),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+            {gateUp ? (
+              <>
+                <p className="text-[13.5px] leading-relaxed text-muted">
+                  A 6-digit code is in your inbox — sent to{" "}
+                  <span className="text-foreground/80">{email.trim()}</span>.
+                  Type it and you&rsquo;re in.
+                </p>
+                <input
+                  ref={codeRef}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]*"
+                  value={code}
+                  onChange={(e) => onCode(e.target.value)}
+                  placeholder="••••••"
+                  disabled={state === "verifying"}
+                  className="mt-3 w-full rounded-xl border border-white/[0.1] bg-white/[0.04] px-4 py-3 text-center text-[22px] font-semibold tracking-[0.45em] text-foreground outline-none transition placeholder:text-muted/30 focus:border-accent/45 focus:shadow-[0_0_40px_-14px_rgba(224,49,156,.55)] disabled:opacity-60"
+                />
+                {state === "verifying" && (
+                  <p className="mt-2 text-[13px] text-muted">
+                    <span className="shimmer-text">Opening the door…</span>
+                  </p>
+                )}
+                {codeError && (
+                  <p className="mt-2 text-[13px] text-red-400">{codeError}</p>
+                )}
+                <div className="mt-2.5 flex items-center justify-between text-[13px]">
+                  <button
+                    onClick={() => {
+                      setState("idle");
+                      setCode("");
+                      setCodeError(null);
+                    }}
+                    className="text-muted transition hover:text-foreground"
+                  >
+                    Different email
+                  </button>
+                  <button
+                    onClick={() => canResend && void send()}
+                    disabled={!canResend}
+                    className="text-muted transition hover:text-foreground disabled:opacity-40"
+                  >
+                    {canResend
+                      ? "Send it again"
+                      : `Send again in ${Math.ceil((resendAt - now) / 1000)}s`}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-[13.5px] leading-relaxed text-muted">
+                  You type a sentence. Klappn writes everything you&rsquo;re
+                  hearing — the sound, the picture, the code.{" "}
+                  <span className="text-foreground/85">Yours to keep.</span>
+                </p>
+                <form onSubmit={send} className="mt-3 flex gap-2">
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="min-w-0 flex-1 rounded-xl border border-white/[0.07] bg-white/[0.04] px-4 py-3 text-[15px] text-foreground outline-none transition placeholder:text-muted/45 focus:border-accent/40 focus:bg-white/[0.07] focus:shadow-[0_0_40px_-14px_rgba(224,49,156,.55)]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={state === "sending"}
+                    className="btn-primary shrink-0 rounded-xl px-5 py-3 text-[15px] font-medium transition active:scale-[.98] disabled:opacity-50"
+                  >
+                    {state === "sending" ? "Sending…" : "Continue"}
+                  </button>
+                </form>
+                {state === "error" && (
+                  <p className="mt-2 text-[13px] text-red-400">
+                    Couldn&rsquo;t send the code. Try again.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     // my-auto (not items-center) so a door-tall column scrolls instead of
     // clipping its top inside the old overflow-hidden centering
@@ -221,8 +347,6 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
           </form>
         )}
 
-        {/* THE DOOR — whole songs, played right here, before any account. */}
-        {door.length > 0 && <DoorGallery songs={door} onVisual={setVisualUp} />}
       </div>
     </main>
   );

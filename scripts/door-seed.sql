@@ -181,7 +181,7 @@ insert into parts (id, song_id, position, label, intent, strudel, status, bars, 
  'dust settles',
  'Crackle and filtered Rhodes ninths, brushed kick pulse, no full kit yet.',
  $strudel$setcpm(84/4)
-$: note("<[d3,f3,a3,c4,e4] [g2,bf2,d3,f3,a3] [bf2,d3,f3,a3] [a2,c3,e3,g3]>").sound("gm_epiano1").lpf(sine.range(650,1300).slow(8)).vib("0.7:0.12").gain(0.55).attack(0.25).release(2).room(0.7).roomsize(4).slow(1).orbit(1).postgain(1)
+$: note("<[d3,f3,a3,c4,e4] [g3,bf3,d4,f4,a4] [bf3,d4,f4,a4] [a3,c4,e4,g4]>").sound("gm_epiano1").lpf(sine.range(650,1300).slow(8)).vib("0.7:0.12").gain(0.55).attack(0.25).release(2).room(0.7).roomsize(4).slow(1).orbit(1).postgain(1)
 $: sound("crackle*8").density(0.45).gain(0.26).lpf(3400).hpf(280).room(0.5).roomsize(3).orbit(2).postgain(1)
 $: sound("bd ~ ~ ~ ~ ~ bd ~").bank("AkaiMPC60").lpf(420).gain(0.48).shape(0.08).release(0.4).orbit(3).postgain(1)
 $: note("<d1 g1 bf1 a1>").sound("gm_acoustic_bass").lpf(480).gain(0.5).attack(0.02).release(1.4).slow(1).orbit(3).postgain(1)
@@ -219,7 +219,7 @@ $: sound("bd ~ ~ bd ~ ~ bd ~").bank("AkaiMPC60").lpf(500).gain(0.52).shape(0.1).
 $: sound("~ ~ sd ~ ~ ~ sd ~").bank("AkaiMPC60").gain(0.4).room(0.35).roomsize(2).hpf(200).orbit(4).postgain(1)
 $: sound("hh ~ hh hh ~ hh hh ~").bank("AkaiMPC60").gain(saw.range(0.1,0.2).fast(2)).hpf(650).pan(sine.range(0.4,0.6).slow(4)).orbit(4).postgain(1)
 $: note("<[d1 ~ a1 ~ d2 ~ c2 a1] [g1 ~ d2 ~ g1 ~ f1 d1] [bf1 ~ f1 ~ bf1 ~ a1 f1] [a1 ~ e2 ~ a1 ~ g1 e1]>").sound("gm_acoustic_bass").lpf(500).gain(0.55).attack(0.02).release(1.1).slow(1).orbit(3).postgain(1)
-$: note("<[d3,f3,a3,c4,e4] [g2,bf2,d3,f3,a3] [bf2,d3,f3,a3,c4] [a2,c3,e3,g3,bf3]>").sound("gm_epiano1").lpf(1500).vib("0.7:0.12").gain(0.5).attack(0.15).release(1.8).room(0.7).roomsize(4).slow(1).orbit(1).postgain(1)
+$: note("<[d3,f3,a3,c4,e4] [g3,bf3,d4,f4,a4] [bf3,d4,f4,a4,c5] [a3,c4,e4,g4,bf4]>").sound("gm_epiano1").lpf(1500).vib("0.7:0.12").gain(0.5).attack(0.15).release(1.8).room(0.7).roomsize(4).slow(1).orbit(1).postgain(1)
 $: note("<[f5 ~ e5 ~ d5 ~ ~ ~] ~ [d5 ~ c5 ~ a4 ~ ~ ~] ~>").sound("gm_vibraphone").lpf(2400).gain(0.34).release(1.2).vib("0.5:0.1").room(0.8).roomsize(5).delay(0.3).delaytime(0.536).slow(1).orbit(5).postgain(1)
 $: sound("crackle*8").density(0.4).gain(0.22).lpf(3200).hpf(300).room(0.5).roomsize(3).orbit(2).postgain(1)
 
@@ -250,7 +250,7 @@ $strudel$, 'ready', 8, 'loop'),
  'upstairs',
  'B-section lift: voicings climb, muted trumpet takes one chorus over softer drums.',
  $strudel$setcpm(84/4)
-$: note("<[f3,a3,c4,e4] [bf2,d3,f3,a3] [g2,bf2,d3,f3] [a2,cs3,e3,g3]>").sound("gm_epiano1").lpf(1700).vib("0.6:0.1").gain(0.5).attack(0.15).release(1.8).room(0.75).roomsize(4).slow(1).orbit(1).postgain(1)
+$: note("<[f3,a3,c4,e4] [bf3,d4,f4,a4] [g3,bf3,d4,f4] [a3,cs4,e4,g4]>").sound("gm_epiano1").lpf(1700).vib("0.6:0.1").gain(0.5).attack(0.15).release(1.8).room(0.75).roomsize(4).slow(1).orbit(1).postgain(1)
 $: note("<[a4 ~ ~ g4 f4 ~ e4 ~] [f4 ~ d4 ~ ~ ~ ~ ~] [g4 ~ ~ f4 d4 ~ bf3 ~] [e4 ~ cs4 ~ ~ ~ ~ ~]>").sound("gm_muted_trumpet").lpf(1900).gain(0.3).attack(0.06).release(0.8).vib("0.5:0.08").room(0.7).roomsize(5).delay(0.25).delaytime(0.536).slow(1).orbit(5).postgain(1)
 $: note("<f1 bf1 g1 a1>").sound("gm_acoustic_bass").lpf(480).gain(0.52).attack(0.02).release(1.4).slow(1).orbit(3).postgain(1)
 $: sound("bd ~ ~ ~ bd ~ ~ ~").bank("AkaiMPC60").lpf(460).gain(0.46).shape(0.08).orbit(3).postgain(1)
@@ -304,7 +304,7 @@ insert into parts (id, song_id, position, label, intent, strudel, status, bars, 
  'surface',
  'Pads and sub only — the tide before the drums come in.',
  $strudel$setcpm(172/4)
-$: note("<[e3,g3,b3,d4] [c3,e3,g3,b3] [a2,c3,e3,g3] [b2,d3,fs3,a3]>").sound("gm_pad_halo").lpf(sine.range(800,1800).slow(16)).gain(0.32).attack(1.8).release(3.5).room(0.88).roomsize(7).slow(2).orbit(1).postgain(1)
+$: note("<[e3,g3,b3,d4] [c3,e3,g3,b3] [a3,c4,e4,g4] [b3,d4,fs4,a4]>").sound("gm_pad_halo").lpf(sine.range(800,1800).slow(16)).gain(0.32).attack(1.8).release(3.5).room(0.88).roomsize(7).slow(2).orbit(1).postgain(1)
 $: note("<e1 c1 a0 b0>").sound("sine").lpf(160).gain(0.5).attack(0.3).release(2.5).slow(2).orbit(2).postgain(1)
 $: note("<[b4 ~ ~ g4 ~ ~ e4 ~] [~ ~ g4 ~ ~ b4 ~ ~]>").sound("gm_epiano2").lpf(2100).gain(0.26).release(0.9).delay(0.4).delaytime(0.349).room(0.7).roomsize(5).slow(1).orbit(3).postgain(1)
 $: sound("~ ~ ~ ~ ~ ~ ~ [~ sd]").bank("RolandTR909").gain(0.16).room(0.7).roomsize(5).hpf(300).orbit(4).postgain(1)
@@ -342,7 +342,7 @@ $: sound("~ ~ ~ ~ sd ~ ~ ~ ~ ~ ~ ~ sd ~ ~ ~").bank("RolandTR909").gain(0.4).room
 $: sound("hh hh hh hh hh hh hh hh hh hh hh hh hh hh hh hh").bank("RolandTR909").gain(saw.range(0.06,0.16).fast(8)).hpf(800).pan(sine.range(0.38,0.62).slow(3)).orbit(7).postgain(1)
 $: sound("~ ~ [~ sh] ~ ~ [~ sh] ~ ~").bank("RolandTR909").gain(0.14).hpf(900).orbit(7).postgain(1)
 $: note("<[e1 ~ ~ e1 ~ g1 ~ ~] [c1 ~ ~ c1 ~ e1 ~ ~] [a0 ~ ~ a0 ~ c1 ~ ~] [b0 ~ ~ b0 ~ d1 ~ ~]>").sound("sine").lpf(180).gain(0.52).release(0.5).slow(1).orbit(2).postgain(1)
-$: note("<[e3,g3,b3,d4] [c3,e3,g3,b3] [a2,c3,e3,g3] [b2,d3,fs3,a3]>").sound("gm_pad_halo").lpf(1500).gain(0.24).attack(1.2).release(3).room(0.85).roomsize(6).slow(1).orbit(1).postgain(1)
+$: note("<[e3,g3,b3,d4] [c3,e3,g3,b3] [a3,c4,e4,g4] [b3,d4,fs4,a4]>").sound("gm_pad_halo").lpf(1500).gain(0.24).attack(1.2).release(3).room(0.85).roomsize(6).slow(1).orbit(1).postgain(1)
 $: note("<[b4 ~ ~ g4 ~ ~ e4 ~] [~ ~ g4 ~ ~ b4 ~ ~] [~ c5 ~ ~ g4 ~ ~ e4] [~ ~ b4 ~ ~ fs4 ~ ~]>").sound("gm_epiano2").lpf(2300).gain(0.24).release(0.8).delay(0.4).delaytime(0.349).room(0.6).roomsize(4).slow(1).orbit(3).postgain(1)
 
 /* @vcontrols
@@ -682,7 +682,7 @@ insert into parts (id, song_id, position, label, intent, strudel, status, bars, 
  'The lullaby alone: music box in three over a warm pad and a deep, slow root.',
  $strudel$setcpm(76/3)
 $: note("<[e5 g5 c6] [d5 f5 a5] [c5 e5 g5] [b4 d5 g5]>").sound("gm_music_box").gain(0.3).release(1.8).room(0.85).roomsize(7).delay(0.3).delaytime(0.789).slow(1).orbit(1).postgain(1)
-$: note("<[c3,e3,g3] [f2,a2,c3] [a2,c3,e3] [g2,b2,d3]>").sound("gm_pad_new_age").lpf(sine.range(700,1400).slow(16)).gain(0.3).attack(2).release(4).room(0.9).roomsize(8).slow(1).orbit(2).postgain(1)
+$: note("<[c3,e3,g3] [f3,a3,c4] [a3,c4,e4] [g3,b3,d4]>").sound("gm_pad_new_age").lpf(sine.range(700,1400).slow(16)).gain(0.3).attack(2).release(4).room(0.9).roomsize(8).slow(1).orbit(2).postgain(1)
 $: note("<c1 f0 a0 g0>").sound("sine").lpf(140).gain(0.46).attack(0.6).release(3).slow(1).orbit(3).postgain(1)
 $: sound("~ ~ [~ hh]").bank("RolandTR808").gain(0.08).hpf(1200).orbit(4).postgain(1)
 $: note("<e6 ~ g6 ~>").sound("gm_glockenspiel").gain(0.12).release(2).room(0.9).roomsize(8).slow(4).orbit(5).postgain(1)
@@ -715,9 +715,9 @@ $strudel$, 'ready', 8, 'loop'),
  'lanterns rising',
  'The harp takes over the pulse in arpeggios; flute floats a counter-melody.',
  $strudel$setcpm(76/3)
-$: note("<[c3 e3 g3 c4 e4 g4] [f2 a2 c3 f3 a3 c4] [a2 c3 e3 a3 c4 e4] [g2 b2 d3 g3 b3 d4]>").sound("gm_orchestral_harp").gain(0.32).release(1.2).room(0.8).roomsize(6).slow(1).orbit(1).postgain(1)
+$: note("<[c3 e3 g3 c4 e4 g4] [f3 a3 c4 f4 a4 c5] [a3 c4 e4 a4 c5 e5] [g3 b3 d4 g4 b4 d5]>").sound("gm_orchestral_harp").gain(0.32).release(1.2).room(0.8).roomsize(6).slow(1).orbit(1).postgain(1)
 $: note("<[g5 ~ ~] [a5 ~ f5] [e5 ~ ~] [d5 ~ g5]>").sound("gm_flute").lpf(2400).gain(0.2).attack(0.12).release(0.8).vib("0.5:0.08").room(0.75).roomsize(6).slow(1).orbit(2).postgain(1)
-$: note("<[c3,e3,g3] [f2,a2,c3] [a2,c3,e3] [g2,b2,d3]>").sound("gm_pad_new_age").lpf(1200).gain(0.24).attack(1.8).release(4).room(0.9).roomsize(8).slow(1).orbit(3).postgain(1)
+$: note("<[c3,e3,g3] [f3,a3,c4] [a3,c4,e4] [g3,b3,d4]>").sound("gm_pad_new_age").lpf(1200).gain(0.24).attack(1.8).release(4).room(0.9).roomsize(8).slow(1).orbit(3).postgain(1)
 $: note("<c1 f0 a0 g0>").sound("sine").lpf(140).gain(0.46).attack(0.5).release(3).slow(1).orbit(4).postgain(1)
 $: note("<e6 g6 a6 d6>").sound("gm_tinkle_bell").gain(0.1).release(1.5).room(0.9).roomsize(8).slow(2).orbit(5).postgain(1)
 $: sound("~ hh hh").bank("RolandTR808").gain(0.07).hpf(1400).orbit(6).postgain(1)
@@ -751,7 +751,7 @@ $strudel$, 'ready', 8, 'loop'),
  $strudel$setcpm(76/3)
 $: note("<[e5 g5 c6] [f5 a5 c6] [e5 a5 c6] [d5 g5 b5]>").sound("gm_music_box").gain(0.28).release(1.8).room(0.85).roomsize(7).delay(0.35).delaytime(0.789).slow(1).orbit(1).postgain(1)
 $: note("<[c3 g3 e4] [f3 c4 a4] [a3 e4 c5] [g3 d4 b4]>").sound("gm_orchestral_harp").gain(0.28).release(1.2).room(0.8).roomsize(6).slow(1).orbit(2).postgain(1)
-$: note("<[c3,e3,g3,b3] [f2,a2,c3,e3] [a2,c3,e3,g3] [g2,b2,d3,f3]>").sound("gm_string_ensemble_2").lpf(sine.range(800,1500).slow(8)).gain(0.24).attack(1.5).release(3.5).room(0.88).roomsize(7).slow(1).orbit(3).postgain(1)
+$: note("<[c3,e3,g3,b3] [f3,a3,c4,e4] [a3,c4,e4,g4] [g3,b3,d4,f4]>").sound("gm_string_ensemble_2").lpf(sine.range(800,1500).slow(8)).gain(0.24).attack(1.5).release(3.5).room(0.88).roomsize(7).slow(1).orbit(3).postgain(1)
 $: note("<c1 f0 a0 g0>").sound("sine").lpf(140).gain(0.46).attack(0.5).release(3).slow(1).orbit(4).postgain(1)
 $: note("<g6 ~ e6 c6>").sound("gm_glockenspiel").gain(0.11).release(2).room(0.92).roomsize(8).slow(2).orbit(5).postgain(1)
 $: sound("crackle*3").density(0.2).gain(0.1).hpf(600).room(0.5).roomsize(4).orbit(6).postgain(1)
