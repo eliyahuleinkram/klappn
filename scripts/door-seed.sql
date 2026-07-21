@@ -12,9 +12,16 @@
 begin;
 
 create temporary table door_owner on commit drop as
-  select id from "user"
-  where email in ('eli@veiter.ai', 'demo@klappn.test')
-  order by (email = 'eli@veiter.ai') desc
+  select id from (
+    -- the house account first (plan = 'owner'), then known emails as fallback
+    select u.id, 0 as pri
+      from "user" u join user_billing b on b.user_id = u.id and b.plan = 'owner'
+    union all
+    select id, 1 from "user" where email = 'eli@veiter.ai'
+    union all
+    select id, 2 from "user" where email = 'demo@klappn.test'
+  ) c
+  order by pri
   limit 1;
 
 -- ---------------------------------------------------------------------------
