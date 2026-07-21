@@ -3,16 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import DoorGallery, { type DoorSong } from "@/components/DoorGallery";
 
 /**
  * SIGN-IN — a 6-digit CODE, not a link (2026-07-10). A magic link opens in the
  * DEFAULT browser: start in Chrome, tap in Gmail, get signed in over in Safari
  * while Chrome waits forever. A code has no browser — you type it exactly where
  * you are, and the door opens THERE. (The server still honors old magic links.)
+ *
+ * Below the form: THE DOOR — owner-curated songs that play right here, whole,
+ * before any account exists. The proof is the pitch.
  */
-export default function SignIn() {
+export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
+  // A playing song's own picture is up — the ambient glow steps aside for it
+  // (same yield as home's aura).
+  const [visualUp, setVisualUp] = useState(false);
   const [state, setState] = useState<
     "idle" | "sending" | "sent" | "verifying" | "error"
   >("idle");
@@ -92,17 +99,22 @@ export default function SignIn() {
   const canResend = now >= resendAt;
 
   return (
-    <main className="relative flex flex-1 items-center justify-center overflow-hidden px-6 py-20">
-      {/* ambient glow — the room the brand sits in, not a decoration on it */}
+    // my-auto (not items-center) so a door-tall column scrolls instead of
+    // clipping its top inside the old overflow-hidden centering
+    <main className="relative flex flex-1 justify-center overflow-x-clip px-6 py-16">
+      {/* ambient glow — the room the brand sits in, not a decoration on it.
+          It fades when a playing song mounts its own picture. */}
       <div
         aria-hidden
-        className="glow-breathe pointer-events-none absolute left-1/2 top-1/2 h-[36rem] w-[36rem] -translate-x-1/2 -translate-y-[58%] rounded-full"
+        className={`glow-breathe pointer-events-none absolute left-1/2 top-1/2 h-[36rem] w-[36rem] -translate-x-1/2 -translate-y-[58%] rounded-full transition-opacity duration-[1400ms] ease-out ${
+          visualUp ? "opacity-0" : "opacity-100"
+        }`}
         style={{
           background:
             "radial-gradient(closest-side, rgba(224,49,156,.16), rgba(168,85,247,.06) 55%, transparent 75%)",
         }}
       />
-      <div className="relative w-full max-w-[20rem]">
+      <div className="relative my-auto w-full max-w-[20rem]">
         {/* the mark — steel K on its tile, floating on its own glow */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -208,6 +220,9 @@ export default function SignIn() {
             </p>
           </form>
         )}
+
+        {/* THE DOOR — whole songs, played right here, before any account. */}
+        {door.length > 0 && <DoorGallery songs={door} onVisual={setVisualUp} />}
       </div>
     </main>
   );

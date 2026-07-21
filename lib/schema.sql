@@ -31,6 +31,11 @@ alter table songs add column if not exists playlist text;
 -- part and later edit runs on the same model. Defaults to 'anthropic' for existing rows.
 alter table songs add column if not exists model text not null default 'anthropic';
 
+-- THE DOOR — when set, this song plays on the signed-out gallery (curated by
+-- hand, owner only; the timestamp is the display order, newest first).
+alter table songs add column if not exists featured_at timestamptz;
+create index if not exists songs_featured_idx on songs (featured_at) where featured_at is not null;
+
 create table if not exists parts (
   id          uuid primary key default gen_random_uuid(),
   song_id     uuid not null references songs(id) on delete cascade,

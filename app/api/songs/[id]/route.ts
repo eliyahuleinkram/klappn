@@ -9,13 +9,14 @@ import {
   setBreakChoice,
   setBridge,
   setPartStatus,
+  setSongFeatured,
   setSongPlaylist,
   setSongTitle,
 } from "@/lib/songs";
 import { getUserId, unauthorized } from "@/lib/session";
 import { sealDeep } from "@/lib/seal";
 import { terminateGeneration, triggerMeterChange } from "@/lib/workflows";
-import { releaseReservation, reserveQuota } from "@/lib/billing";
+import { getBilling, releaseReservation, reserveQuota } from "@/lib/billing";
 import { beatsPerBar } from "@/lib/playback";
 
 // This route is POLLED every ~2s for live generation progress, so it must NEVER be
@@ -46,6 +47,7 @@ export async function PATCH(
     holdCycles?: Record<string, number>;
     settings?: { transpose?: number; bpm?: number; key?: string; genre?: string };
     timeSignature?: string;
+    featured?: boolean;
   } | null;
   if (!body) return Response.json({ error: "bad request" }, { status: 400 });
 
@@ -169,6 +171,18 @@ export async function PATCH(
       body.breakChoice.afterPartId,
       typeof body.breakChoice.choice === "number" ? body.breakChoice.choice : null,
     );
+    if (!ok) return Response.json({ error: "not found" }, { status: 404 });
+    return Response.json({ ok: true });
+  }
+
+  // Put this song on (or take it off) THE DOOR — the signed-out gallery.
+  // Owner-curated by design: the house account is the only curator.
+  if (typeof body.featured === "boolean") {
+    const billing = await getBilling(userId);
+    if (billing.plan !== "owner") {
+      return Response.json({ error: "not found" }, { status: 404 });
+    }
+    const ok = await setSongFeatured(id, userId, body.featured);
     if (!ok) return Response.json({ error: "not found" }, { status: 404 });
     return Response.json({ ok: true });
   }

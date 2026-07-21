@@ -37,6 +37,18 @@ function createAuth() {
   return betterAuth({
     database: database ? { db: database, type: "postgres" } : undefined,
     baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3001",
+    // Local dev runs on whatever port is free (3001/3002/3004 in launch.json);
+    // without these, any port other than the baseURL's 403s every auth POST
+    // ("Invalid origin"). Localhost-only — production trusts only the baseURL.
+    ...( (process.env.BETTER_AUTH_URL || "http://localhost:3001").includes("localhost")
+      ? {
+          trustedOrigins: [
+            "http://localhost:3001",
+            "http://localhost:3002",
+            "http://localhost:3004",
+          ],
+        }
+      : {}),
     secret: process.env.BETTER_AUTH_SECRET,
     plugins: [
       magicLink({

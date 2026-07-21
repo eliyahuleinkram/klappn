@@ -1,9 +1,11 @@
 import { headers } from "next/headers";
 import { getAuth } from "@/lib/auth";
 import { warmPool } from "@/lib/db";
-import { listSongsRich, type SongRowRich } from "@/lib/songs";
+import { listDoorSongs, listSongsRich, type SongRowRich } from "@/lib/songs";
+import { getBilling } from "@/lib/billing";
 import SignIn from "@/components/SignIn";
 import HomeClient from "@/components/HomeClient";
+import type { DoorSong } from "@/components/DoorGallery";
 
 export const dynamic = "force-dynamic";
 
@@ -21,14 +23,29 @@ export default async function Home() {
     userId = null;
   }
 
-  if (!userId) return <SignIn />;
+  if (!userId) {
+    // THE DOOR — the owner-curated songs a visitor can play before any
+    // account exists. Card whispers only (no code); an empty door renders
+    // the classic sign-in.
+    let door: DoorSong[] = [];
+    try {
+      door = (await listDoorSongs()) as unknown as DoorSong[];
+    } catch {
+      door = [];
+    }
+    return <SignIn door={door} />;
+  }
 
   let songs: SongRowRich[] = [];
+  let isOwner = false;
   try {
-    songs = await listSongsRich(userId);
+    [songs, isOwner] = await Promise.all([
+      listSongsRich(userId),
+      getBilling(userId).then((b) => b.plan === "owner"),
+    ]);
   } catch {
     songs = [];
   }
 
-  return <HomeClient initialSongs={songs} userEmail={email} />;
+  return <HomeClient initialSongs={songs} userEmail={email} isOwner={isOwner} />;
 }

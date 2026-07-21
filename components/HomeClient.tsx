@@ -9,11 +9,16 @@ import { openDeep } from "@/lib/seal";
 import { sentenceLabel } from "@/lib/labels";
 import { DEFAULT_MODEL, type ModelId } from "@/lib/models";
 import {
+  buildPlayEntry,
+  type HomePart,
+  type HomePlan,
+  type PlayEntry,
+} from "@/lib/home-sections";
+import {
   playSong,
   setVisuals,
   stop,
   teardownVisuals,
-  type SongSection,
 } from "@/lib/strudel-client";
 import {
   clearNowPlaying,
@@ -24,17 +29,9 @@ import {
   publishNowPlaying,
   updateNowPlaying,
 } from "@/lib/now-playing";
-import type { SongArrangement, SongEnding, SongFx } from "@/lib/arrange";
 import { useNowPlayingValue } from "@/lib/use-now-playing";
-import { barSeconds, transformForPlayback, type MixSound } from "@/lib/playback";
-import { computeLoopBars } from "@/lib/loop-length";
 import { useKeyboardInset } from "@/lib/use-keyboard-inset";
 import { DISCORD_URL, GITHUB_URL, ZALTZ_GITHUB_URL } from "@/lib/links";
-import {
-  attachHydraBlock,
-  extractHydra,
-  hasHydra,
-} from "@/lib/hydra-embed";
 
 // Evocative, hopeful status lines shown while a loop is being built — they make
 // the (genuinely working) wait feel alive and reassuring.
@@ -74,139 +71,19 @@ function Aura({ dim }: { dim: boolean }) {
 }
 
 
-// What /api/songs/[id] hands back, narrowed to what playback needs.
-interface HomePart {
-  id: string;
-  label?: string | null;
-  strudel?: string | null;
-  strudel_mobile?: string | null;
-  status?: string;
-}
-interface HomeBreakSet {
-  options: { label: string; strudel: string; strudelMobile?: string | null }[];
-  chosen: number | null;
-}
-interface HomePlan {
-  bpm?: number;
-  timeSignature?: string | null;
-  transpose?: number;
-  sound?: MixSound;
-  breaks?: Record<string, HomeBreakSet>;
-  holdCycles?: Record<string, number>;
-  /** The model-authored song arrangement — home plays it exactly like the
-   *  song page (lib/arrange renders it inside playSong). */
-  arrangement?: SongArrangement | null;
-}
-
-/** A saved repeat latch: -1 on the wire = Forever (Infinity), 2/4/8 = a count,
- *  key absent = off. Mirrors SongClient's decodeHolds. */
-function decodeHolds(raw?: Record<string, number>): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const [k, v] of Object.entries(raw ?? {})) {
-    const d = Number(v) === -1 ? Infinity : Number(v);
-    if (d === Infinity || (Number.isFinite(d) && d > 1)) out[k] = d;
-  }
-  return out;
-}
-
-/** THE SONG, as the song page plays it: every ready loop in order, each followed by
- *  its chosen one-bar break. This MUST agree with SongClient.buildSections — a song
- *  has to sound the same wherever you pressed play. Home has no live dials, so the
- *  plan's saved tempo/key/tone bake straight into the section code. */
-function buildHomeSections(parts: HomePart[], plan: HomePlan): SongSection[] {
-  const bpm = plan.bpm || 120;
-  const timeSignature = plan.timeSignature || "4/4";
-  const transpose = plan.transpose || 0;
-  const sound = plan.sound;
-  const bar = barSeconds(bpm, timeSignature);
-
-  // A still-composing loop is half a thought — the gallery only plays finished ones
-  // (the song page, where you watch it build, plays them as they stream).
-  // Blueprints (plan.chapters values) are the songs' raw material — kept on
-  // the song page, never played. Same exclusion as SongClient.buildSections.
-  const blueprints = new Set(
-    Object.values((plan as { chapters?: Record<string, string> })?.chapters ?? {}),
-  );
-  const playable = parts.filter(
-    (p) => p.strudel?.trim() && p.status === "ready" && !blueprints.has(p.id),
-  );
-  const sections: SongSection[] = [];
-  // The section's arrangement — MIRRORS SongClient.arrOf: under a transposed
-  // mix the one-way overlay lines are dropped (they'd play in the original key
-  // against the shifted song); moves/sweeps/bars are pitch-free and stay.
-  // (Loop repeats are gone — the unfold's bars ARE the span; plan.holdCycles
-  // now only means anything for breaks.) On mobile the TWIN plays, whose layer
-  // count differs from the arrangement's layerCount stamp — the renderer skips
-  // the moves there by itself.
-  const arrOf = (p: HomePart) => {
-    const a = plan.arrangement?.sections?.[p.id];
-    if (!a) return undefined;
-    return transpose !== 0 ? { ...a, overlays: undefined } : a;
-  };
-  playable.forEach((p, i) => {
-    const code = p.strudel as string; // every device plays the original (twin retired)
-    sections.push({
-      id: p.id,
-      code: transformForPlayback(code, { transpose, bpm, timeSignature, sound }),
-      // The regex estimate, not the engine measurement the song page refines it to —
-      // pressing play in a gallery must not wait on evaluating every loop.
-      seconds: computeLoopBars(p.strudel) * bar,
-      arr: arrOf(p),
-    });
-    const next = playable[(i + 1) % playable.length];
-    const set = plan.breaks?.[p.id];
-    const br =
-      set && set.chosen !== null && set.chosen !== undefined
-        ? set.options[set.chosen]
-        : null;
-    if (br && next && next.id !== p.id) {
-      const bcode = br.strudel;
-      sections.push({
-        id: `break:${p.id}`,
-        code: transformForPlayback(bcode, {
-          transpose,
-          bpm,
-          timeSignature,
-          sound,
-          isBreak: true,
-        }),
-        seconds: bar, // one bar, played once
-      });
-    }
-  });
-  // THE song's visual is the first loop carrying a @hydra block — often a LATER loop
-  // than the one that starts the mix. buildArrangement() picks the first block it finds,
-  // but a song that falls to the stepper paints per section, so stamp it on the head too.
-  if (sections.length && !hasHydra(sections[0].code)) {
-    const songHydra = sections.map((s) => extractHydra(s.code)).find(Boolean);
-    if (songHydra)
-      sections[0] = {
-        ...sections[0],
-        code: attachHydraBlock(sections[0].code, songHydra),
-      };
-  }
-  return sections;
-}
-
-/** What the dock whispers as each section sounds. Mirrors SongClient.sectionLabelOf. */
-function sectionLabels(parts: HomePart[], plan: HomePlan): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const p of parts)
-    out[p.id] = p.label?.trim() ? sentenceLabel(p.label) : "Loop";
-  for (const [partId, set] of Object.entries(plan.breaks ?? {})) {
-    const br =
-      set.chosen !== null && set.chosen !== undefined ? set.options[set.chosen] : null;
-    if (br) out[`break:${partId}`] = "≋";
-  }
-  return out;
-}
+// HomePart/HomePlan + the section builders live in lib/home-sections.ts now —
+// shared with the signed-out door gallery so the two can never drift apart.
 
 export default function HomeClient({
   initialSongs,
   userEmail,
+  isOwner,
 }: {
   initialSongs: SongRowRich[];
   userEmail?: string | null;
+  /** The house account curates THE DOOR (the signed-out gallery) — everyone
+   *  else never sees the control. */
+  isOwner?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -224,20 +101,7 @@ export default function HomeClient({
   // stays up after a stop (the idle clock keeps it drifting, like the song page) and
   // comes down when a visual-less song plays or the page unmounts.
   const [visualUp, setVisualUp] = useState(false);
-  const codeCache = useRef(
-    new Map<
-      string,
-      {
-        sections: SongSection[];
-        labels: Record<string, string>;
-        holds: Record<string, number>;
-        effects: SongFx[];
-        overlays: import("@/lib/breaks-catalog").BreakOverlay[];
-        visual: boolean;
-        ending?: SongEnding | null;
-      }
-    >(),
-  );
+  const codeCache = useRef(new Map<string, PlayEntry>());
   // Leaving home: any live session — a loop started HERE or one riding along
   // from another page — keeps sounding (the dock carries it). Only a silent
   // page tears the engine + canvas down.
@@ -298,25 +162,9 @@ export default function HomeClient({
             parts?: HomePart[];
           } | null,
         );
-        const parts = d?.parts ?? [];
-        const plan = d?.song?.plan ?? {};
-        const sections = buildHomeSections(parts, plan);
-        if (!sections.length) return;
-        entry = {
-          sections,
-          labels: sectionLabels(parts, plan),
-          holds: decodeHolds(plan.holdCycles),
-          effects: (plan as { effects?: SongFx[] }).effects ?? [],
-          overlays:
-            (plan as { overlays?: import("@/lib/breaks-catalog").BreakOverlay[] }).overlays ?? [],
-          visual: hasHydra(sections[0].code),
-          // Mirrors SongClient.endingOf: a transposed mix drops the ending's
-          // pitched one-shot but keeps the stop itself.
-          ending:
-            (plan.transpose || 0) !== 0 && plan.arrangement?.ending?.code
-              ? { ...plan.arrangement.ending, code: undefined }
-              : (plan.arrangement?.ending ?? null),
-        };
+        const built = buildPlayEntry(d?.parts ?? [], d?.song?.plan ?? {});
+        if (!built) return;
+        entry = built;
         codeCache.current.set(s.id, entry);
       }
       // A song WITHOUT visuals must not play under the previous song's picture; one
@@ -420,6 +268,39 @@ export default function HomeClient({
     if (results.some((ok) => !ok)) setError("Couldn’t update some loops.");
     setSongs((prev) =>
       prev.map((s) => (selected.has(s.id) ? { ...s, playlist: clean } : s)),
+    );
+    exitSelect();
+    router.refresh();
+  }
+
+  // OWNER ONLY — put the selection on (or take it off) THE DOOR, the
+  // signed-out gallery. One tap: if every selected song is already out
+  // there, the same tap brings them home.
+  async function assignDoor() {
+    const ids = [...selected];
+    if (ids.length === 0 || deleting) return;
+    const featured = !ids.every(
+      (id) => songs.find((s) => s.id === id)?.featured_at,
+    );
+    setError(null);
+    const results = await Promise.all(
+      ids.map((id) =>
+        fetch(`/api/songs/${id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ featured }),
+        })
+          .then((r) => r.ok)
+          .catch(() => false),
+      ),
+    );
+    if (results.some((ok) => !ok)) setError("Couldn’t update some loops.");
+    setSongs((prev) =>
+      prev.map((s) =>
+        selected.has(s.id)
+          ? { ...s, featured_at: featured ? new Date().toISOString() : null }
+          : s,
+      ),
     );
     exitSelect();
     router.refresh();
@@ -972,6 +853,12 @@ export default function HomeClient({
                           <span className="truncate text-muted/60">{s.playlist}</span>
                         </>
                       )}
+                      {isOwner && s.featured_at && (
+                        <>
+                          <span className="text-muted/30">·</span>
+                          <span className="text-accent/70">Door</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </>
@@ -1076,6 +963,27 @@ export default function HomeClient({
                 − {activePlaylist}
               </button>
             )}
+            {/* OWNER ONLY — the door curator's one control: put the selection on
+                the signed-out gallery, or (same tap, all already out) bring it home. */}
+            {isOwner &&
+              (() => {
+                const allOut = [...selected].every(
+                  (id) => songs.find((s) => s.id === id)?.featured_at,
+                );
+                return (
+                  <button
+                    onClick={() => void assignDoor()}
+                    title={allOut ? "Take off the door" : "Put on the door"}
+                    className={`rounded-full px-3 py-1.5 text-[12.5px] font-medium transition active:scale-[.97] ${
+                      allOut
+                        ? "bg-accent/15 text-accent hover:bg-white/[0.08] hover:text-muted"
+                        : "bg-white/[0.05] text-muted hover:bg-accent/15 hover:text-accent"
+                    }`}
+                  >
+                    {allOut ? "− Door" : "Door"}
+                  </button>
+                );
+              })()}
             {/* new playlist — an inline borderless field, right in the pill */}
             <input
               value={playlistName}

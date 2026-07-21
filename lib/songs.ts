@@ -38,6 +38,9 @@ export interface SongRow {
   playlist?: string | null;
   /** Composition model — always "fable" (legacy ids were migrated 2026-07-20). */
   model?: ModelId;
+  /** Set = this song plays on the signed-out DOOR gallery (owner-curated;
+   *  newest first). Optional pre-migration. */
+  featured_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -107,6 +110,86 @@ export async function listSongsRich(userId: string, sql: Sql = db()): Promise<So
        where p.song_id = s.id and p.strudel is not null and p.status = 'ready'
        order by p.position limit 1) as first_part_id
     from songs s where s.user_id = ${userId} order by s.updated_at desc`;
+}
+
+// --- the door (signed-out gallery) ---------------------------------------
+
+/** What the signed-out door lists: enough to render a card and nothing that
+ *  belongs to an account (no user_id, no prompt, no code). */
+export interface DoorSongRow {
+  id: string;
+  title: string;
+  plan: Record<string, unknown>;
+  updated_at: string;
+}
+
+/** The owner-curated songs behind the door, newest featured first. Public —
+ *  the card whisper only (identity, no code, no prompt-derived text). */
+export async function listDoorSongs(sql: Sql = db()): Promise<DoorSongRow[]> {
+  return sql<DoorSongRow[]>`
+    select id, title,
+      jsonb_build_object('bpm', plan->'bpm', 'key', plan->'key', 'genre', plan->'genre') as plan,
+      updated_at
+    from songs
+    where featured_at is not null and status = 'ready'
+    order by featured_at desc limit 12`;
+}
+
+// The plan keys gallery playback actually reads (lib/home-sections) plus the
+// card's identity whisper — everything else (summary, meterCache, visual
+// source, workflow bookkeeping) stays home.
+const DOOR_PLAN_KEYS = [
+  "bpm",
+  "key",
+  "genre",
+  "timeSignature",
+  "transpose",
+  "sound",
+  "breaks",
+  "holdCycles",
+  "arrangement",
+  "effects",
+  "overlays",
+  "chapters",
+] as const;
+
+/** One featured song with its playable parts — the door's play payload.
+ *  Gated on featured_at (a de-featured id 404s again) and stripped to what
+ *  gallery playback reads: no prompts, no variants, no originals, no scores. */
+export async function getDoorSongWithParts(
+  songId: string,
+  sql: Sql = db(),
+): Promise<{
+  song: { id: string; title: string; plan: Record<string, unknown> };
+  parts: Pick<PartRow, "id" | "label" | "strudel" | "status" | "kind" | "bars">[];
+} | null> {
+  const [song] = await sql<{ id: string; title: string; plan: Record<string, unknown> }[]>`
+    select id, title, plan from songs
+    where id = ${songId} and featured_at is not null and status = 'ready'`;
+  if (!song) return null;
+  const plan: Record<string, unknown> = {};
+  for (const k of DOOR_PLAN_KEYS) {
+    const v = (song.plan ?? {})[k];
+    if (v !== undefined) plan[k] = v;
+  }
+  const parts = await sql<Pick<PartRow, "id" | "label" | "strudel" | "status" | "kind" | "bars">[]>`
+    select id, label, strudel, status, kind, bars
+    from parts where song_id = ${songId} order by position asc`;
+  return { song: { id: song.id, title: song.title, plan }, parts };
+}
+
+/** Put a song on (or take it off) the door. Ownership-scoped like every other
+ *  mutation; the ROUTE additionally restricts this to the owner plan. */
+export async function setSongFeatured(
+  songId: string,
+  userId: string,
+  featured: boolean,
+  sql: Sql = db(),
+): Promise<boolean> {
+  const rows = await sql`
+    update songs set featured_at = ${featured ? sql`now()` : null}
+    where id = ${songId} and user_id = ${userId} returning id`;
+  return rows.length > 0;
 }
 
 export async function createSong(
