@@ -3512,12 +3512,23 @@ export async function startIdleVisual(code: string): Promise<void> {
   }
 }
 
+// A surface that drives visuals EXPLICITLY (startIdleVisual/updateVisuals — the
+// door) keeps the @hydra block OUT of every evaluated program: the combined
+// path can die on prod chunk splits, and its failure handler turns visuals off
+// for the WHOLE session — killing the picture at the exact moment play starts,
+// with the explicit repaint then gated off by the same flag.
+let explicitVisualsDrive = false;
+export function setExplicitVisualsDrive(on: boolean): void {
+  explicitVisualsDrive = on;
+}
+
 /** Build the program to evaluate: music alone, or (visuals on + loop has a
  *  @hydra block) the Hydra code FIRST then the music, so the music's `$:` stack
  *  is the final pattern and the visuals run as a side effect alongside it. */
 async function buildProgram(code: string): Promise<string> {
   const hydra = extractHydra(code);
   const music = stripHydraBlock(code);
+  if (explicitVisualsDrive) return music;
   if (visualsEnabled && hydra && (await ensureHydra())) {
     return `${hydra}\n\n${music}`;
   }

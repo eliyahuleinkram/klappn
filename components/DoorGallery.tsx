@@ -13,6 +13,7 @@ import {
   applyOrbitGains,
   ensurePerfFx,
   playSong,
+  setExplicitVisualsDrive,
   setLiveCps,
   setLivePerf,
   setVisuals,
@@ -154,6 +155,7 @@ export default function DoorGallery({
   const [keyUi, setKeyUi] = useState(0);
   const keyRef = useRef(0);
   const [look, setLook] = useState<string | null>(null);
+  const lookRef = useRef<Look | null>(null); // the grade every repaint wears
   const lastHydraRef = useRef<string | null>(null);
   const codeCache = useRef(new Map<string, PlayEntry>());
 
@@ -177,15 +179,16 @@ export default function DoorGallery({
     return (bpm * mult) / (beatsPerBar(s.plan?.timeSignature) * 60);
   }
 
-  /** Run a section's sketch directly (the path that always paints) — only when
-   *  the sketch actually CHANGED, so section boundaries never jump-cut. */
-  function pushVisual(code: string | undefined): void {
+  /** Run a section's sketch directly (the path that always paints), wearing the
+   *  active look — so a chosen grade SURVIVES section boundaries and hand-off
+   *  re-entries. Skips unchanged sketches (no jump-cuts) unless forced. */
+  function paint(code: string | undefined, force = false): void {
     if (!code) return;
-    const h = extractHydra(code);
-    if (h && h !== lastHydraRef.current) {
-      lastHydraRef.current = h;
-      void updateVisuals(code);
-    }
+    const graded = lookRef.current ? regrade(code, lookRef.current.set) : code;
+    const h = extractHydra(graded);
+    if (!h || (!force && h === lastHydraRef.current)) return;
+    lastHydraRef.current = h;
+    void updateVisuals(graded);
   }
 
   /** Fetch + build (once per song): sealed payload → sections, then RE-BUS
@@ -270,14 +273,21 @@ export default function DoorGallery({
   }, [playingId]);
 
   useEffect(() => {
-    setLook(null); // a new song brings its own default grade
+    // A new song brings its own default grade.
+    lookRef.current = null;
+    setLook(null);
   }, [playingId]);
 
   // Leaving the door (signing in!): the music rides along — the dock carries
   // it into the signed-in home. Only a silent page tears the engine down. The
   // room chips reset either way: the app inside must open clean.
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // The door paints its own pictures (paint/startIdleVisual) — keep hydra OUT
+    // of the evaluated programs, whose prod-only death would kill visuals for
+    // the session at the first play.
+    setExplicitVisualsDrive(true);
+    return () => {
+      setExplicitVisualsDrive(false);
       const np = nowPlaying();
       if (np) {
         if (np.surfaceMounted) updateNowPlaying({ surfaceMounted: false });
@@ -286,9 +296,8 @@ export default function DoorGallery({
         teardownVisuals();
       }
       setLivePerf({ filter: 0, echo: 0, punch: 0, space: 0 });
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function onPlay(s: DoorSong, startAtId?: string, force = false) {
     if (!force && playingId === s.id) {
@@ -338,7 +347,7 @@ export default function DoorGallery({
           updateNowPlaying({ sectionLabel: id ? (labels[id] ?? null) : null });
           if (!id) return;
           setCurSectionId(id);
-          pushVisual(cached.sections.find((x) => x.id === id)?.code);
+          paint(cached.sections.find((x) => x.id === id)?.code);
           // THE HAND-OFF: wrap detected → this downbeat belongs to the next
           // song. Canonical ids, so key-change rotations don't confuse it.
           const j = journeyRef.current;
@@ -365,12 +374,11 @@ export default function DoorGallery({
         ending: entry.ending,
         onEnded: () => clearNowPlaying(),
       });
-      // The picture is driven HERE — the path that always paints. UNGUARDED on
-      // purpose: the combined program's (possibly dead) hydra half can clear
-      // the running sketch during evaluate, so play always re-runs it — even
-      // when it's the same sketch the idle boot already showed.
-      lastHydraRef.current = extractHydra(list[0].code);
-      void updateVisuals(list[0].code);
+      // The picture is driven HERE — the path that always paints (evaluated
+      // programs carry no hydra on the door). FORCED on purpose: play always
+      // re-runs the sketch, even when it's the one the idle boot already
+      // showed, so a stop/hand-off's soft-hidden canvas always comes back.
+      paint(list[0].code, true);
       onVisual?.(entry.visual);
       // The live tempo survives songs and key changes — re-assert on the fresh
       // program (each evaluate re-bakes the song's own setcpm).
@@ -393,6 +401,27 @@ export default function DoorGallery({
       setLoadingPlay(false);
     }
   }
+
+  // SPACE is the transport — play, pause, resume, from anywhere on the door.
+  // Typing is sacred (the email/code fields); preventDefault keeps a focused
+  // pill from stealing the bar back as a button-press.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.code !== "Space" && e.key !== " ") || e.repeat) return;
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      if (
+        t &&
+        (t.isContentEditable ||
+          t.closest("input, textarea, select, [contenteditable='true']"))
+      )
+        return;
+      e.preventDefault();
+      if (current) void onPlay(current);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playingId, paused, loadingPlay, at, songs]);
 
   function toggleKill(ch: Channel) {
     const out = { ...killsRef.current, [ch]: !killsRef.current[ch] };
@@ -426,13 +455,17 @@ export default function DoorGallery({
     }
   }
 
+  /** Grade the picture you're WATCHING (the sounding section, not section 0);
+   *  re-tapping the lit swatch takes the song back to its own grade. */
   function applyLook(l: Look) {
     const entry = current ? codeCache.current.get(current.id) : null;
     if (!entry) return;
-    const code = regrade(entry.sections[0].code, l.set);
-    lastHydraRef.current = extractHydra(code);
-    void updateVisuals(code);
-    setLook(l.name);
+    const sec =
+      entry.sections.find((x) => x.id === curSectionId) ?? entry.sections[0];
+    const off = look === l.name;
+    lookRef.current = off ? null : l;
+    setLook(off ? null : l.name);
+    paint(sec.code, true);
   }
 
   if (!songs.length || !current) return null;
