@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { openDeep } from "@/lib/seal";
-import { sentenceLabel } from "@/lib/labels";
 import {
   buildPlayEntry,
   type HomePart,
@@ -474,14 +473,6 @@ export default function DoorGallery({
     setOffNames(next);
   }
 
-  /** Deal the next song NOW — the cut lands at the tap, launchpad and grade
-   *  reset with the new name (the playingId watcher). */
-  function skip() {
-    if (loadingPlay || !current) return;
-    const n = nextOf(current);
-    if (n) void onPlay(n);
-  }
-
   function toggleFx(k: FxKey) {
     const out = { ...fxRef.current, [k]: !fxRef.current[k] };
     if (k === "dark" && out.dark) out.bright = false;
@@ -534,14 +525,6 @@ export default function DoorGallery({
 
   if (!songs.length || !current) return null;
 
-  const meta = [
-    current.plan?.genre?.trim() ? sentenceLabel(current.plan.genre) : null,
-    current.plan?.bpm ? `${current.plan.bpm} BPM` : null,
-    current.plan?.key || null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
   const looks = isPlaying ? looksFor(pieceFor(current)) : [];
 
   const pill =
@@ -551,36 +534,15 @@ export default function DoorGallery({
 
   return (
     <div className="flex w-full max-w-xl flex-col items-center text-center">
-      {/* THE POSTER — the song's name in lights. Re-keyed per song so every
-          hand-off RISES in with its new name. */}
-      <p
-        key={current.id}
-        className={`animate-rise tabular-nums ${shade}`}
-        style={{ "--i": 0 } as React.CSSProperties}
-      >
-        <span className="wordmark block text-[clamp(34px,5.5vw,58px)] leading-none tracking-tight text-white [text-shadow:0_0_46px_rgba(224,49,156,.65),0_2px_16px_rgba(0,0,0,.9)]">
-          {current.title}
-        </span>
-        {meta && (
-          <span className="mt-2 block text-[13px] font-medium uppercase tracking-[0.18em] text-foreground/70">
-            {meta}
-          </span>
-        )}
-      </p>
+      {/* No name, no listing, no track to skip — the room is not a record.
+          The music flows on its own; everything on screen is PLAYED. */}
 
-      {/* THE ORB — one tap, the room fills. It burns while the music sounds.
-          The » beside it deals the NEXT song on your downbeat, not the song's. */}
-      <div className="relative mt-7 flex w-full items-center justify-center">
+      {/* THE ORB — one tap, the room fills. It burns while the music sounds. */}
+      <div className="relative flex w-full items-center justify-center">
       <button
         onClick={() => void onPlay(current)}
         disabled={loadingPlay}
-        aria-label={
-          isPlaying
-            ? paused
-              ? `Resume ${current.title}`
-              : `Pause ${current.title}`
-            : `Play ${current.title}`
-        }
+        aria-label={isPlaying ? (paused ? "Resume" : "Pause") : "Play"}
         className="group relative flex h-24 w-24 items-center justify-center rounded-full text-white transition-transform duration-200 hover:scale-[1.04] active:scale-95 disabled:opacity-70"
       >
         <span
@@ -620,19 +582,6 @@ export default function DoorGallery({
           )}
         </span>
       </button>
-      {isPlaying && songs.length > 1 && (
-        <button
-          onClick={skip}
-          disabled={loadingPlay}
-          aria-label="Next song"
-          title="Next"
-          className="absolute left-[calc(50%+4.5rem)] top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/[0.14] bg-black/35 text-foreground/85 backdrop-blur-xl transition hover:border-accent/45 hover:text-accent active:scale-90 disabled:opacity-50"
-        >
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M5 5l7 7-7 7M13 5l7 7-7 7" />
-          </svg>
-        </button>
-      )}
       </div>
 
       {/* Fixed-height stage below the orb: idle and playing share the SAME
