@@ -38,6 +38,7 @@ select 'a0000000-0000-4000-8000-000000000100', id,
     "bpm": 124, "key": "A minor", "genre": "Melodic Techno", "timeSignature": "4/4",
     "summary": "A neon-lit melodic techno ride in A minor: a four-on-the-floor engine, twin filtered arps answering across the stereo field, warm pads and a sub that leans into every bar.",
     "breaks": {
+      "a0000000-0000-4000-8000-000000000103": { "chosen": 0, "options": [{ "label": "turnover", "strudel": "setcpm(124/4)\n$: sound(\"bd bd bd [bd bd bd]\").bank(\"RolandTR909\").gain(0.5).lpf(1500).shape(0.12).orbit(3).postgain(1)\n$: note(\"a1\").sound(\"sawtooth\").lpf(saw.range(300, 3600)).gain(0.3).release(0.4).slow(1).orbit(2).postgain(1)" }] },
       "a0000000-0000-4000-8000-000000000102": {
         "chosen": 0,
         "options": [{ "label": "riser wash", "strudel": "setcpm(124/4)\n$: sound(\"bd bd bd [bd bd]\").bank(\"RolandTR909\").gain(0.52).lpf(1800).shape(0.12).room(0.3).roomsize(2).orbit(3).postgain(1)\n$: sound(\"~ cp ~ [cp cp cp cp]\").bank(\"RolandTR909\").gain(0.4).room(0.4).roomsize(3).hpf(300).orbit(5).postgain(1)\n$: note(\"a1\").sound(\"sawtooth\").lpf(saw.range(250, 4200)).gain(0.34).attack(0.05).release(0.4).slow(1).orbit(2).postgain(1)" }]
@@ -180,7 +181,10 @@ select 'a0000000-0000-4000-8000-000000000200', id,
   'hand-composed for the door',
   '{
     "bpm": 84, "key": "D minor", "genre": "Jazzhop", "timeSignature": "4/4",
-    "summary": "Late-lounge jazzhop in D minor: dusty MPC drums with a ghost-note fourth bar, ninth-chord Rhodes answering itself across the stereo field, upright bass walking, vibraphone upstairs."
+    "summary": "Late-lounge jazzhop in D minor: dusty MPC drums with a ghost-note fourth bar, ninth-chord Rhodes answering itself across the stereo field, upright bass walking, vibraphone upstairs.",
+    "breaks": {
+      "a0000000-0000-4000-8000-000000000203": { "chosen": 0, "options": [{ "label": "brush turn", "strudel": "setcpm(84/4)\n$: sound(\"~ [sd sd] [sd sd sd] [sd sd sd sd]\").bank(\"AkaiMPC60\").gain(saw.range(0.2, 0.38)).hpf(200).room(0.4).roomsize(3).orbit(4).postgain(1)\n$: sound(\"bd ~ ~ bd\").bank(\"AkaiMPC60\").lpf(450).gain(0.48).orbit(3).postgain(1)" }] }
+    }
   }'::jsonb,
   'ready', now()
 from door_owner
@@ -312,7 +316,10 @@ select 'a0000000-0000-4000-8000-000000000300', id,
   'hand-composed for the door',
   '{
     "bpm": 172, "key": "E minor", "genre": "Liquid Drum & Bass", "timeSignature": "4/4",
-    "summary": "Liquid drum & bass in E minor: rolling two-step with ghost snares, a deep moving sub, halo pads, choir underneath and an e-piano motif glinting off the water."
+    "summary": "Liquid drum & bass in E minor: rolling two-step with ghost snares, a deep moving sub, halo pads, choir underneath and an e-piano motif glinting off the water.",
+    "breaks": {
+      "a0000000-0000-4000-8000-000000000303": { "chosen": 0, "options": [{ "label": "tide turn", "strudel": "setcpm(172/4)\n$: sound(\"sd ~ sd [sd sd] sd [sd sd] [sd sd sd] [sd sd sd sd]\").bank(\"RolandTR909\").gain(saw.range(0.18, 0.4)).hpf(250).room(0.3).roomsize(2).orbit(5).postgain(1)\n$: note(\"e1\").sound(\"sine\").lpf(saw.range(140, 420)).gain(0.44).release(0.4).slow(1).orbit(2).postgain(1)" }] }
+    }
   }'::jsonb,
   'ready', now()
 from door_owner
@@ -443,6 +450,7 @@ select 'a0000000-0000-4000-8000-000000000400', id,
     "bpm": 121, "key": "C minor", "genre": "Deep House", "timeSignature": "4/4",
     "summary": "Deep house in C minor: a warm four-to-the-floor with tom accents, finger bass talking under ninth chords, drawbar organ answering the rim like street lights going amber.",
     "breaks": {
+      "a0000000-0000-4000-8000-000000000403": { "chosen": 0, "options": [{ "label": "amber turn", "strudel": "setcpm(121/4)\n$: sound(\"~ cp ~ [cp cp cp cp]\").bank(\"RolandTR909\").gain(0.4).room(0.45).roomsize(3).hpf(250).orbit(5).postgain(1)\n$: note(\"[c3,g3]\").sound(\"gm_drawbar_organ\").lpf(saw.range(400, 3000)).gain(0.28).attack(0.05).release(0.5).slow(1).orbit(2).postgain(1)" }] },
       "a0000000-0000-4000-8000-000000000402": {
         "chosen": 0,
         "options": [{ "label": "brake light", "strudel": "setcpm(121/4)\n$: sound(\"~ cp ~ [cp cp cp cp]\").bank(\"RolandTR909\").gain(0.42).room(0.5).roomsize(3).hpf(250).orbit(5).postgain(1)\n$: note(\"[c3,g3]\").sound(\"gm_drawbar_organ\").lpf(saw.range(400, 2800)).gain(0.3).attack(0.05).release(0.5).slow(1).orbit(2).postgain(1)" }]
@@ -579,7 +587,10 @@ select 'a0000000-0000-4000-8000-000000000500', id,
   'hand-composed for the door',
   '{
     "bpm": 92, "key": "G minor", "genre": "Trip-Hop", "timeSignature": "4/4",
-    "summary": "Trip-hop in G minor: a heavy slow-motion kit doubled by an 808 boom, tremolo strings low in the mix, cello underneath, a music-box motif that only comes out after midnight."
+    "summary": "Trip-hop in G minor: a heavy slow-motion kit doubled by an 808 boom, tremolo strings low in the mix, cello underneath, a music-box motif that only comes out after midnight.",
+    "breaks": {
+      "a0000000-0000-4000-8000-000000000503": { "chosen": 0, "options": [{ "label": "last breath", "strudel": "setcpm(92/4)\n$: sound(\"bd ~ ~ ~ ~ ~ ~ [bd bd]\").bank(\"RolandTR808\").lpf(300).gain(0.5).release(0.8).orbit(2).postgain(1)\n$: sound(\"~ ~ ~ ~ ~ ~ [rim rim] [rim rim rim]\").bank(\"RolandTR808\").gain(0.2).room(0.5).roomsize(4).orbit(3).postgain(1)" }] }
+    }
   }'::jsonb,
   'ready', now()
 from door_owner
@@ -713,7 +724,10 @@ select 'a0000000-0000-4000-8000-000000000600', id,
   'hand-composed for the door',
   '{
     "bpm": 76, "key": "C major", "genre": "Ambient", "timeSignature": "3/4",
-    "summary": "An ambient waltz in C major: music box doubled by celesta, harp arpeggios in three, a soft heartbeat underneath, lanterns drifting upward and leaving trails."
+    "summary": "An ambient waltz in C major: music box doubled by celesta, harp arpeggios in three, a soft heartbeat underneath, lanterns drifting upward and leaving trails.",
+    "breaks": {
+      "a0000000-0000-4000-8000-000000000603": { "chosen": 0, "options": [{ "label": "gliss", "strudel": "setcpm(76/3)\n$: note(\"c4 e4 g4 c5 e5 g5 c6 e6 g6\").sound(\"gm_orchestral_harp\").gain(saw.range(0.16, 0.3)).release(1).room(0.8).roomsize(6).orbit(1).postgain(1)" }] }
+    }
   }'::jsonb,
   'ready', now()
 from door_owner

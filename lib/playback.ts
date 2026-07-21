@@ -105,7 +105,7 @@ function layerAppendPos(layer: string): number {
  *  so a transpose never detunes the drum samples. A layer is pitched when it
  *  carries note()/chord()/freq(), or n() WITH .scale() (n() without a scale is a
  *  sample-variant picker — adding to it would swap samples, not pitch). */
-function transposePitched(code: string, semis: number): string {
+export function transposePitched(code: string, semis: number): string {
   // Only touch the MUSIC: stop before the embedded comment blocks (@vcontrols /
   // @hydra) so the insert can never land inside the visual code.
   const ends = [code.indexOf("/* @vcontrols"), code.indexOf("/* @hydra")]

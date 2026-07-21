@@ -130,7 +130,7 @@ export interface DoorSongRow {
 export async function listDoorSongs(sql: Sql = db()): Promise<DoorSongRow[]> {
   return sql<DoorSongRow[]>`
     select id, title,
-      jsonb_build_object('bpm', plan->'bpm', 'key', plan->'key', 'genre', plan->'genre') as plan,
+      jsonb_build_object('bpm', plan->'bpm', 'key', plan->'key', 'genre', plan->'genre', 'timeSignature', plan->'timeSignature') as plan,
       updated_at
     from songs
     where featured_at is not null and status = 'ready'

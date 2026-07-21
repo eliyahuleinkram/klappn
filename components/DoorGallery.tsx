@@ -13,11 +13,13 @@ import {
   applyOrbitGains,
   ensurePerfFx,
   playSong,
+  setLiveCps,
   setLivePerf,
   setVisuals,
   startIdleVisual,
   stop,
   teardownVisuals,
+  updateVisuals,
 } from "@/lib/strudel-client";
 import {
   assignChannelOrbits,
@@ -25,6 +27,8 @@ import {
   CHANNELS,
   type Channel,
 } from "@/lib/set-live";
+import { beatsPerBar, transposePitched } from "@/lib/playback";
+import { extractHydra } from "@/lib/hydra-embed";
 import {
   clearNowPlaying,
   dockPause,
@@ -40,10 +44,10 @@ import { useNowPlayingValue } from "@/lib/use-now-playing";
 export interface DoorSong {
   id: string;
   title: string;
-  plan: { bpm?: number; key?: string; genre?: string };
+  plan: { bpm?: number; key?: string; genre?: string; timeSignature?: string | null };
 }
 
-// The three room chips — fixed, tasty amounts. One tap in, one tap out;
+// The room chips — fixed, tasty amounts. One tap in, one tap out;
 // setLivePerf ramps on the audio graph, so the change is INSTANT and clickless.
 type FxKey = "filter" | "echo" | "punch" | "space";
 const FX_KEYS: FxKey[] = ["filter", "echo", "punch", "space"];
@@ -62,24 +66,54 @@ function perfValues(f: Record<FxKey, boolean>) {
   };
 }
 
+/** The @vlooks grades a song ships (one-tap recolours of its picture). */
+interface Look {
+  name: string;
+  set: Record<string, number>;
+}
+function parseLooks(code: string): Look[] {
+  const m = code.match(/\/\*\s*@vlooks\n([\s\S]*?)\n\*\//);
+  if (!m) return [];
+  try {
+    const parsed = JSON.parse(m[1]) as { looks?: Look[] };
+    return Array.isArray(parsed.looks) ? parsed.looks.slice(0, 4) : [];
+  } catch {
+    return [];
+  }
+}
+/** Re-grade a loop's sketch: swap the four const lines for the look's values. */
+function regrade(code: string, set: Record<string, number>): string {
+  let out = code;
+  for (const k of ["vSaturation", "vContrast", "vBrightness", "vHue"]) {
+    const v = set[k];
+    if (typeof v === "number") {
+      out = out.replace(new RegExp(`const ${k} = [-\\d.]+`), `const ${k} = ${v}`);
+    }
+  }
+  return out;
+}
+/** A tiny swatch colour that EVOKES the look (hue-rotated from the house pink). */
+function swatch(set: Record<string, number>): string {
+  const hue = (320 + (set.vHue ?? 0) * 360) % 360;
+  const sat = Math.max(12, Math.min(95, 40 + (set.vSaturation ?? 1) * 32));
+  const lum = Math.max(24, Math.min(78, 52 + (set.vBrightness ?? 0) * 90));
+  return `hsl(${Math.round(hue)}deg ${Math.round(sat)}% ${Math.round(lum)}%)`;
+}
+
 /**
- * THE DOOR — the signed-out page IS the instrument, and one tap starts a
- * JOURNEY: each song plays through once, then hands the room to the next —
- * new picture, new name, no buttons, no choices. The only hands-on controls
- * are the deck: drop the drums, the bass, the melody — instantly, on the
- * audio graph (the same orbit-decade gates the Sets deck uses) — darken the
- * filter, throw the echo, open the space. No account, no tour, no
- * explanation. The technology is the pitch.
+ * THE DOOR — the signed-out page IS the instrument. One orb starts the run;
+ * each song plays through once and hands the room to the next on its wrap
+ * downbeat (new picture, new name). Hands-on: kill Drums/Bass/Melody on the
+ * engine's own orbit gates, colour the room (Filter/Echo/Punch/Space on the
+ * master graph), BEND THE TEMPO live (the scheduler itself pivots — no
+ * re-evaluate), SHIFT THE KEY (the song re-enters the sounding section in the
+ * new key — same-owner starts crossfade by the engine's takeover law), and
+ * re-grade the picture with one tap (the song's own @vlooks).
  *
- * The hand-off fires ON THE WRAP: playSong cycles its sections forever, so
- * when the first section comes back around after the last one has played,
- * the song has said everything once — that downbeat belongs to the next
- * song (cross-song law: the transition is a cut, and it lands on the bar).
- *
- * Playback laws are home's: tap the sounding orb to hold, cut at tap time,
- * publish only after the engine sounds. The door OWNS its surface
- * (surfaceMounted: true) so no dock doubles the transport here; leaving the
- * page hands the mix to the dock like any other surface.
+ * VISUALS ARE DRIVEN EXPLICITLY here (updateVisuals on play/hand-off): the
+ * combined-program hydra path can die quietly on prod chunk splits, but the
+ * direct sketch-run path always paints. The idle boot RETRIES until the canvas
+ * has real pixels — the room must never open black.
  */
 export default function DoorGallery({
   songs,
@@ -92,12 +126,14 @@ export default function DoorGallery({
   const [at, setAt] = useState(0);
   const [loadingPlay, setLoadingPlay] = useState(false);
   const [error, setError] = useState(false);
-  // The journey's odometer: set once the last section has sounded; the next
-  // arrival of the FIRST section is the wrap — that downbeat starts the next
-  // song. Guarded so one wrap fires exactly one hand-off.
+  // The journey's odometer — canonical first/last ids survive key-change
+  // restarts that rotate the section list.
   const journeyRef = useRef({ sawLast: false, advancing: false });
-  // Ref-first for anything a gesture must read synchronously (SetClient law:
-  // a setState updater runs at render time — the gate would lag a tick).
+  const canonRef = useRef<{ first: string | null; last: string | null }>({
+    first: null,
+    last: null,
+  });
+  // Ref-first for anything a gesture must read synchronously (SetClient law).
   const [kills, setKills] = useState<Record<Channel, boolean>>({
     drums: false,
     bass: false,
@@ -111,6 +147,14 @@ export default function DoorGallery({
     space: false,
   });
   const fxRef = useRef(fx);
+  // Tempo = live multiplier on the scheduler; Key = semitone shift applied by
+  // decorate at (re)evaluate. Refs so the engine reads the tap, not the render.
+  const [tempo, setTempo] = useState(1);
+  const tempoRef = useRef(1);
+  const [keyUi, setKeyUi] = useState(0);
+  const keyRef = useRef(0);
+  const [look, setLook] = useState<string | null>(null);
+  const lastHydraRef = useRef<string | null>(null);
   const codeCache = useRef(new Map<string, PlayEntry>());
 
   const playingId = useNowPlayingValue(
@@ -121,14 +165,31 @@ export default function DoorGallery({
     (s) => s?.kind === "song" && !!s.paused,
     false,
   );
+  const [curSectionId, setCurSectionId] = useState<string | null>(null);
 
   const current = songs.find((s) => s.id === playingId) ?? songs[at % songs.length];
   const isPlaying = !!current && playingId === current.id;
   const sounding = isPlaying && !paused;
 
+  /** The engine cps for a song under the live tempo multiplier. */
+  function cpsFor(s: DoorSong, mult: number): number {
+    const bpm = s.plan?.bpm || 120;
+    return (bpm * mult) / (beatsPerBar(s.plan?.timeSignature) * 60);
+  }
+
+  /** Run a section's sketch directly (the path that always paints) — only when
+   *  the sketch actually CHANGED, so section boundaries never jump-cut. */
+  function pushVisual(code: string | undefined): void {
+    if (!code) return;
+    const h = extractHydra(code);
+    if (h && h !== lastHydraRef.current) {
+      lastHydraRef.current = h;
+      void updateVisuals(code);
+    }
+  }
+
   /** Fetch + build (once per song): sealed payload → sections, then RE-BUS
-   *  every layer onto its channel's orbit decade so the kill gates have
-   *  something to hold. Same re-bus the Sets deck runs. */
+   *  every layer onto its channel's orbit decade for the kill gates. */
   async function entryFor(s: DoorSong): Promise<PlayEntry | null> {
     let entry = codeCache.current.get(s.id) ?? null;
     if (entry) return entry;
@@ -152,12 +213,20 @@ export default function DoorGallery({
     return entry;
   }
 
-  // THE ROOM BREATHES BEFORE THE TAP — prefetch the first song and mount its
-  // picture as the idle visual, so the page arrives alive (and the first tap
-  // starts instantly: the payload is already here).
+  /** The next stop (the list is already a per-visit shuffle). */
+  function nextOf(s: DoorSong): DoorSong | null {
+    if (songs.length < 2) return null;
+    const from = songs.findIndex((x) => x.id === s.id);
+    return songs[(from + 1 + songs.length) % songs.length] ?? null;
+  }
+
+  // THE ROOM BREATHES BEFORE THE TAP — prefetch the first song, mount its
+  // picture, and RETRY until the canvas holds real pixels (the boot can lose a
+  // silent race; the door must never open black).
   useEffect(() => {
     let dead = false;
-    (async () => {
+    let tries = 0;
+    const attempt = async () => {
       try {
         const first = songs[0];
         if (!first) return;
@@ -165,11 +234,22 @@ export default function DoorGallery({
         if (dead || !entry || !entry.visual) return;
         setVisuals(true);
         await startIdleVisual(entry.sections[0].code);
-        if (!dead) onVisual?.(true);
+        if (dead) return;
+        lastHydraRef.current = extractHydra(entry.sections[0].code);
+        onVisual?.(true);
+        setTimeout(() => {
+          if (dead || nowPlaying()) return;
+          const c =
+            document.getElementById("k1-canvas") ??
+            document.getElementById("hydra-canvas");
+          const painted = c instanceof HTMLCanvasElement && c.width > 0;
+          if (!painted && ++tries < 4) void attempt();
+        }, 1500);
       } catch {
         /* the door still works without a backdrop */
       }
-    })();
+    };
+    void attempt();
     return () => {
       dead = true;
     };
@@ -189,12 +269,9 @@ export default function DoorGallery({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playingId]);
 
-  /** The next stop on the journey (the list is already a per-visit shuffle). */
-  function nextOf(s: DoorSong): DoorSong | null {
-    if (songs.length < 2) return null;
-    const from = songs.findIndex((x) => x.id === s.id);
-    return songs[(from + 1 + songs.length) % songs.length] ?? null;
-  }
+  useEffect(() => {
+    setLook(null); // a new song brings its own default grade
+  }, [playingId]);
 
   // Leaving the door (signing in!): the music rides along — the dock carries
   // it into the signed-in home. Only a silent page tears the engine down. The
@@ -213,8 +290,8 @@ export default function DoorGallery({
     [],
   );
 
-  async function onPlay(s: DoorSong) {
-    if (playingId === s.id) {
+  async function onPlay(s: DoorSong, startAtId?: string, force = false) {
+    if (!force && playingId === s.id) {
       if (paused) void dockResume();
       else dockPause();
       return;
@@ -222,9 +299,10 @@ export default function DoorGallery({
     if (loadingPlay) return;
     setLoadingPlay(true);
     setError(false);
-    // CUT at tap time — the tap says "now". (dockStop also resets the decade
-    // gates; the 200ms tick re-asserts any kills the visitor is holding.)
-    if (nowPlaying()) dockStop();
+    // CUT at tap time — except a same-song key re-entry, which stays a live
+    // session so playSong's same-owner takeover CROSSFADES it.
+    const sameSession = force && playingId === s.id;
+    if (!sameSession && nowPlaying()) dockStop();
     try {
       const entry = await entryFor(s);
       if (!entry) {
@@ -233,28 +311,43 @@ export default function DoorGallery({
       }
       if (!entry.visual) teardownVisuals();
       else setVisuals(true);
-      // The room chips live on the master graph — install once, assert now.
       ensurePerfFx();
       setLivePerf(perfValues(fxRef.current));
       const { labels, holds } = entry;
       const cached = entry;
+      canonRef.current = {
+        first: entry.sections[0].id,
+        last: entry.sections[entry.sections.length - 1].id,
+      };
+      // A key change re-enters the SOUNDING section, not the top of the song.
+      const fromAt = startAtId
+        ? Math.max(0, entry.sections.findIndex((x) => x.id === startAtId))
+        : 0;
+      const list = [
+        ...entry.sections.slice(fromAt),
+        ...entry.sections.slice(0, fromAt),
+      ];
       journeyRef.current = { sawLast: false, advancing: false };
-      await playSong(entry.sections, {
+      setCurSectionId(list[0].id);
+      await playSong(list, {
         owner: s.id,
+        // The KEY, applied at evaluate — drums keep their sample pitch.
+        decorate: (code) =>
+          keyRef.current ? transposePitched(code, keyRef.current) : code,
         onSection: (id) => {
           updateNowPlaying({ sectionLabel: id ? (labels[id] ?? null) : null });
           if (!id) return;
+          setCurSectionId(id);
+          pushVisual(cached.sections.find((x) => x.id === id)?.code);
           // THE HAND-OFF: wrap detected → this downbeat belongs to the next
-          // song. (Wrap check before the last-mark so a one-section song
-          // advances on its second pass, not never.)
+          // song. Canonical ids, so key-change rotations don't confuse it.
           const j = journeyRef.current;
-          const secs = cached.sections;
-          if (id === secs[0].id && j.sawLast && !j.advancing) {
+          if (id === canonRef.current.first && j.sawLast && !j.advancing) {
             j.advancing = true;
             const upNext = nextOf(s);
             if (upNext) void onPlay(upNext);
             else j.advancing = false;
-          } else if (id === secs[secs.length - 1].id) {
+          } else if (id === canonRef.current.last) {
             j.sawLast = true;
           }
         },
@@ -272,21 +365,22 @@ export default function DoorGallery({
         ending: entry.ending,
         onEnded: () => clearNowPlaying(),
       });
+      // The picture is driven HERE — the path that always paints.
+      pushVisual(list[0].code);
       onVisual?.(entry.visual);
-      // Published AFTER the engine sounds, never before. The door OWNS its
-      // surface — no dock doubling the transport on this page.
+      // The live tempo survives songs and key changes — re-assert on the fresh
+      // program (each evaluate re-bakes the song's own setcpm).
+      if (tempoRef.current !== 1) setLiveCps(cpsFor(s, tempoRef.current));
       publishNowPlaying({
         kind: "song",
         id: s.id,
         href: "/",
         title: s.title,
-        sectionLabel: labels[entry.sections[0].id] ?? null,
+        sectionLabel: labels[list[0].id] ?? null,
         paused: false,
         surfaceMounted: true,
       });
       setAt(Math.max(0, songs.findIndex((x) => x.id === s.id)));
-      // The next stop warms up NOW — the hand-off must land on its downbeat,
-      // not on a network wait.
       const upNext = nextOf(s);
       if (upNext) void entryFor(upNext).catch(() => {});
     } catch {
@@ -311,6 +405,32 @@ export default function DoorGallery({
     setFx(out);
   }
 
+  function onTempo(mult: number) {
+    tempoRef.current = mult;
+    setTempo(mult);
+    if (playingId && current) setLiveCps(cpsFor(current, mult));
+  }
+
+  /** Commit a key change: the song re-enters the sounding section transposed —
+   *  a same-owner start, so the engine crossfades rather than cuts. */
+  function commitKey(v: number) {
+    if (v === keyRef.current) return;
+    keyRef.current = v;
+    setKeyUi(v);
+    if (isPlaying && current) {
+      void onPlay(current, curSectionId ?? undefined, true);
+    }
+  }
+
+  function applyLook(l: Look) {
+    const entry = current ? codeCache.current.get(current.id) : null;
+    if (!entry) return;
+    const code = regrade(entry.sections[0].code, l.set);
+    lastHydraRef.current = extractHydra(code);
+    void updateVisuals(code);
+    setLook(l.name);
+  }
+
   if (!songs.length || !current) return null;
 
   const meta = [
@@ -321,13 +441,16 @@ export default function DoorGallery({
     .filter(Boolean)
     .join(" · ");
 
+  const entryNow = isPlaying ? codeCache.current.get(current.id) : null;
+  const looks = entryNow ? parseLooks(entryNow.sections[0].code) : [];
+
   const pill =
     "rounded-full px-4 py-2 text-[13px] font-medium backdrop-blur-xl transition active:scale-[.96]";
 
   return (
     <div className="flex w-full max-w-xl flex-col items-center text-center">
-      {/* the whisper — where the journey is right now. Re-keyed per song so
-          every hand-off RISES in with its new name. */}
+      {/* the whisper — where the run is right now. Re-keyed per song so every
+          hand-off RISES in with its new name. */}
       <p
         key={current.id}
         className="animate-rise text-[13px] tabular-nums text-muted/80"
@@ -350,7 +473,8 @@ export default function DoorGallery({
               : `Pause ${current.title}`
             : `Play ${current.title}`
         }
-        className="group relative mt-7 flex h-24 w-24 items-center justify-center rounded-full text-white transition-transform duration-200 hover:scale-[1.04] active:scale-95 disabled:opacity-70"
+        className="group relative flex h-24 w-24 items-center justify-center rounded-full text-white transition-transform duration-200 hover:scale-[1.04] active:scale-95 disabled:opacity-70"
+        style={{ marginTop: "1.75rem" }}
       >
         <span
           aria-hidden
@@ -385,15 +509,14 @@ export default function DoorGallery({
         </span>
       </button>
 
-      {/* Fixed-height stage below the orb: the idle line and the deck live in
-          the SAME reserved space, so the orb never moves when play begins. */}
-      <div className="mt-7 flex min-h-[6.75rem] w-full flex-col items-center justify-start">
+      {/* Fixed-height stage below the orb: the idle line and the whole deck
+          share the SAME reserved space, so the orb never moves. */}
+      <div className="mt-7 flex min-h-[13.5rem] w-full flex-col items-center justify-start">
         {!isPlaying ? (
-          <p className="mt-8 text-[15px] text-muted">It sounds like this.</p>
+          <p className="mt-9 text-[15px] text-muted">It sounds like this.</p>
         ) : (
           <>
-            {/* THE DECK — the parts of the song, held in your hand. Lit = in
-                the mix; tap = gone, instantly, tails and all. */}
+            {/* THE PARTS — lit = in the mix; tap = gone, instantly, tails and all. */}
             <div className="flex flex-wrap items-center justify-center gap-2">
               {CHANNELS.map((ch) => (
                 <button
@@ -410,7 +533,7 @@ export default function DoorGallery({
                 </button>
               ))}
             </div>
-            {/* the room — colour the sound */}
+            {/* THE ROOM — colour the sound */}
             <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
               {FX_KEYS.map((k) => (
                 <button
@@ -427,13 +550,83 @@ export default function DoorGallery({
                 </button>
               ))}
             </div>
+            {/* THE LIGHT — the song's own looks, one tap each */}
+            {looks.length > 0 && (
+              <div className="mt-3 flex items-center justify-center gap-3">
+                {looks.map((l) => (
+                  <button
+                    key={l.name}
+                    title={l.name}
+                    aria-label={`Look: ${l.name}`}
+                    aria-pressed={look === l.name}
+                    onClick={() => applyLook(l)}
+                    className={`h-[18px] w-[18px] rounded-full transition active:scale-90 ${
+                      look === l.name
+                        ? "ring-2 ring-accent/70 ring-offset-2 ring-offset-black"
+                        : "ring-1 ring-white/20 hover:ring-white/50"
+                    }`}
+                    style={{ background: swatch(l.set) }}
+                  />
+                ))}
+              </div>
+            )}
+            {/* THE PHYSICS — bend the tempo live; shift the key on release */}
+            <div className="mt-4 flex w-full max-w-sm flex-col gap-2.5 px-2">
+              <div className="flex items-center gap-3">
+                <span className="w-12 shrink-0 text-left text-[11px] uppercase tracking-widest text-muted/60">
+                  Tempo
+                </span>
+                <input
+                  type="range"
+                  min={0.6}
+                  max={1.4}
+                  step={0.01}
+                  value={tempo}
+                  onChange={(e) => onTempo(Number(e.target.value))}
+                  aria-label="Tempo"
+                  className="h-1 min-w-0 flex-1 cursor-pointer accent-[#e0319c]"
+                />
+                <button
+                  onClick={() => onTempo(1)}
+                  title="Back to the song's tempo"
+                  className="w-16 shrink-0 text-right text-[12px] tabular-nums text-foreground/80 transition hover:text-accent"
+                >
+                  {Math.round((current.plan?.bpm || 120) * tempo)} BPM
+                </button>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="w-12 shrink-0 text-left text-[11px] uppercase tracking-widest text-muted/60">
+                  Key
+                </span>
+                <input
+                  type="range"
+                  min={-7}
+                  max={7}
+                  step={1}
+                  value={keyUi}
+                  onChange={(e) => setKeyUi(Number(e.target.value))}
+                  onPointerUp={() => commitKey(keyUi)}
+                  onKeyUp={() => commitKey(keyUi)}
+                  onTouchEnd={() => commitKey(keyUi)}
+                  aria-label="Key"
+                  className="h-1 min-w-0 flex-1 cursor-pointer accent-[#e0319c]"
+                />
+                <button
+                  onClick={() => commitKey(0)}
+                  title="Back to the song's key"
+                  className="w-16 shrink-0 text-right text-[12px] tabular-nums text-foreground/80 transition hover:text-accent"
+                >
+                  {keyUi > 0 ? `+${keyUi}` : keyUi} st
+                </button>
+              </div>
+            </div>
           </>
         )}
       </div>
 
       {error && (
         <p className="mt-3 text-[13px] text-red-400">
-          The journey stumbled — tap the orb.
+          The run stumbled — tap the orb.
         </p>
       )}
     </div>
