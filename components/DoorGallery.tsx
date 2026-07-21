@@ -45,17 +45,20 @@ export interface DoorSong {
 
 // The room chips — fixed, tasty amounts. One tap in, one tap out;
 // setLivePerf ramps on the audio graph, so the change is INSTANT and clickless.
-type FxKey = "filter" | "echo" | "punch" | "space";
-const FX_KEYS: FxKey[] = ["filter", "echo", "punch", "space"];
+// The one bipolar filter splits into TWO chips (Dark = LP down, Bright = HP up)
+// so the wall has more to press — they trade places, never stack.
+type FxKey = "dark" | "bright" | "echo" | "punch" | "space";
+const FX_KEYS: FxKey[] = ["dark", "bright", "echo", "punch", "space"];
 const FX_LABEL: Record<FxKey, string> = {
-  filter: "Filter",
+  dark: "Dark",
+  bright: "Bright",
   echo: "Echo",
   punch: "Punch",
   space: "Space",
 };
 function perfValues(f: Record<FxKey, boolean>) {
   return {
-    filter: f.filter ? -55 : 0,
+    filter: f.dark ? -55 : f.bright ? 55 : 0,
     echo: f.echo ? 0.45 : 0,
     punch: f.punch ? 0.4 : 0,
     space: f.space ? 0.5 : 0,
@@ -178,12 +181,14 @@ function rebusLayers(code: string): { code: string; layers: DoorLayer[] } {
 /**
  * THE DOOR — the signed-out page IS the instrument. One orb starts the run;
  * each song plays through once and hands the room to the next on its wrap
- * downbeat (new picture, new name). Hands-on: kill Drums/Bass/Melody on the
- * engine's own orbit gates, colour the room (Filter/Echo/Punch/Space on the
- * master graph), BEND THE TEMPO live (the scheduler itself pivots — no
- * re-evaluate), SHIFT THE KEY (the song re-enters the sounding section in the
- * new key — same-owner starts crossfade by the engine's takeover law), and
- * re-grade the picture with one tap (the song's own @vlooks).
+ * downbeat (new picture, new name), or » deals the next one on YOUR downbeat.
+ * Hands-on: a LAUNCHPAD of per-layer pads (each layer on its own orbit gate —
+ * killed and revived mid-note, remembered by name across sections), the room
+ * chips (Dark/Bright/Echo/Punch/Space on the master graph), a momentary CUT
+ * (hold = silence, release = the drop), BEND THE TEMPO live (the scheduler
+ * itself pivots — no re-evaluate), SHIFT THE KEY (the song re-enters the
+ * sounding section in the new key — same-owner crossfade by the engine's
+ * takeover law), and re-grade the picture with one tap (the song's @vlooks).
  *
  * VISUALS ARE DRIVEN EXPLICITLY here (updateVisuals on play/hand-off): the
  * combined-program hydra path can die quietly on prod chunk splits, but the
@@ -219,12 +224,17 @@ export default function DoorGallery({
   const [layersUi, setLayersUi] = useState<DoorLayer[]>([]);
   const layersRef = useRef<DoorLayer[]>([]);
   const [fx, setFx] = useState<Record<FxKey, boolean>>({
-    filter: false,
+    dark: false,
+    bright: false,
     echo: false,
     punch: false,
     space: false,
   });
   const fxRef = useRef(fx);
+  // CUT — hold to pull the whole mix out of the room, release to slam it back.
+  // A momentary gate on every layer bus; the tails ring, the drop hits.
+  const [cut, setCut] = useState(false);
+  const cutRef = useRef(false);
   // Tempo = live multiplier on the scheduler; Key = semitone shift applied by
   // decorate at (re)evaluate. Refs so the engine reads the tap, not the render.
   const [tempo, setTempo] = useState(1);
@@ -341,7 +351,9 @@ export default function DoorGallery({
   // a light tick (applyOrbitGains skips buses already at target; Sets' law).
   const gainFor = (orbit: number): number | undefined => {
     const l = layersRef.current.find((x) => x.orbit === orbit);
-    return l ? (offRef.current.has(l.name) ? 0 : 1) : undefined;
+    if (!l) return undefined;
+    if (cutRef.current) return 0; // the hold owns every bus
+    return offRef.current.has(l.name) ? 0 : 1;
   };
   useEffect(() => {
     if (!playingId) return;
@@ -553,10 +565,21 @@ export default function DoorGallery({
 
   function toggleFx(k: FxKey) {
     const out = { ...fxRef.current, [k]: !fxRef.current[k] };
+    if (k === "dark" && out.dark) out.bright = false;
+    if (k === "bright" && out.bright) out.dark = false;
     fxRef.current = out;
     ensurePerfFx();
     setLivePerf(perfValues(out));
     setFx(out);
+  }
+
+  /** The momentary CUT: down = every layer bus to zero, up = everything back
+   *  mid-note. The 200ms tick re-asserts whichever state is held. */
+  function holdCut(on: boolean) {
+    if (cutRef.current === on) return;
+    cutRef.current = on; // ref FIRST — the gate reads it synchronously
+    applyOrbitGains(gainFor);
+    setCut(on);
   }
 
   function onTempo(mult: number) {
@@ -686,52 +709,75 @@ export default function DoorGallery({
 
       {/* Fixed-height stage below the orb: the idle line and the whole deck
           share the SAME reserved space, so the orb never moves. */}
-      <div className="mt-7 flex min-h-[13.5rem] w-full flex-col items-center justify-start">
+      <div className="mt-7 flex min-h-[17rem] w-full flex-col items-center justify-start">
         {!isPlaying ? (
           <p className={`mt-9 text-[15px] text-foreground/80 ${shade}`}>
             It sounds like this.
           </p>
         ) : (
           <>
-            {/* THE LAUNCHPAD — every layer of the sounding loop is a button.
-                Lit = in the mix; tap = gone, instantly, tails and all; tap
-                again = back mid-note. */}
-            <div className="flex max-w-lg flex-wrap items-center justify-center gap-2">
-              {layersUi.map((l) => (
+            {/* THE LAUNCHPAD — every layer of the sounding loop is a PAD.
+                Lit pads breathe out of phase; tap = gone, instantly, tails and
+                all; tap again = back mid-note. Re-keyed per song so a fresh
+                wall of pads RISES in with every hand-off. */}
+            <div
+              key={`pads:${playingId}`}
+              className="flex max-w-lg flex-wrap items-center justify-center gap-2.5"
+            >
+              {layersUi.map((l, i) => (
                 <button
                   key={l.name}
                   onClick={() => toggleLayer(l.name)}
                   aria-pressed={!offNames.has(l.name)}
-                  className={`${pill} ${
+                  className={`animate-rise select-none rounded-2xl px-5 py-3.5 text-[13.5px] font-semibold tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.88] ${
                     offNames.has(l.name)
-                      ? "border border-white/[0.1] bg-black/35 text-muted/60"
-                      : "border border-accent/30 bg-accent/[0.16] text-foreground shadow-[0_0_24px_-8px_rgba(224,49,156,.9)]"
+                      ? "border border-white/[0.09] bg-black/40 text-white/40"
+                      : "pad-lit border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white"
                   }`}
+                  style={{ "--i": i } as React.CSSProperties}
                 >
                   {l.name}
                 </button>
               ))}
             </div>
-            {/* THE ROOM — colour the sound */}
-            <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
+            {/* THE ROOM — colour the sound. And CUT: hold it, the whole mix
+                leaves; let go, it slams back on your fingertip. */}
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
               {FX_KEYS.map((k) => (
                 <button
                   key={k}
                   onClick={() => toggleFx(k)}
                   aria-pressed={fx[k]}
-                  className={`${pill} ${
+                  className={`${pill} select-none ${
                     fx[k]
-                      ? "border border-accent/35 bg-accent/25 text-white shadow-[0_0_20px_-6px_rgba(224,49,156,.9)]"
-                      : "border border-white/[0.1] bg-black/35 text-foreground/70 hover:text-foreground"
+                      ? "border border-accent/45 bg-gradient-to-br from-[#ff63c1]/35 to-[#b3126f]/35 text-white shadow-[0_0_22px_-6px_rgba(224,49,156,.95)]"
+                      : "border border-white/[0.09] bg-black/40 text-white/55 hover:text-white"
                   }`}
                 >
                   {FX_LABEL[k]}
                 </button>
               ))}
+              <button
+                onPointerDown={() => holdCut(true)}
+                onPointerUp={() => holdCut(false)}
+                onPointerLeave={() => cut && holdCut(false)}
+                onPointerCancel={() => holdCut(false)}
+                onContextMenu={(e) => e.preventDefault()}
+                aria-pressed={cut}
+                title="Hold to cut the music; release to slam it back"
+                className={`${pill} select-none ${
+                  cut
+                    ? "border border-transparent bg-gradient-to-br from-[#ff63c1] via-accent to-[#b3126f] text-white shadow-[0_0_34px_-4px_rgba(224,49,156,1)]"
+                    : "border border-white/[0.09] bg-black/40 text-white/55 hover:text-white"
+                }`}
+              >
+                Cut
+              </button>
             </div>
-            {/* THE LIGHT — the song's own looks, one tap each */}
+            {/* THE LIGHT — the song's own looks, glossy drops of colour; the
+                lit one is the grade the picture is wearing right now. */}
             {looks.length > 0 && (
-              <div className="mt-3 flex items-center justify-center gap-3">
+              <div className="mt-3.5 flex items-center justify-center gap-3.5">
                 {looks.map((l) => (
                   <button
                     key={l.name}
@@ -739,10 +785,10 @@ export default function DoorGallery({
                     aria-label={`Look: ${l.name}`}
                     aria-pressed={look === l.name}
                     onClick={() => applyLook(l)}
-                    className={`h-[18px] w-[18px] rounded-full transition active:scale-90 ${
+                    className={`h-6 w-6 rounded-full shadow-[inset_0_2px_3px_rgba(255,255,255,.55),inset_0_-2px_4px_rgba(0,0,0,.45),0_2px_10px_rgba(0,0,0,.5)] transition active:scale-90 ${
                       look === l.name
-                        ? "ring-2 ring-accent/70 ring-offset-2 ring-offset-black"
-                        : "ring-1 ring-white/20 hover:ring-white/50"
+                        ? "scale-110 ring-2 ring-accent/80 ring-offset-2 ring-offset-black/60"
+                        : "ring-1 ring-white/25 hover:scale-105 hover:ring-white/60"
                     }`}
                     style={{ background: swatch(l.set) }}
                   />

@@ -187,12 +187,31 @@ body.door-stage #k1-canvas {
   opacity: 0.9;
 }
 
+/* THE DOOR'S PADS — a lit pad BREATHES, each out of phase with its neighbours
+   (--i staggers the delay), so the wall of buttons reads alive, never static. */
+@keyframes pad-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 18px -8px rgba(224, 49, 156, 0.8),
+      inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  }
+  50% {
+    box-shadow:
+      0 0 34px -5px rgba(255, 99, 193, 0.95),
+      inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  }
+}
+.pad-lit {
+  animation: pad-breathe 2.4s ease-in-out calc(var(--i, 0) * -0.35s) infinite;
+}
+
 /* THE DOOR'S RANGES — machined glass: a pink-filled track (--p = fill %) and a
    burning thumb. appearance-none so both engines take the custom skin. */
 input[type="range"].door-range {
   -webkit-appearance: none;
   appearance: none;
-  height: 4px;
+  height: 5px;
   border-radius: 9999px;
   background: linear-gradient(
     to right,
@@ -205,8 +224,8 @@ input[type="range"].door-range {
 }
 input[type="range"].door-range::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 9999px;
   border: none;
   background: linear-gradient(135deg, #ff63c1, #b3126f);
@@ -220,8 +239,8 @@ input[type="range"].door-range::-webkit-slider-thumb:hover {
   transform: scale(1.18);
 }
 input[type="range"].door-range::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 9999px;
   border: none;
   background: linear-gradient(135deg, #ff63c1, #b3126f);
