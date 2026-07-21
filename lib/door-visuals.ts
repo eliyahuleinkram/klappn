@@ -197,8 +197,8 @@ export function seedFrom(id: string): number {
 // --- the engine --------------------------------------------------------------
 
 const CANVAS_ID = "door-visual";
-const IDLE_SPEED = 0.8;
-const PLAY_SPEED = 1.3;
+const IDLE_SPEED = 1.0;
+const PLAY_SPEED = 1.45;
 const RUSH_SPEED = 3.2;
 
 let hydra: any = null;
@@ -211,6 +211,7 @@ let resizeBound = false;
 let sounding = false;
 let rushing = false;
 let pulseTimer: ReturnType<typeof setTimeout> | null = null;
+let arrived = false; // the first reveal gets an entrance surge
 let current: { piece: number; look: number; bpm: number; seed: number } | null =
   null;
 
@@ -262,7 +263,7 @@ async function build(): Promise<boolean> {
     canvas = document.createElement("canvas");
     canvas.id = CANVAS_ID;
     canvas.style.cssText =
-      "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:-1;opacity:1;transition:opacity .6s ease";
+      "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:-1;opacity:0;transition:opacity .8s ease";
     document.body.prepend(canvas);
     sizeCanvas();
     hydra = new Hydra({
@@ -292,11 +293,31 @@ function apply(): void {
   if (!hydra || !current) return;
   const p = PIECES[current.piece] ?? PIECES[0];
   const L = p.looks[current.look] ?? p.looks[0];
+  // HOT INK: every look runs a shade past its stated grade — highlights lean
+  // harder toward white, the duotone burns rather than sits.
+  const hot: DoorLook = {
+    ...L,
+    rgb: L.rgb.map((c) => Math.min(1.6, c * 1.12)) as [number, number, number],
+  };
   try {
-    p.paint(hydra.synth, L, current.bpm, current.seed);
+    p.paint(hydra.synth, hot, current.bpm, current.seed);
   } catch (e) {
     console.error("[klappn] door piece failed; keeping previous light", e);
   }
+}
+
+/** The first reveal is an EVENT: the piece blooms in already surging, then
+ *  settles into its drift — never a slow fade from black. */
+function arrive(): void {
+  if (arrived || !hydra?.synth || !canvas) return;
+  arrived = true;
+  hydra.synth.speed = baseSpeed() * 2.2;
+  requestAnimationFrame(() => {
+    if (canvas) canvas.style.opacity = "1";
+  });
+  setTimeout(() => {
+    if (hydra?.synth) hydra.synth.speed = baseSpeed();
+  }, 1100);
 }
 
 /** The one entry point: show a piece under a look. Idempotent, self-booting. */
@@ -313,6 +334,7 @@ export async function showDoorVisual(
   if (!hydra && !(await build())) return;
   sizeCanvas();
   apply();
+  arrive();
   armWatchdog();
 }
 
@@ -384,6 +406,7 @@ function teardownEngine(): void {
   canvas = null;
   hydra = null;
   lastFrameAt = 0;
+  arrived = false; // a rebuilt stage blooms in again
 }
 
 /** Full stop — leaving the door. */

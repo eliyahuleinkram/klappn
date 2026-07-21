@@ -223,6 +223,23 @@ body.door-stage #k1-canvas {
 .pad-pulse {
   animation: pad-throb var(--beat, 0.5s) ease-out infinite;
 }
+/* The ORB is the heart — while the music sounds it beats WITH it. */
+@keyframes orb-throb {
+  0%,
+  100% {
+    box-shadow:
+      0 0 46px -8px rgba(224, 49, 156, 0.85),
+      inset 0 2px 0 rgba(255, 255, 255, 0.35);
+  }
+  12% {
+    box-shadow:
+      0 0 84px -4px rgba(255, 99, 193, 1),
+      inset 0 2px 0 rgba(255, 255, 255, 0.42);
+  }
+}
+.orb-throb {
+  animation: orb-throb var(--beat, 0.5s) ease-out infinite;
+}
 
 /* THE DOOR'S RANGES — machined glass: a pink-filled track (--p = fill %) and a
    burning thumb. appearance-none so both engines take the custom skin. */

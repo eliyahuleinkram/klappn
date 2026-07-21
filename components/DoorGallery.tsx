@@ -558,7 +558,7 @@ export default function DoorGallery({
         className={`animate-rise tabular-nums ${shade}`}
         style={{ "--i": 0 } as React.CSSProperties}
       >
-        <span className="wordmark block text-[clamp(30px,4.5vw,46px)] leading-none tracking-tight text-white">
+        <span className="wordmark block text-[clamp(34px,5.5vw,58px)] leading-none tracking-tight text-white [text-shadow:0_0_46px_rgba(224,49,156,.65),0_2px_16px_rgba(0,0,0,.9)]">
           {current.title}
         </span>
         {meta && (
@@ -593,9 +593,14 @@ export default function DoorGallery({
           aria-hidden
           className={`absolute inset-0 rounded-full bg-gradient-to-br from-[#ff63c1] via-accent to-[#b3126f] transition-shadow duration-300 ${
             sounding
-              ? "shadow-[0_0_60px_-6px_rgba(224,49,156,.95),inset_0_2px_0_rgba(255,255,255,.35)]"
+              ? "orb-throb"
               : "shadow-[0_22px_60px_-14px_rgba(224,49,156,.85),inset_0_2px_0_rgba(255,255,255,.35)]"
           }`}
+          style={
+            {
+              "--beat": `${60 / ((current.plan?.bpm || 120) * tempo)}s`,
+            } as React.CSSProperties
+          }
         />
         <span className="relative">
           {loadingPlay ? (

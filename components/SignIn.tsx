@@ -120,7 +120,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
             the words float on soft gradients, never on panels */}
         <div
           aria-hidden
-          className="pointer-events-none fixed inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,.5),transparent_26%,transparent_58%,rgba(0,0,0,.62))]"
+          className="pointer-events-none fixed inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,.32),transparent_24%,transparent_58%,rgba(0,0,0,.58))]"
         />
         {/* the brand signs the corner — the room belongs to the music */}
         <div className="relative z-10 flex items-center gap-2.5 pt-6">
