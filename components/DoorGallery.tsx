@@ -16,15 +16,19 @@ import {
   setExplicitVisualsDrive,
   setLiveCps,
   setLivePerf,
-  setVisuals,
-  startIdleVisual,
   stop,
-  teardownVisuals,
-  updateVisuals,
 } from "@/lib/strudel-client";
+import {
+  destroyDoorVisual,
+  looksFor,
+  pieceFor,
+  reseedDoorVisual,
+  seedFrom,
+  setDoorEnergy,
+  showDoorVisual,
+} from "@/lib/door-visuals";
 import { layerAppendPos, stripDuckFamily } from "@/lib/reverb-orbits";
 import { beatsPerBar, transposePitched } from "@/lib/playback";
-import { extractHydra } from "@/lib/hydra-embed";
 import {
   clearNowPlaying,
   dockPause,
@@ -63,40 +67,6 @@ function perfValues(f: Record<FxKey, boolean>) {
     punch: f.punch ? 0.4 : 0,
     space: f.space ? 0.5 : 0,
   };
-}
-
-/** The @vlooks grades a song ships (one-tap recolours of its picture). */
-interface Look {
-  name: string;
-  set: Record<string, number>;
-}
-function parseLooks(code: string): Look[] {
-  const m = code.match(/\/\*\s*@vlooks\n([\s\S]*?)\n\*\//);
-  if (!m) return [];
-  try {
-    const parsed = JSON.parse(m[1]) as { looks?: Look[] };
-    return Array.isArray(parsed.looks) ? parsed.looks.slice(0, 4) : [];
-  } catch {
-    return [];
-  }
-}
-/** Re-grade a loop's sketch: swap the four const lines for the look's values. */
-function regrade(code: string, set: Record<string, number>): string {
-  let out = code;
-  for (const k of ["vSaturation", "vContrast", "vBrightness", "vHue"]) {
-    const v = set[k];
-    if (typeof v === "number") {
-      out = out.replace(new RegExp(`const ${k} = [-\\d.]+`), `const ${k} = ${v}`);
-    }
-  }
-  return out;
-}
-/** A tiny swatch colour that EVOKES the look (hue-rotated from the house pink). */
-function swatch(set: Record<string, number>): string {
-  const hue = (((320 + (set.vHue ?? 0) * 360) % 360) + 360) % 360;
-  const sat = Math.max(12, Math.min(95, 40 + (set.vSaturation ?? 1) * 32));
-  const lum = Math.max(24, Math.min(78, 52 + (set.vBrightness ?? 0) * 90));
-  return `hsl(${Math.round(hue)}deg ${Math.round(sat)}% ${Math.round(lum)}%)`;
 }
 
 // --- THE LAUNCHPAD ------------------------------------------------------------
@@ -190,10 +160,10 @@ function rebusLayers(code: string): { code: string; layers: DoorLayer[] } {
  * sounding section in the new key — same-owner crossfade by the engine's
  * takeover law), and re-grade the picture with one tap (the song's @vlooks).
  *
- * VISUALS ARE DRIVEN EXPLICITLY here (updateVisuals on play/hand-off): the
- * combined-program hydra path can die quietly on prod chunk splits, but the
- * direct sketch-run path always paints. The idle boot RETRIES until the canvas
- * has real pixels — the room must never open black.
+ * THE LIGHT IS OURS: the door runs its own visual engine (lib/door-visuals) —
+ * hand-authored pieces on a private hydra instance with its own guarded render
+ * loop and a rebuild-on-freeze watchdog. The music engine never touches a
+ * canvas here (setExplicitVisualsDrive strips @hydra from every evaluate).
  */
 export default function DoorGallery({
   songs,
@@ -241,9 +211,8 @@ export default function DoorGallery({
   const tempoRef = useRef(1);
   const [keyUi, setKeyUi] = useState(0);
   const keyRef = useRef(0);
-  const [look, setLook] = useState<string | null>(null);
-  const lookRef = useRef<Look | null>(null); // the grade every repaint wears
-  const lastHydraRef = useRef<string | null>(null);
+  // The LIGHT the current piece wears — an index into its own three looks.
+  const [lookIdx, setLookIdx] = useState(0);
   const codeCache = useRef(new Map<string, DoorEntry>());
 
   const playingId = useNowPlayingValue(
@@ -265,18 +234,6 @@ export default function DoorGallery({
   function cpsFor(s: DoorSong, mult: number): number {
     const bpm = s.plan?.bpm || 120;
     return (bpm * mult) / (beatsPerBar(s.plan?.timeSignature) * 60);
-  }
-
-  /** Run a section's sketch directly (the path that always paints), wearing the
-   *  active look — so a chosen grade SURVIVES section boundaries and hand-off
-   *  re-entries. Skips unchanged sketches (no jump-cuts) unless forced. */
-  function paint(code: string | undefined, force = false): void {
-    if (!code) return;
-    const graded = lookRef.current ? regrade(code, lookRef.current.set) : code;
-    const h = extractHydra(graded);
-    if (!h || (!force && h === lastHydraRef.current)) return;
-    lastHydraRef.current = h;
-    void updateVisuals(graded);
   }
 
   /** Fetch + build (once per song): sealed payload → sections, then RE-BUS
@@ -311,39 +268,16 @@ export default function DoorGallery({
     return songs[(from + 1 + songs.length) % songs.length] ?? null;
   }
 
-  // THE ROOM BREATHES BEFORE THE TAP — prefetch the first song, mount its
-  // picture, and RETRY until the canvas holds real pixels (the boot can lose a
-  // silent race; the door must never open black).
+  // THE ROOM IS LIT BEFORE THE TAP — the door's own visual engine paints the
+  // first song's piece the moment the page exists (no audio boot in the way;
+  // the engine self-heals if anything kills its frames). The first song's
+  // AUDIO is prefetched alongside so the orb answers instantly.
   useEffect(() => {
-    let dead = false;
-    let tries = 0;
-    const attempt = async () => {
-      try {
-        const first = songs[0];
-        if (!first) return;
-        const entry = await entryFor(first);
-        if (dead || !entry || !entry.visual) return;
-        setVisuals(true);
-        await startIdleVisual(entry.sections[0].code);
-        if (dead) return;
-        lastHydraRef.current = extractHydra(entry.sections[0].code);
-        onVisual?.(true);
-        setTimeout(() => {
-          if (dead || nowPlaying()) return;
-          const c =
-            document.getElementById("k1-canvas") ??
-            document.getElementById("hydra-canvas");
-          const painted = c instanceof HTMLCanvasElement && c.width > 0;
-          if (!painted && ++tries < 4) void attempt();
-        }, 1500);
-      } catch {
-        /* the door still works without a backdrop */
-      }
-    };
-    void attempt();
-    return () => {
-      dead = true;
-    };
+    const first = songs[0];
+    if (!first) return;
+    void showDoorVisual(pieceFor(first), { bpm: first.plan?.bpm });
+    onVisual?.(true);
+    void entryFor(first).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -362,56 +296,35 @@ export default function DoorGallery({
      
   }, [playingId]);
 
-  // THE PICTURE NEVER DIES DURING PLAY: if the canvas is gone, hidden, or
-  // zero-sized while a song with a visual sounds, revive it and re-run the
-  // sounding section's sketch (context loss, a lost race, anything).
   useEffect(() => {
-    if (!playingId) return;
-    const t = setInterval(() => {
-      const entry = codeCache.current.get(playingId);
-      if (!entry?.visual) return;
-      const c = (document.getElementById("k1-canvas") ??
-        document.getElementById("hydra-canvas")) as HTMLCanvasElement | null;
-      if (c && c.style.display !== "none" && c.width > 0) return;
-      setVisuals(true);
-      const sec =
-        entry.sections.find((x) => x.id === curSectionIdRef.current) ??
-        entry.sections[0];
-      paint(sec?.code, true);
-    }, 4000);
-    return () => clearInterval(t);
-     
-  }, [playingId]);
-
-  useEffect(() => {
-    // A new song brings its own default grade and a fresh launchpad.
-    lookRef.current = null;
-    setLook(null);
+    // A new song brings its own default light and a fresh launchpad.
+    setLookIdx(0);
     offRef.current = new Set();
     setOffNames(new Set());
   }, [playingId]);
+
+  // The LIGHT moves with the music: full tilt while sounding, a slow, visibly
+  // alive drift while idle or held.
+  useEffect(() => {
+    setDoorEnergy(sounding);
+  }, [sounding]);
 
   // Leaving the door (signing in!): the music rides along — the dock carries
   // it into the signed-in home. Only a silent page tears the engine down. The
   // room chips reset either way: the app inside must open clean.
   useEffect(() => {
-    // The door paints its own pictures (paint/startIdleVisual) — keep hydra OUT
-    // of the evaluated programs, whose prod-only death would kill visuals for
-    // the session at the first play. And the picture IS the room here: the
-    // door-stage class lifts the canvas from its behind-the-UI dimming to
-    // near-full — the reason "the visuals don't show" was mostly 0.45 opacity
-    // over black.
+    // The door has its OWN visual engine (lib/door-visuals) — keep the songs'
+    // @hydra blocks OUT of the evaluated programs entirely, so the music
+    // engine never touches a canvas here.
     setExplicitVisualsDrive(true);
-    document.body.classList.add("door-stage");
     return () => {
       setExplicitVisualsDrive(false);
-      document.body.classList.remove("door-stage");
+      destroyDoorVisual();
       const np = nowPlaying();
       if (np) {
         if (np.surfaceMounted) updateNowPlaying({ surfaceMounted: false });
       } else {
         stop();
-        teardownVisuals();
       }
       setLivePerf({ filter: 0, echo: 0, punch: 0, space: 0 });
     };
@@ -436,8 +349,9 @@ export default function DoorGallery({
         setError(true);
         return;
       }
-      if (!entry.visual) teardownVisuals();
-      else setVisuals(true);
+      // The room changes LIGHT at the tap — the new song's piece, first look.
+      if (!sameSession)
+        void showDoorVisual(pieceFor(s), { bpm: s.plan?.bpm, look: 0 });
       ensurePerfFx();
       setLivePerf(perfValues(fxRef.current));
       const { labels } = entry;
@@ -473,9 +387,9 @@ export default function DoorGallery({
           // the loop's grid on screen (its gates still apply by name).
           layersRef.current = cached.layersBySection[id] ?? [];
           if (!id.startsWith("break:")) setLayersUi(layersRef.current);
-          // FORCED repaint on every boundary — the picture must never be the
-          // thing that got stuck.
-          paint(cached.sections.find((x) => x.id === id)?.code, true);
+          // Every boundary RESHAPES the piece — new cell counts, new spin,
+          // same soul. The room keeps moving with the music.
+          reseedDoorVisual(seedFrom(id));
           // THE HAND-OFF: wrap detected → this downbeat belongs to the next
           // song. Canonical ids, so key-change rotations don't confuse it.
           const j = journeyRef.current;
@@ -497,12 +411,7 @@ export default function DoorGallery({
         ending: entry.ending,
         onEnded: () => clearNowPlaying(),
       });
-      // The picture is driven HERE — the path that always paints (evaluated
-      // programs carry no hydra on the door). FORCED on purpose: play always
-      // re-runs the sketch, even when it's the one the idle boot already
-      // showed, so a stop/hand-off's soft-hidden canvas always comes back.
-      paint(list[0].code, true);
-      onVisual?.(entry.visual);
+      onVisual?.(true);
       // The live tempo survives songs and key changes — re-assert on the fresh
       // program (each evaluate re-bakes the song's own setcpm).
       if (tempoRef.current !== 1) setLiveCps(cpsFor(s, tempoRef.current));
@@ -599,17 +508,15 @@ export default function DoorGallery({
     }
   }
 
-  /** Grade the picture you're WATCHING (the sounding section, not section 0);
-   *  re-tapping the lit swatch takes the song back to its own grade. */
-  function applyLook(l: Look) {
-    const entry = current ? codeCache.current.get(current.id) : null;
-    if (!entry) return;
-    const sec =
-      entry.sections.find((x) => x.id === curSectionId) ?? entry.sections[0];
-    const off = look === l.name;
-    lookRef.current = off ? null : l;
-    setLook(off ? null : l.name);
-    paint(sec.code, true);
+  /** Switch the LIGHT — the piece re-runs instantly under the chosen look. */
+  function applyLook(i: number) {
+    if (!current) return;
+    setLookIdx(i);
+    void showDoorVisual(pieceFor(current), {
+      bpm: current.plan?.bpm,
+      look: i,
+      seed: curSectionIdRef.current ? seedFrom(curSectionIdRef.current) : 0,
+    });
   }
 
   if (!songs.length || !current) return null;
@@ -622,8 +529,7 @@ export default function DoorGallery({
     .filter(Boolean)
     .join(" · ");
 
-  const entryNow = isPlaying ? codeCache.current.get(current.id) : null;
-  const looks = entryNow ? parseLooks(entryNow.sections[0].code) : [];
+  const looks = isPlaying ? looksFor(pieceFor(current)) : [];
 
   const pill =
     "rounded-full px-4 py-2 text-[13px] font-medium backdrop-blur-xl transition active:scale-[.96]";
@@ -774,23 +680,23 @@ export default function DoorGallery({
                 Cut
               </button>
             </div>
-            {/* THE LIGHT — the song's own looks, glossy drops of colour; the
-                lit one is the grade the picture is wearing right now. */}
+            {/* THE LIGHT — three lights per piece, glossy drops of colour; the
+                lit one is what the room is wearing right now. */}
             {looks.length > 0 && (
               <div className="mt-3.5 flex items-center justify-center gap-3.5">
-                {looks.map((l) => (
+                {looks.map((l, i) => (
                   <button
                     key={l.name}
                     title={l.name}
                     aria-label={`Look: ${l.name}`}
-                    aria-pressed={look === l.name}
-                    onClick={() => applyLook(l)}
+                    aria-pressed={lookIdx === i}
+                    onClick={() => applyLook(i)}
                     className={`h-6 w-6 rounded-full shadow-[inset_0_2px_3px_rgba(255,255,255,.55),inset_0_-2px_4px_rgba(0,0,0,.45),0_2px_10px_rgba(0,0,0,.5)] transition active:scale-90 ${
-                      look === l.name
+                      lookIdx === i
                         ? "scale-110 ring-2 ring-accent/80 ring-offset-2 ring-offset-black/60"
                         : "ring-1 ring-white/25 hover:scale-105 hover:ring-white/60"
                     }`}
-                    style={{ background: swatch(l.set) }}
+                    style={{ background: l.tint }}
                   />
                 ))}
               </div>
