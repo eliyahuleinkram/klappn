@@ -138,13 +138,14 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
           </span>
         </div>
 
-        <div className="relative z-10 flex flex-1 items-center justify-center py-10">
+        {/* ONE column, one story: the instrument, then THE DOOR right under
+            your hands — never a footer, never below the fold. */}
+        <div className="relative z-10 flex flex-1 flex-col items-center justify-center py-8">
           <DoorGallery songs={door} onVisual={setVisualUp} />
-        </div>
 
-        {/* THE ASK — one glass bar. The line is the product; the field is the door. */}
-        <div className="relative z-10 mx-auto mb-6 w-full max-w-xl">
-          <div className="rounded-2xl border border-white/[0.09] bg-black/45 p-4 shadow-[0_30px_90px_-30px_rgba(0,0,0,.9),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+          {/* THE DOOR ITSELF — a pink-lit doorway; the key is one email. */}
+          <div className="mt-4 w-full max-w-xl">
+          <div className="rounded-2xl border border-accent/20 bg-black/45 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
             {gateUp ? (
               <>
                 <p className="text-[13.5px] leading-relaxed text-muted">
@@ -214,9 +215,13 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                     disabled={state === "sending"}
                     className="btn-primary shrink-0 rounded-xl px-5 py-3 text-[15px] font-medium transition active:scale-[.98] disabled:opacity-50"
                   >
-                    {state === "sending" ? "Sending…" : "Continue"}
+                    {state === "sending" ? "Sending…" : "Sign in"}
                   </button>
                 </form>
+                <p className="mt-2 text-[12px] text-muted/60">
+                  New or returning — same door. A 6-digit code lands in your
+                  inbox. No password.
+                </p>
                 {state === "error" && (
                   <p className="mt-2 text-[13px] text-red-400">
                     Couldn&rsquo;t send the code. Try again.
@@ -224,6 +229,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                 )}
               </>
             )}
+          </div>
           </div>
         </div>
       </main>
