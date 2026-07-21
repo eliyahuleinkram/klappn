@@ -442,6 +442,20 @@ export default function DoorGallery({
     }
   }
 
+  // THE FIRST TOUCH IS THE ON SWITCH — no play button exists. Any gesture on
+  // the page ignites the room; the sign-in form and links keep their meaning.
+  useEffect(() => {
+    const onFirst = (e: PointerEvent) => {
+      if (playingId || loadingPlay) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest("form, input, textarea, select, a")) return;
+      if (current) void onPlay(current);
+    };
+    window.addEventListener("pointerdown", onFirst);
+    return () => window.removeEventListener("pointerdown", onFirst);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playingId, loadingPlay, at, songs]);
+
   // SPACE is the transport — play, pause, resume, from anywhere on the door.
   // Typing is sacred (the email/code fields); preventDefault keeps a focused
   // pill from stealing the bar back as a button-press.
@@ -474,6 +488,7 @@ export default function DoorGallery({
   }
 
   function toggleFx(k: FxKey) {
+    if (!isPlaying) return; // the touch itself just started the room
     const out = { ...fxRef.current, [k]: !fxRef.current[k] };
     if (k === "dark" && out.dark) out.bright = false;
     if (k === "bright" && out.bright) out.dark = false;
@@ -488,6 +503,7 @@ export default function DoorGallery({
    *  mid-note. While held, the LIGHT RUSHES — silence with the visuals
    *  screaming, then the drop. The 200ms tick re-asserts whichever is held. */
   function holdCut(on: boolean) {
+    if (on && !isPlaying) return; // the touch itself just started the room
     if (cutRef.current === on) return;
     cutRef.current = on; // ref FIRST — the gate reads it synchronously
     applyOrbitGains(gainFor);
@@ -525,7 +541,7 @@ export default function DoorGallery({
 
   if (!songs.length || !current) return null;
 
-  const looks = isPlaying ? looksFor(pieceFor(current)) : [];
+  const looks = looksFor(pieceFor(current));
 
   const pill =
     "rounded-full px-4 py-2 text-[13px] font-medium backdrop-blur-xl transition active:scale-[.96]";
@@ -534,64 +550,21 @@ export default function DoorGallery({
 
   return (
     <div className="flex w-full max-w-xl flex-col items-center text-center">
-      {/* No name, no listing, no track to skip — the room is not a record.
-          The music flows on its own; everything on screen is PLAYED. */}
-
-      {/* THE ORB — one tap, the room fills. It burns while the music sounds. */}
-      <div className="relative flex w-full items-center justify-center">
-      <button
-        onClick={() => void onPlay(current)}
-        disabled={loadingPlay}
-        aria-label={isPlaying ? (paused ? "Resume" : "Pause") : "Play"}
-        className="group relative flex h-24 w-24 items-center justify-center rounded-full text-white transition-transform duration-200 hover:scale-[1.04] active:scale-95 disabled:opacity-70"
-      >
-        <span
-          aria-hidden
-          className={`absolute -inset-6 rounded-full bg-accent blur-[30px] transition-opacity duration-500 ${
-            sounding ? "opacity-45" : "opacity-25 group-hover:opacity-40"
-          } ${!isPlaying && !loadingPlay ? "glow-breathe" : ""}`}
-        />
-        <span
-          aria-hidden
-          className={`absolute inset-0 rounded-full bg-gradient-to-br from-[#ff63c1] via-accent to-[#b3126f] transition-shadow duration-300 ${
-            sounding
-              ? "orb-throb"
-              : "shadow-[0_22px_60px_-14px_rgba(224,49,156,.85),inset_0_2px_0_rgba(255,255,255,.35)]"
-          }`}
-          style={
-            {
-              "--beat": `${60 / ((current.plan?.bpm || 120) * tempo)}s`,
-            } as React.CSSProperties
-          }
-        />
-        <span className="relative">
+      {/* NO PLAYER. No orb, no transport, nothing to operate — this is the
+          instrument itself, already on. The first touch ANYWHERE ignites the
+          sound (the window listener below); after that every surface plays. */}
+      <div className="flex min-h-[19rem] w-full flex-col items-center justify-start">
+        <div className="mb-5 flex h-7 items-center">
           {loadingPlay ? (
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden className="animate-spin">
-              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.35" strokeWidth="2.6" />
-              <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
-            </svg>
-          ) : sounding ? (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <rect x="6" y="5" width="4.4" height="14" rx="1.5" />
-              <rect x="13.6" y="5" width="4.4" height="14" rx="1.5" />
-            </svg>
-          ) : (
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M8 5.4v13.2L19 12z" />
-            </svg>
-          )}
-        </span>
-      </button>
-      </div>
-
-      {/* Fixed-height stage below the orb: idle and playing share the SAME
-          reserved space, so the orb never moves. */}
-      <div className="mt-7 flex min-h-[17rem] w-full flex-col items-center justify-start">
-        {!isPlaying && (
-          <p className={`mb-3 text-[15px] text-foreground/85 ${shade}`}>
-            It sounds like this. Touch it.
-          </p>
-        )}
+            <p className={`text-[17px] text-foreground/90 ${shade}`}>
+              <span className="shimmer-text">Coming alive…</span>
+            </p>
+          ) : !isPlaying ? (
+            <p className={`text-[17px] text-foreground/90 ${shade}`}>
+              Touch anything.
+            </p>
+          ) : null}
+        </div>
         {/* THE LAUNCHPAD — a hardware grid, up BEFORE the first note (an idle
             tap starts the song). While it sounds, every lit pad THROBS at the
             song's own tempo; tap = that layer gone, instantly, tails and all;
@@ -628,8 +601,9 @@ export default function DoorGallery({
             ))}
           </div>
         )}
-        {isPlaying && (
-          <>
+        {/* The WHOLE console stands from second zero — nothing is hidden
+            behind a press. Before the first note, any of it starts the room. */}
+        <>
             {/* THE ROOM — colour the sound. And CUT: hold it, the whole mix
                 leaves; let go, it slams back on your fingertip. */}
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
@@ -738,13 +712,12 @@ export default function DoorGallery({
                 </button>
               </div>
             </div>
-          </>
-        )}
+        </>
       </div>
 
       {error && (
         <p className="mt-3 text-[13px] text-red-400">
-          The run stumbled — tap the orb.
+          The room stumbled — touch it again.
         </p>
       )}
     </div>
