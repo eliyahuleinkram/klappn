@@ -41,133 +41,121 @@ interface Piece {
   paint(s: any, L: DoorLook, bpm: number, seed: number): void;
 }
 
-/** SIX PIECES — one per mood, matched on the song's genre line. The palette
- *  law: geometry is built GRAYSCALE (osc offset 0, voronoi/noise/shape), with
- *  real black negative space, then inked by the look's duotone — dark stays
- *  ink-black, midtones take the colour, the hottest highlights bloom toward
- *  white (rgb components above 1). Every piece moves visibly within a second
- *  and feeds back on itself — art, never wallpaper, never a rainbow. */
+/** ONE ink trio for the whole door — fuchsia, violet, ice. One material,
+ *  three temperatures; the deck's orbs read as jewellery, never candy. */
+const INKS: [DoorLook, DoorLook, DoorLook] = [
+  { name: "Neon", tint: "#ff3fb1", rgb: [1.5, 0.32, 1.02], energy: 1 },
+  { name: "Violet", tint: "#a55cff", rgb: [0.95, 0.45, 1.5], energy: 0.85 },
+  { name: "Ice", tint: "#7fb7ff", rgb: [0.5, 0.75, 1.5], energy: 0.7 },
+];
+
+/** SIX PIECES — one per mood, matched on the song's genre line.
+ *
+ *  TWO LAWS, learned the hard way:
+ *  1. THE ROOM STAYS BLACK — every piece is a form living inside a soft
+ *     circular mask (`.mult(shape(999,…))`), so the edges are black FOREVER
+ *     and the light is a contained, breathing thing — never a paint fill.
+ *  2. FEEDBACK NEVER ADDS LIGHT — `src(o0)` may only MODULATE (bend
+ *     coordinates); additive/blend trails with the amplifying grade inside
+ *     the loop compound every frame until the whole screen clips to a flat
+ *     wash (the solid-red-screen bug, seen live on prod 07-22). */
 const PIECES: Piece[] = [
   {
-    // spinning crystalline mandala, shattering and re-forming
+    // a crystalline flower turning slowly in the dark
     name: "Mandala",
     match: /techno|trance|edm|electro|rave/i,
-    looks: [
-      { name: "Ember", tint: "#ff63c1", rgb: [1.35, 0.35, 0.95], energy: 1 },
-      { name: "Ice", tint: "#5fc9ff", rgb: [0.5, 0.95, 1.35], energy: 0.75 },
-      { name: "Ultraviolet", tint: "#9b5cff", rgb: [0.95, 0.45, 1.4], energy: 1.3 },
-    ],
+    looks: INKS,
     paint(s, L, bpm, seed) {
-      s.voronoi(5 + seed * 4, 1.1 * L.energy, 0.6)
+      s.voronoi(5 + seed * 4, 1.0 * L.energy, 0.6)
         .kaleid(6)
-        .modulateRotate(s.osc(2 + seed * 2, 0.1 * L.energy, 0), 0.5)
-        .modulateScale(s.osc(0.4, 0.05, 0), 0.2)
-        .rotate(({ time }: any) => time * 0.05 * L.energy)
-        .blend(s.src(s.o0).scale(1.01).rotate(0.003), 0.45)
+        .modulateRotate(s.osc(2 + seed * 2, 0.09 * L.energy, 0), 0.4)
+        .modulate(s.src(s.o0), 0.12)
+        .rotate(({ time }: any) => time * 0.045 * L.energy)
+        .mult(s.shape(999, 0.5, 1))
         .contrast(1.6)
         .color(...L.rgb)
-        .brightness(-0.03)
         .out(s.o0);
     },
   },
   {
-    // silk smoke curling over itself, slow and heavy
+    // silk curling over itself inside a pool of light
     name: "Smoke",
     match: /jazz|hop|lo-?fi|soul|r&b|funk/i,
-    looks: [
-      { name: "Velvet", tint: "#e0319c", rgb: [1.3, 0.35, 0.9], energy: 1 },
-      { name: "Brass", tint: "#ffb15c", rgb: [1.35, 0.85, 0.45], energy: 0.8 },
-      { name: "Midnight", tint: "#5c74ff", rgb: [0.45, 0.6, 1.3], energy: 0.65 },
-    ],
+    looks: INKS,
     paint(s, L, bpm, seed) {
       s.osc(3 + seed * 1.5, 0.07 * L.energy, 0)
-        .modulate(s.noise(2.4 + seed, 0.12 * L.energy).scale(1.3), 0.6)
+        .modulate(s.noise(2.4 + seed, 0.1 * L.energy).scale(1.3), 0.6)
+        .modulate(s.src(s.o0), 0.15)
         .rotate(({ time }: any) => time * 0.012 * L.energy)
-        .contrast(1.7)
-        .blend(s.src(s.o0).scale(1.015).scrollY(0, -0.0015), 0.55)
+        .mult(s.shape(999, 0.6, 1))
+        .contrast(1.8)
         .color(...L.rgb)
-        .brightness(-0.06)
         .out(s.o0);
     },
   },
   {
-    // fast liquid ribbons tearing through cells
+    // fast liquid ribbons tearing through cells, held in the dark
     name: "Tides",
     match: /drum|dnb|d&b|liquid|jungle|break/i,
-    looks: [
-      { name: "Tideline", tint: "#4fd8e8", rgb: [0.4, 1.15, 1.3], energy: 1 },
-      { name: "Rose", tint: "#ff63c1", rgb: [1.35, 0.4, 0.95], energy: 1.2 },
-      { name: "Abyss", tint: "#4a5cff", rgb: [0.45, 0.55, 1.35], energy: 0.85 },
-    ],
+    looks: INKS,
     paint(s, L, bpm, seed) {
       s.osc(9 + seed * 3, 0.12 * L.energy, 0)
         .modulateScale(s.osc(1.5, 0.09 * L.energy, 0).rotate(1.57), 0.5)
         .diff(s.voronoi(5 + seed * 3, 2, 0.3))
-        .modulate(s.src(s.o0).scale(1.04), 0.18)
-        .contrast(1.6)
+        .modulate(s.src(s.o0), 0.1)
+        .mult(s.shape(999, 0.55, 1))
+        .contrast(1.7)
         .color(...L.rgb)
         .out(s.o0);
     },
   },
   {
-    // an infinite tunnel that BREATHES AT THE SONG'S TEMPO
+    // rings pumping outward from the centre AT THE SONG'S TEMPO
     name: "Tunnel",
     match: /house|disco|garage|club/i,
-    looks: [
-      { name: "Heat", tint: "#ff8a5c", rgb: [1.4, 0.65, 0.4], energy: 1 },
-      { name: "Neon", tint: "#ff63c1", rgb: [1.35, 0.35, 1.05], energy: 1.25 },
-      { name: "Mint", tint: "#5cffb1", rgb: [0.45, 1.3, 0.85], energy: 0.8 },
-    ],
+    looks: INKS,
     paint(s, L, bpm, seed) {
       const beat = ((bpm || 120) / 60) * Math.PI;
       s.shape(64, 0.3 + seed * 0.1, 0.5)
         .scale(({ time }: any) => 1 + 0.14 * L.energy * Math.sin(time * beat))
         .diff(s.osc(6, 0.08 * L.energy, 0))
-        .blend(s.src(s.o0).scale(0.93), 0.55)
         .kaleid(4)
-        .contrast(1.5)
+        .modulate(s.src(s.o0), 0.1)
+        .mult(s.shape(999, 0.55, 1))
+        .contrast(1.6)
         .color(...L.rgb)
-        .brightness(-0.04)
         .out(s.o0);
     },
   },
   {
-    // dark ink blooming into petals, closing, blooming again
+    // ink blooming into petals, closing, blooming again
     name: "Bloom",
     match: /trip|down|dub|chill|ambient hop/i,
-    looks: [
-      { name: "Nightshade", tint: "#b3126f", rgb: [1.2, 0.25, 0.75], energy: 1 },
-      { name: "Ashes", tint: "#a9b4c9", rgb: [0.85, 0.9, 1.0], energy: 0.7 },
-      { name: "Absinthe", tint: "#9fff5c", rgb: [0.75, 1.3, 0.45], energy: 1.15 },
-    ],
+    looks: INKS,
     paint(s, L, bpm, seed) {
       s.noise(1.7 + seed, 0.09 * L.energy)
         .thresh(0.5, 0.3)
         .kaleid(8)
         .modulateRotate(s.osc(0.7, 0.04 * L.energy, 0), 0.8)
-        .blend(s.src(s.o0).scale(1.012).rotate(-0.003), 0.55)
-        .contrast(1.4)
+        .modulate(s.src(s.o0), 0.08)
+        .mult(s.shape(999, 0.55, 1))
+        .contrast(1.5)
         .color(...L.rgb)
-        .brightness(-0.05)
         .out(s.o0);
     },
   },
   {
-    // slow constellations of soft cells, drifting upward forever
+    // slow constellations of soft cells breathing in a halo
     name: "Lanterns",
     match: /ambient|waltz|drone|cinemat|classical|piano/i,
-    looks: [
-      { name: "Lantern", tint: "#ffc75c", rgb: [1.35, 0.95, 0.5], energy: 1 },
-      { name: "Moonpaper", tint: "#c9d4ff", rgb: [0.8, 0.9, 1.25], energy: 0.7 },
-      { name: "Festival", tint: "#ff63c1", rgb: [1.3, 0.45, 1.0], energy: 1.2 },
-    ],
+    looks: INKS,
     paint(s, L, bpm, seed) {
       s.voronoi(4 + seed * 2, 0.45 * L.energy, 1.8)
         .modulateScale(s.osc(0.5, 0.04, 0), 0.35)
-        .blend(s.src(s.o0).scale(1.006).scrollY(0, -0.004), 0.6)
-        .contrast(1.35)
+        .modulate(s.src(s.o0), 0.1)
+        .mult(s.shape(999, 0.6, 1))
+        .contrast(1.45)
         .color(...L.rgb)
-        .brightness(-0.02)
         .out(s.o0);
     },
   },
