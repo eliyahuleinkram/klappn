@@ -365,8 +365,12 @@ export default function DoorGallery({
         ending: entry.ending,
         onEnded: () => clearNowPlaying(),
       });
-      // The picture is driven HERE — the path that always paints.
-      pushVisual(list[0].code);
+      // The picture is driven HERE — the path that always paints. UNGUARDED on
+      // purpose: the combined program's (possibly dead) hydra half can clear
+      // the running sketch during evaluate, so play always re-runs it — even
+      // when it's the same sketch the idle boot already showed.
+      lastHydraRef.current = extractHydra(list[0].code);
+      void updateVisuals(list[0].code);
       onVisual?.(entry.visual);
       // The live tempo survives songs and key changes — re-assert on the fresh
       // program (each evaluate re-bakes the song's own setcpm).
