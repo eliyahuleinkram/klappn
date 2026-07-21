@@ -36,6 +36,19 @@ alter table songs add column if not exists model text not null default 'anthropi
 alter table songs add column if not exists featured_at timestamptz;
 create index if not exists songs_featured_idx on songs (featured_at) where featured_at is not null;
 
+-- THE FREE POOL — the lifetime free taste is claimed from a FIXED global pool
+-- of grants (lib/billing.ts FREE_TASTE_GRANTS). A grant is claimed the first
+-- time an account tries to compose; once the pool is spent, later accounts pay
+-- from the first loop. Keeps the launch bill bounded: grants × taste ≈ dollars.
+create table if not exists taste_grants (
+  user_id    text primary key references "user"(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+-- Accounts that already composed keep their taste (grandfathered at migration).
+insert into taste_grants (user_id)
+  select distinct user_id from token_usage
+  on conflict (user_id) do nothing;
+
 create table if not exists parts (
   id          uuid primary key default gen_random_uuid(),
   song_id     uuid not null references songs(id) on delete cascade,

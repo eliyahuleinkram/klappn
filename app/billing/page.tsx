@@ -6,6 +6,7 @@ import {
   getBilling,
   getCredits,
   getUsage,
+  tasteAvailable,
   usedFor,
   type PlanId,
 } from "@/lib/billing";
@@ -44,7 +45,10 @@ export default async function BillingPage() {
     credits = creditTokens;
     // Credits meter against lifetime; legacy subscriptions against the month.
     usedTokens = usedFor(plan, usage);
-    allowanceTokens = allowanceFor(plan, credits);
+    // Free pool: show the taste only if this account holds/can claim a grant,
+    // so the meter here always agrees with the compose gate.
+    const taste = plan === "free" ? await tasteAvailable(userId) : true;
+    allowanceTokens = allowanceFor(plan, credits, taste);
   } catch {
     /* fail soft — show the free view */
   }

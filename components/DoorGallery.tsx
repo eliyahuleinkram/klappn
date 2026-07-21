@@ -51,6 +51,11 @@ export default function DoorGallery({
 }) {
   const [loadingPlay, setLoadingPlay] = useState<string | null>(null);
   const [error, setError] = useState(false);
+  // THE REVEAL — the playing card can unfold its live code: the section that
+  // is sounding RIGHT NOW, as real Strudel (visual block included — the
+  // picture is code too). Follows the section boundary while open.
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [curSectionId, setCurSectionId] = useState<string | null>(null);
   const codeCache = useRef(new Map<string, PlayEntry>());
   const playingId = useNowPlayingValue(
     (s) => (s?.kind === "song" ? s.id : null),
@@ -62,6 +67,7 @@ export default function DoorGallery({
   );
   useEffect(() => {
     if (!playingId) onVisual?.(false); // the session ended — the glow returns
+    setCodeOpen(false); // the reveal belongs to a sounding card only
   }, [playingId, onVisual]);
   // Leaving the door (signing in!): the music rides along — the dock carries it
   // straight into the signed-in home. Only a silent page tears the engine down.
@@ -113,10 +119,13 @@ export default function DoorGallery({
       else setVisuals(true);
       const { labels, holds } = entry;
       const cached = entry;
+      setCurSectionId(entry.sections[0].id);
       await playSong(entry.sections, {
         owner: s.id,
-        onSection: (id) =>
-          updateNowPlaying({ sectionLabel: id ? (labels[id] ?? null) : null }),
+        onSection: (id) => {
+          updateNowPlaying({ sectionLabel: id ? (labels[id] ?? null) : null });
+          if (id) setCurSectionId(id);
+        },
         repeatsFor: (id) => {
           if (
             !id.startsWith("break:") &&
@@ -170,11 +179,32 @@ export default function DoorGallery({
             .join(" · ");
           const isPlaying = playingId === s.id;
           const sounding = isPlaying && !paused;
+          // The unfolded live code: whatever section is sounding right now,
+          // grade-spec comment blocks stripped (music + @hydra stay — the
+          // picture is code too).
+          const entry = codeCache.current.get(s.id);
+          const liveSection =
+            isPlaying && codeOpen && entry
+              ? (entry.sections.find((x) => x.id === curSectionId) ??
+                entry.sections[0])
+              : null;
+          const liveCode = liveSection
+            ? liveSection.code
+                .replace(/\/\*\s*@(?:vcontrols|vlooks)\b[\s\S]*?\*\/\n*/g, "")
+                .trim()
+            : null;
           return (
-            <button
+            <div
               key={s.id}
+              role="button"
+              tabIndex={0}
               onClick={() => void onPlay(s)}
-              disabled={loadingPlay === s.id}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  void onPlay(s);
+                }
+              }}
               aria-label={
                 isPlaying
                   ? paused
@@ -182,68 +212,102 @@ export default function DoorGallery({
                     : `Pause ${s.title}`
                   : `Play ${s.title}`
               }
-              className={`group flex w-full items-center gap-3.5 rounded-2xl border p-3 text-left backdrop-blur-xl transition active:scale-[.995] ${
+              className={`group w-full cursor-pointer rounded-2xl border p-3 text-left backdrop-blur-xl transition active:scale-[.995] ${
                 isPlaying
                   ? "border-accent/30 bg-accent/[0.07]"
                   : "border-white/[0.07] bg-white/[0.03] hover:border-white/[0.12] hover:bg-white/[0.05]"
               }`}
             >
-              {/* the orb — every card carries a small pink sun. It burns while
-                  the music SOUNDS, banks while it's held. */}
-              <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white">
-                <span
-                  aria-hidden
-                  className={`absolute -inset-2 rounded-full bg-accent blur-[14px] transition-opacity duration-300 ${
-                    sounding
-                      ? "opacity-40"
-                      : isPlaying
-                        ? "opacity-25"
-                        : "opacity-[0.18] group-hover:opacity-35"
-                  }`}
-                />
-                <span
-                  aria-hidden
-                  className={`absolute inset-0 rounded-full bg-gradient-to-br from-[#ff63c1] via-accent to-[#b3126f] transition-shadow duration-300 ${
-                    sounding
-                      ? "shadow-[0_0_28px_-2px_rgba(224,49,156,.9),inset_0_1px_0_rgba(255,255,255,.3)]"
-                      : "shadow-[0_10px_26px_-8px_rgba(224,49,156,.8),inset_0_1px_0_rgba(255,255,255,.3)] group-hover:shadow-[0_0_30px_-2px_rgba(224,49,156,.9)]"
-                  }`}
-                />
-                {isPlaying && (
+              <div className="flex w-full items-center gap-3.5">
+                {/* the orb — every card carries a small pink sun. It burns while
+                    the music SOUNDS, banks while it's held. */}
+                <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white">
                   <span
                     aria-hidden
-                    className="absolute -inset-[3px] rounded-full ring-1 ring-accent/40"
+                    className={`absolute -inset-2 rounded-full bg-accent blur-[14px] transition-opacity duration-300 ${
+                      sounding
+                        ? "opacity-40"
+                        : isPlaying
+                          ? "opacity-25"
+                          : "opacity-[0.18] group-hover:opacity-35"
+                    }`}
                   />
-                )}
-                <span className="relative">
-                  {loadingPlay === s.id ? (
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden className="animate-spin">
-                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.35" strokeWidth="3" />
-                      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                    </svg>
-                  ) : sounding ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                      <rect x="6" y="5" width="4.4" height="14" rx="1.5" />
-                      <rect x="13.6" y="5" width="4.4" height="14" rx="1.5" />
-                    </svg>
-                  ) : (
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                      <path d="M8 5.4v13.2L19 12z" />
-                    </svg>
+                  <span
+                    aria-hidden
+                    className={`absolute inset-0 rounded-full bg-gradient-to-br from-[#ff63c1] via-accent to-[#b3126f] transition-shadow duration-300 ${
+                      sounding
+                        ? "shadow-[0_0_28px_-2px_rgba(224,49,156,.9),inset_0_1px_0_rgba(255,255,255,.3)]"
+                        : "shadow-[0_10px_26px_-8px_rgba(224,49,156,.8),inset_0_1px_0_rgba(255,255,255,.3)] group-hover:shadow-[0_0_30px_-2px_rgba(224,49,156,.9)]"
+                    }`}
+                  />
+                  {isPlaying && (
+                    <span
+                      aria-hidden
+                      className="absolute -inset-[3px] rounded-full ring-1 ring-accent/40"
+                    />
+                  )}
+                  <span className="relative">
+                    {loadingPlay === s.id ? (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden className="animate-spin">
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.35" strokeWidth="3" />
+                        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                      </svg>
+                    ) : sounding ? (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                        <rect x="6" y="5" width="4.4" height="14" rx="1.5" />
+                        <rect x="13.6" y="5" width="4.4" height="14" rx="1.5" />
+                      </svg>
+                    ) : (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                        <path d="M8 5.4v13.2L19 12z" />
+                      </svg>
+                    )}
+                  </span>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="wordmark block truncate text-[17px] tracking-tight text-foreground">
+                    {s.title}
+                  </span>
+                  {meta && (
+                    <span className="mt-0.5 block truncate text-[12.5px] tabular-nums text-muted">
+                      {meta}
+                    </span>
                   )}
                 </span>
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="wordmark block truncate text-[17px] tracking-tight text-foreground">
-                  {s.title}
-                </span>
-                {meta && (
-                  <span className="mt-0.5 block truncate text-[12.5px] tabular-nums text-muted">
-                    {meta}
-                  </span>
+                {/* THE REVEAL — only the sounding card offers its source. One
+                    word in, one ✕ out. */}
+                {isPlaying && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCodeOpen((v) => !v);
+                    }}
+                    aria-label={codeOpen ? "Hide the code" : "Show the code"}
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-[12.5px] font-medium transition active:scale-[.97] ${
+                      codeOpen
+                        ? "bg-white/[0.06] text-muted hover:text-foreground"
+                        : "bg-accent/15 text-accent hover:bg-accent/25"
+                    }`}
+                  >
+                    {codeOpen ? "✕" : "Code"}
+                  </button>
                 )}
-              </span>
-            </button>
+              </div>
+              {liveCode && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-3 cursor-auto rounded-xl border border-white/[0.08] bg-black/40"
+                >
+                  <p className="flex items-center gap-2 border-b border-white/[0.06] px-3.5 py-2 text-[11px] tracking-wide text-muted/70">
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_var(--accent)]" />
+                    {(entry?.labels[liveSection!.id] ?? "Loop") + " — the code, as it sounds"}
+                  </p>
+                  <pre className="max-h-56 overflow-auto px-3.5 py-3 font-mono text-[11px] leading-relaxed text-foreground/80">
+                    {liveCode}
+                  </pre>
+                </div>
+              )}
+            </div>
           );
         })}
       </div>

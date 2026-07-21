@@ -123,8 +123,10 @@ export interface DoorSongRow {
   updated_at: string;
 }
 
-/** The owner-curated songs behind the door, newest featured first. Public —
- *  the card whisper only (identity, no code, no prompt-derived text). */
+/** The owner-curated songs behind the door, SHUFFLED per request — every
+ *  reload deals a fresh hand (the signed-out page is force-dynamic, so this
+ *  runs on each visit). Public — the card whisper only (identity, no code,
+ *  no prompt-derived text). */
 export async function listDoorSongs(sql: Sql = db()): Promise<DoorSongRow[]> {
   return sql<DoorSongRow[]>`
     select id, title,
@@ -132,7 +134,7 @@ export async function listDoorSongs(sql: Sql = db()): Promise<DoorSongRow[]> {
       updated_at
     from songs
     where featured_at is not null and status = 'ready'
-    order by featured_at desc limit 12`;
+    order by random() limit 12`;
 }
 
 // The plan keys gallery playback actually reads (lib/home-sections) plus the

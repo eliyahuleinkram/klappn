@@ -319,11 +319,71 @@ export async function addCredits(
     on conflict (stripe_session_id) do nothing`;
 }
 
+/**
+ * THE FREE POOL CAP — how many accounts, TOTAL, ever get the free taste.
+ * Each grant is worth PLANS.free.tokens (100k weighted units ≈ $1 of model
+ * spend at the anchor rate — the weights in lib/llm.ts already normalize
+ * input, output, and cache tokens into these units), so the launch-day
+ * worst case is ~FREE_TASTE_GRANTS dollars. Change this ONE number to
+ * widen or close the pool; the schema (taste_grants) needs no change.
+ */
+export const FREE_TASTE_GRANTS = 300;
+
+/** Claim a taste grant for this user (first-come): inserts while the pool has
+ *  room, else tells the truth about an existing grant. Two racing first-timers
+ *  can overshoot the pool by a grant or two — bounded at ~$1 each, accepted.
+ *  Fails OPEN (true) on a missing table / DB hiccup, like the rest of the gate. */
+export async function claimTasteGrant(
+  userId: string,
+  sql: Sql = db(),
+): Promise<boolean> {
+  try {
+    const rows = await sql`
+      insert into taste_grants (user_id)
+      select ${userId}
+      where (select count(*) from taste_grants) < ${FREE_TASTE_GRANTS}
+      on conflict (user_id) do nothing
+      returning user_id`;
+    if (rows.length > 0) return true;
+    const [row] = await sql`select 1 as g from taste_grants where user_id = ${userId}`;
+    return !!row;
+  } catch (e) {
+    console.error("[klappn] claimTasteGrant failed — failing open", e);
+    return true;
+  }
+}
+
+/** Read-side twin for display (billing page): true when the user HAS a grant
+ *  or the pool still has room for them to claim one on their first compose —
+ *  so the meter shown always matches what the gate would decide. Never claims. */
+export async function tasteAvailable(
+  userId: string,
+  sql: Sql = db(),
+): Promise<boolean> {
+  try {
+    const [row] = await sql<{ mine: number; total: string | number }[]>`
+      select
+        count(*) filter (where user_id = ${userId})::int as mine,
+        count(*) as total
+      from taste_grants`;
+    return Number(row?.mine ?? 0) > 0 || Number(row?.total ?? 0) < FREE_TASTE_GRANTS;
+  } catch {
+    return true; // fail open, same as the gate
+  }
+}
+
 /** The tokens a user may spend before the gate closes: the free lifetime
- *  taste plus every credit they've bought (free plan), or the legacy monthly
- *  subscription allowance (paid plans, until they cancel), or ∞ (owner). */
-export function allowanceFor(plan: PlanId, credits: number): number {
-  return plan === "free" ? PLANS.free.tokens + credits : PLANS[plan].tokens;
+ *  taste (IF they hold / can claim a pool grant) plus every credit they've
+ *  bought (free plan), or the legacy monthly subscription allowance (paid
+ *  plans, until they cancel), or ∞ (owner). */
+export function allowanceFor(
+  plan: PlanId,
+  credits: number,
+  hasTaste = true,
+): number {
+  return plan === "free"
+    ? (hasTaste ? PLANS.free.tokens : 0) + credits
+    : PLANS[plan].tokens;
 }
 
 /** The pre-flight QUOTA GATE for every route that starts AI work. Returns null
@@ -338,7 +398,8 @@ export async function assertQuota(userId: string): Promise<Response | null> {
   ]);
   const plan = PLANS[billing.plan] ?? PLANS.free;
   const used = usedFor(plan.id, usage);
-  const limit = allowanceFor(plan.id, credits);
+  const taste = plan.id === "free" ? await claimTasteGrant(userId) : true;
+  const limit = allowanceFor(plan.id, credits, taste);
   if (used < limit) return null;
   return quotaExceeded(plan.id, used, limit, credits);
 }
@@ -360,7 +421,9 @@ function quotaExceeded(
         plan === "free"
           ? credits > 0
             ? "Your tokens are spent — top up to keep composing."
-            : "That was the free taste — top up tokens to keep composing."
+            : limitTokens === 0
+              ? "The free tastes are all claimed — top up tokens to start composing."
+              : "That was the free taste — top up tokens to keep composing."
           : "You’ve used this month’s loops — they refresh next month, or top up tokens on the billing page.",
       code: "quota_exhausted",
       plan,
@@ -414,7 +477,11 @@ export async function reserveQuota(userId: string): Promise<QuotaReservation> {
       ]);
       const plan = PLANS[billing.plan] ?? PLANS.free;
       const used = usedFor(plan.id, usage);
-      const limit = allowanceFor(plan.id, credits);
+      // FREE POOL: the taste only counts if this account holds (or can still
+      // claim) one of the FREE_TASTE_GRANTS pool grants. Claimed here, at the
+      // first compose attempt — sign-ups alone never burn a grant.
+      const taste = plan.id === "free" ? await claimTasteGrant(userId, sql) : true;
+      const limit = allowanceFor(plan.id, credits, taste);
       const [{ reserved }] = await sql<{ reserved: string | number }[]>`
         select coalesce(sum(est_tokens), 0) as reserved
         from token_reservations where user_id = ${userId}`;

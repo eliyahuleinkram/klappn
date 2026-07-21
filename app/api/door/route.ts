@@ -10,9 +10,9 @@ export async function GET() {
     const songs = await listDoorSongs();
     return Response.json(
       { songs },
-      // Public + briefly edge-cached: the door is hit by every signed-out
-      // visitor and changes only when the owner re-curates.
-      { headers: { "cache-control": "public, max-age=60, s-maxage=300" } },
+      // No cache: the list is a fresh shuffle per request, and freezing one
+      // deal at the edge would defeat it.
+      { headers: { "cache-control": "no-store" } },
     );
   } catch {
     // A cold local DB must not crash the sign-in page — an empty door is fine.
