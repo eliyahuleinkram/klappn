@@ -22,12 +22,7 @@ import {
   teardownVisuals,
   updateVisuals,
 } from "@/lib/strudel-client";
-import {
-  assignChannelOrbits,
-  channelOfOrbit,
-  CHANNELS,
-  type Channel,
-} from "@/lib/set-live";
+import { layerAppendPos, stripDuckFamily } from "@/lib/reverb-orbits";
 import { beatsPerBar, transposePitched } from "@/lib/playback";
 import { extractHydra } from "@/lib/hydra-embed";
 import {
@@ -95,10 +90,89 @@ function regrade(code: string, set: Record<string, number>): string {
 }
 /** A tiny swatch colour that EVOKES the look (hue-rotated from the house pink). */
 function swatch(set: Record<string, number>): string {
-  const hue = (320 + (set.vHue ?? 0) * 360) % 360;
+  const hue = (((320 + (set.vHue ?? 0) * 360) % 360) + 360) % 360;
   const sat = Math.max(12, Math.min(95, 40 + (set.vSaturation ?? 1) * 32));
   const lum = Math.max(24, Math.min(78, 52 + (set.vBrightness ?? 0) * 90));
   return `hsl(${Math.round(hue)}deg ${Math.round(sat)}% ${Math.round(lum)}%)`;
+}
+
+// --- THE LAUNCHPAD ------------------------------------------------------------
+// Every `$:` layer of the sounding loop becomes a BUTTON. Each layer rides its
+// own orbit bus (10, 11, 12, …), so a tap is an instant Web Audio gain ramp —
+// tails included, back mid-note — exactly the Sets kill law, but per layer.
+interface DoorLayer {
+  orbit: number;
+  name: string;
+}
+type DoorEntry = PlayEntry & { layersBySection: Record<string, DoorLayer[]> };
+
+const LAYER_ORBIT_BASE = 10;
+
+// Button names people feel: classic shorthands spelled out; noise tides named
+// for what they do in the room; everything else is the sound's own name.
+const SOUND_NAMES: Record<string, string> = {
+  bd: "Kick",
+  sd: "Snare",
+  hh: "Hats",
+  ch: "Hats",
+  oh: "Open hat",
+  cp: "Clap",
+  cr: "Crash",
+  rd: "Ride",
+  rim: "Rim",
+  sh: "Shaker",
+  lt: "Tom",
+  mt: "Tom",
+  ht: "Tom",
+  cb: "Cowbell",
+  white: "Air",
+  pink: "Air",
+  brown: "Tide",
+};
+function layerName(code: string): string {
+  const m = code.match(/\b(?:s|sound)\(\s*["'`]([^"'`]*)["'`]/);
+  const tok = m?.[1]?.toLowerCase().split(/[^a-z0-9_]+/).find(Boolean) ?? "";
+  if (!tok) return "Layer";
+  if (SOUND_NAMES[tok]) return SOUND_NAMES[tok];
+  const pretty = tok.replace(/^gm_/, "").replace(/_/g, " ");
+  return pretty.charAt(0).toUpperCase() + pretty.slice(1);
+}
+
+/** Re-bus a section so EVERY layer owns its orbit, and name each one. Meta
+ *  comment blocks (@hydra & co) stay untouched — same cap as the Sets re-bus
+ *  (an `.orbit()` landing inside visual code kills the whole evaluate). */
+function rebusLayers(code: string): { code: string; layers: DoorLayer[] } {
+  if (!code) return { code, layers: [] };
+  const metaAt = code.search(
+    /\/\*\s*@(?:hydra|controls|vcontrols|vlooks|swaps|edits)\b/,
+  );
+  const musicEnd = metaAt >= 0 ? metaAt : code.length;
+  const tail = code.slice(musicEnd);
+  const music = code.slice(0, musicEnd);
+  const starts: number[] = [];
+  for (const m of music.matchAll(/\$:/g)) starts.push(m.index ?? 0);
+  if (!starts.length) return { code, layers: [] };
+  const out: string[] = [music.slice(0, starts[0])];
+  const layers: DoorLayer[] = [];
+  const seen = new Map<string, number>();
+  for (let i = 0; i < starts.length; i++) {
+    const end = i + 1 < starts.length ? starts[i + 1] : music.length;
+    const layer = stripDuckFamily(
+      music.slice(starts[i], end).replace(/\.orbit\(\s*\d+\s*\)/g, ""),
+    );
+    const base = layerName(layer);
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    const at = layerAppendPos(layer);
+    out.push(
+      `${layer.slice(0, at)}.orbit(${LAYER_ORBIT_BASE + i})${layer.slice(at)}`,
+    );
+    layers.push({
+      orbit: LAYER_ORBIT_BASE + i,
+      name: n > 1 ? `${base} ${n}` : base,
+    });
+  }
+  return { code: out.join("") + tail, layers };
 }
 
 /**
@@ -134,13 +208,16 @@ export default function DoorGallery({
     first: null,
     last: null,
   });
-  // Ref-first for anything a gesture must read synchronously (SetClient law).
-  const [kills, setKills] = useState<Record<Channel, boolean>>({
-    drums: false,
-    bass: false,
-    melody: false,
-  });
-  const killsRef = useRef(kills);
+  // THE LAUNCHPAD state — `off` is keyed by layer NAME, so a killed "Kick"
+  // stays killed through section boundaries and the one-bar breaks between
+  // them (their layers wear the same names). Ref-first for anything a gesture
+  // must read synchronously (SetClient law). `layersRef` = the SOUNDING
+  // section's layers (gating truth, breaks included); `layersUi` = the loop
+  // grid on screen (breaks don't flash the grid for one bar).
+  const [offNames, setOffNames] = useState<Set<string>>(new Set());
+  const offRef = useRef(offNames);
+  const [layersUi, setLayersUi] = useState<DoorLayer[]>([]);
+  const layersRef = useRef<DoorLayer[]>([]);
   const [fx, setFx] = useState<Record<FxKey, boolean>>({
     filter: false,
     echo: false,
@@ -157,7 +234,7 @@ export default function DoorGallery({
   const [look, setLook] = useState<string | null>(null);
   const lookRef = useRef<Look | null>(null); // the grade every repaint wears
   const lastHydraRef = useRef<string | null>(null);
-  const codeCache = useRef(new Map<string, PlayEntry>());
+  const codeCache = useRef(new Map<string, DoorEntry>());
 
   const playingId = useNowPlayingValue(
     (s) => (s?.kind === "song" ? s.id : null),
@@ -168,6 +245,7 @@ export default function DoorGallery({
     false,
   );
   const [curSectionId, setCurSectionId] = useState<string | null>(null);
+  const curSectionIdRef = useRef<string | null>(null);
 
   const current = songs.find((s) => s.id === playingId) ?? songs[at % songs.length];
   const isPlaying = !!current && playingId === current.id;
@@ -192,8 +270,8 @@ export default function DoorGallery({
   }
 
   /** Fetch + build (once per song): sealed payload → sections, then RE-BUS
-   *  every layer onto its channel's orbit decade for the kill gates. */
-  async function entryFor(s: DoorSong): Promise<PlayEntry | null> {
+   *  every layer onto its OWN orbit and name it — the launchpad's buttons. */
+  async function entryFor(s: DoorSong): Promise<DoorEntry | null> {
     let entry = codeCache.current.get(s.id) ?? null;
     if (entry) return entry;
     const res = await fetch(`/api/door/${s.id}`);
@@ -205,13 +283,13 @@ export default function DoorGallery({
     );
     const built = buildPlayEntry(d?.parts ?? [], d?.song?.plan ?? {});
     if (!built) return null;
-    entry = {
-      ...built,
-      sections: built.sections.map((sec) => ({
-        ...sec,
-        code: assignChannelOrbits(sec.code),
-      })),
-    };
+    const layersBySection: Record<string, DoorLayer[]> = {};
+    const sections = built.sections.map((sec) => {
+      const { code, layers } = rebusLayers(sec.code);
+      layersBySection[sec.id] = layers;
+      return { ...sec, code };
+    });
+    entry = { ...built, sections, layersBySection };
     codeCache.current.set(s.id, entry);
     return entry;
   }
@@ -261,21 +339,44 @@ export default function DoorGallery({
 
   // Section changes build fresh orbit buses at gain 1 — re-assert the kills on
   // a light tick (applyOrbitGains skips buses already at target; Sets' law).
-  const killGainFor = (orbit: number): number | undefined => {
-    const ch = channelOfOrbit(orbit);
-    return ch ? (killsRef.current[ch] ? 0 : 1) : undefined;
+  const gainFor = (orbit: number): number | undefined => {
+    const l = layersRef.current.find((x) => x.orbit === orbit);
+    return l ? (offRef.current.has(l.name) ? 0 : 1) : undefined;
   };
   useEffect(() => {
     if (!playingId) return;
-    const t = setInterval(() => applyOrbitGains(killGainFor), 200);
+    const t = setInterval(() => applyOrbitGains(gainFor), 200);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
+  }, [playingId]);
+
+  // THE PICTURE NEVER DIES DURING PLAY: if the canvas is gone, hidden, or
+  // zero-sized while a song with a visual sounds, revive it and re-run the
+  // sounding section's sketch (context loss, a lost race, anything).
+  useEffect(() => {
+    if (!playingId) return;
+    const t = setInterval(() => {
+      const entry = codeCache.current.get(playingId);
+      if (!entry?.visual) return;
+      const c = (document.getElementById("k1-canvas") ??
+        document.getElementById("hydra-canvas")) as HTMLCanvasElement | null;
+      if (c && c.style.display !== "none" && c.width > 0) return;
+      setVisuals(true);
+      const sec =
+        entry.sections.find((x) => x.id === curSectionIdRef.current) ??
+        entry.sections[0];
+      paint(sec?.code, true);
+    }, 4000);
+    return () => clearInterval(t);
+     
   }, [playingId]);
 
   useEffect(() => {
-    // A new song brings its own default grade.
+    // A new song brings its own default grade and a fresh launchpad.
     lookRef.current = null;
     setLook(null);
+    offRef.current = new Set();
+    setOffNames(new Set());
   }, [playingId]);
 
   // Leaving the door (signing in!): the music rides along — the dock carries
@@ -284,10 +385,15 @@ export default function DoorGallery({
   useEffect(() => {
     // The door paints its own pictures (paint/startIdleVisual) — keep hydra OUT
     // of the evaluated programs, whose prod-only death would kill visuals for
-    // the session at the first play.
+    // the session at the first play. And the picture IS the room here: the
+    // door-stage class lifts the canvas from its behind-the-UI dimming to
+    // near-full — the reason "the visuals don't show" was mostly 0.45 opacity
+    // over black.
     setExplicitVisualsDrive(true);
+    document.body.classList.add("door-stage");
     return () => {
       setExplicitVisualsDrive(false);
+      document.body.classList.remove("door-stage");
       const np = nowPlaying();
       if (np) {
         if (np.surfaceMounted) updateNowPlaying({ surfaceMounted: false });
@@ -322,7 +428,7 @@ export default function DoorGallery({
       else setVisuals(true);
       ensurePerfFx();
       setLivePerf(perfValues(fxRef.current));
-      const { labels, holds } = entry;
+      const { labels } = entry;
       const cached = entry;
       canonRef.current = {
         first: entry.sections[0].id,
@@ -338,6 +444,9 @@ export default function DoorGallery({
       ];
       journeyRef.current = { sawLast: false, advancing: false };
       setCurSectionId(list[0].id);
+      curSectionIdRef.current = list[0].id;
+      layersRef.current = cached.layersBySection[list[0].id] ?? [];
+      if (!list[0].id.startsWith("break:")) setLayersUi(layersRef.current);
       await playSong(list, {
         owner: s.id,
         // The KEY, applied at evaluate — drums keep their sample pitch.
@@ -347,7 +456,14 @@ export default function DoorGallery({
           updateNowPlaying({ sectionLabel: id ? (labels[id] ?? null) : null });
           if (!id) return;
           setCurSectionId(id);
-          paint(cached.sections.find((x) => x.id === id)?.code);
+          curSectionIdRef.current = id;
+          // The launchpad follows the sounding section; a one-bar break keeps
+          // the loop's grid on screen (its gates still apply by name).
+          layersRef.current = cached.layersBySection[id] ?? [];
+          if (!id.startsWith("break:")) setLayersUi(layersRef.current);
+          // FORCED repaint on every boundary — the picture must never be the
+          // thing that got stuck.
+          paint(cached.sections.find((x) => x.id === id)?.code, true);
           // THE HAND-OFF: wrap detected → this downbeat belongs to the next
           // song. Canonical ids, so key-change rotations don't confuse it.
           const j = journeyRef.current;
@@ -360,15 +476,10 @@ export default function DoorGallery({
             j.sawLast = true;
           }
         },
-        repeatsFor: (id) => {
-          if (
-            !id.startsWith("break:") &&
-            cached.sections.find((x) => x.id === id)?.arr
-          )
-            return 1;
-          const target = holds[id] ?? 1;
-          return Number.isFinite(target) ? target : 1;
-        },
+        // THE DOOR NEVER LINGERS: every section — loop, break, unfold — plays
+        // exactly once. Repeat latches are a song-page luxury; the room here
+        // keeps MOVING (new picture, new layers, new name).
+        repeatsFor: () => 1,
         effectsFor: () => cached.effects,
         overlaysFor: () => cached.overlays,
         ending: entry.ending,
@@ -423,11 +534,21 @@ export default function DoorGallery({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playingId, paused, loadingPlay, at, songs]);
 
-  function toggleKill(ch: Channel) {
-    const out = { ...killsRef.current, [ch]: !killsRef.current[ch] };
-    killsRef.current = out; // ref FIRST — the gate reads it synchronously
-    applyOrbitGains(killGainFor);
-    setKills(out);
+  function toggleLayer(name: string) {
+    const next = new Set(offRef.current);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    offRef.current = next; // ref FIRST — the gate reads it synchronously
+    applyOrbitGains(gainFor);
+    setOffNames(next);
+  }
+
+  /** Deal the next song NOW — the cut lands at the tap, launchpad and grade
+   *  reset with the new name (the playingId watcher). */
+  function skip() {
+    if (loadingPlay || !current) return;
+    const n = nextOf(current);
+    if (n) void onPlay(n);
   }
 
   function toggleFx(k: FxKey) {
@@ -483,6 +604,8 @@ export default function DoorGallery({
 
   const pill =
     "rounded-full px-4 py-2 text-[13px] font-medium backdrop-blur-xl transition active:scale-[.96]";
+  // Over a full-bright picture, floating text needs its own shadow to hold.
+  const shade = "[text-shadow:0_1px_14px_rgba(0,0,0,.9)]";
 
   return (
     <div className="flex w-full max-w-xl flex-col items-center text-center">
@@ -490,16 +613,18 @@ export default function DoorGallery({
           hand-off RISES in with its new name. */}
       <p
         key={current.id}
-        className="animate-rise text-[13px] tabular-nums text-muted/80"
+        className={`animate-rise text-[13px] tabular-nums text-foreground/75 ${shade}`}
         style={{ "--i": 0 } as React.CSSProperties}
       >
-        <span className="wordmark text-[17px] tracking-tight text-foreground/90">
+        <span className="wordmark text-[17px] tracking-tight text-foreground">
           {current.title}
         </span>
         {meta && <span className="mt-0.5 block">{meta}</span>}
       </p>
 
-      {/* THE ORB — one tap, the room fills. It burns while the music sounds. */}
+      {/* THE ORB — one tap, the room fills. It burns while the music sounds.
+          The » beside it deals the NEXT song on your downbeat, not the song's. */}
+      <div className="relative mt-7 flex w-full items-center justify-center">
       <button
         onClick={() => void onPlay(current)}
         disabled={loadingPlay}
@@ -511,7 +636,6 @@ export default function DoorGallery({
             : `Play ${current.title}`
         }
         className="group relative flex h-24 w-24 items-center justify-center rounded-full text-white transition-transform duration-200 hover:scale-[1.04] active:scale-95 disabled:opacity-70"
-        style={{ marginTop: "1.75rem" }}
       >
         <span
           aria-hidden
@@ -545,28 +669,46 @@ export default function DoorGallery({
           )}
         </span>
       </button>
+      {isPlaying && songs.length > 1 && (
+        <button
+          onClick={skip}
+          disabled={loadingPlay}
+          aria-label="Next song"
+          title="Next"
+          className="absolute left-[calc(50%+4.5rem)] top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/[0.14] bg-black/35 text-foreground/85 backdrop-blur-xl transition hover:border-accent/45 hover:text-accent active:scale-90 disabled:opacity-50"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M5 5l7 7-7 7M13 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
+      </div>
 
       {/* Fixed-height stage below the orb: the idle line and the whole deck
           share the SAME reserved space, so the orb never moves. */}
       <div className="mt-7 flex min-h-[13.5rem] w-full flex-col items-center justify-start">
         {!isPlaying ? (
-          <p className="mt-9 text-[15px] text-muted">It sounds like this.</p>
+          <p className={`mt-9 text-[15px] text-foreground/80 ${shade}`}>
+            It sounds like this.
+          </p>
         ) : (
           <>
-            {/* THE PARTS — lit = in the mix; tap = gone, instantly, tails and all. */}
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {CHANNELS.map((ch) => (
+            {/* THE LAUNCHPAD — every layer of the sounding loop is a button.
+                Lit = in the mix; tap = gone, instantly, tails and all; tap
+                again = back mid-note. */}
+            <div className="flex max-w-lg flex-wrap items-center justify-center gap-2">
+              {layersUi.map((l) => (
                 <button
-                  key={ch}
-                  onClick={() => toggleKill(ch)}
-                  aria-pressed={!kills[ch]}
+                  key={l.name}
+                  onClick={() => toggleLayer(l.name)}
+                  aria-pressed={!offNames.has(l.name)}
                   className={`${pill} ${
-                    kills[ch]
-                      ? "border border-white/[0.08] bg-white/[0.03] text-muted/50 line-through"
-                      : "border border-accent/25 bg-accent/[0.12] text-foreground shadow-[0_0_24px_-8px_rgba(224,49,156,.8)]"
+                    offNames.has(l.name)
+                      ? "border border-white/[0.1] bg-black/35 text-muted/60"
+                      : "border border-accent/30 bg-accent/[0.16] text-foreground shadow-[0_0_24px_-8px_rgba(224,49,156,.9)]"
                   }`}
                 >
-                  {ch === "drums" ? "Drums" : ch === "bass" ? "Bass" : "Melody"}
+                  {l.name}
                 </button>
               ))}
             </div>
@@ -579,8 +721,8 @@ export default function DoorGallery({
                   aria-pressed={fx[k]}
                   className={`${pill} ${
                     fx[k]
-                      ? "border border-accent/30 bg-accent/20 text-accent"
-                      : "border border-white/[0.08] bg-white/[0.04] text-muted hover:text-foreground"
+                      ? "border border-accent/35 bg-accent/25 text-white shadow-[0_0_20px_-6px_rgba(224,49,156,.9)]"
+                      : "border border-white/[0.1] bg-black/35 text-foreground/70 hover:text-foreground"
                   }`}
                 >
                   {FX_LABEL[k]}
@@ -607,10 +749,11 @@ export default function DoorGallery({
                 ))}
               </div>
             )}
-            {/* THE PHYSICS — bend the tempo live; shift the key on release */}
-            <div className="mt-4 flex w-full max-w-sm flex-col gap-2.5 px-2">
+            {/* THE PHYSICS — bend the tempo live; shift the key on release.
+                Machined ranges: pink-filled track, burning thumb (globals.css). */}
+            <div className="mt-4 flex w-full max-w-sm flex-col gap-3 px-2">
               <div className="flex items-center gap-3">
-                <span className="w-12 shrink-0 text-left text-[11px] uppercase tracking-widest text-muted/60">
+                <span className={`w-12 shrink-0 text-left text-[11px] uppercase tracking-widest text-foreground/60 ${shade}`}>
                   Tempo
                 </span>
                 <input
@@ -621,18 +764,19 @@ export default function DoorGallery({
                   value={tempo}
                   onChange={(e) => onTempo(Number(e.target.value))}
                   aria-label="Tempo"
-                  className="h-1 min-w-0 flex-1 cursor-pointer accent-[#e0319c]"
+                  className="door-range min-w-0 flex-1 cursor-pointer"
+                  style={{ "--p": `${((tempo - 0.6) / 0.8) * 100}%` } as React.CSSProperties}
                 />
                 <button
                   onClick={() => onTempo(1)}
                   title="Back to the song's tempo"
-                  className="w-16 shrink-0 text-right text-[12px] tabular-nums text-foreground/80 transition hover:text-accent"
+                  className={`w-16 shrink-0 text-right text-[12px] tabular-nums text-foreground/90 transition hover:text-accent ${shade}`}
                 >
                   {Math.round((current.plan?.bpm || 120) * tempo)} BPM
                 </button>
               </div>
               <div className="flex items-center gap-3">
-                <span className="w-12 shrink-0 text-left text-[11px] uppercase tracking-widest text-muted/60">
+                <span className={`w-12 shrink-0 text-left text-[11px] uppercase tracking-widest text-foreground/60 ${shade}`}>
                   Key
                 </span>
                 <input
@@ -646,12 +790,13 @@ export default function DoorGallery({
                   onKeyUp={() => commitKey(keyUi)}
                   onTouchEnd={() => commitKey(keyUi)}
                   aria-label="Key"
-                  className="h-1 min-w-0 flex-1 cursor-pointer accent-[#e0319c]"
+                  className="door-range min-w-0 flex-1 cursor-pointer"
+                  style={{ "--p": `${((keyUi + 7) / 14) * 100}%` } as React.CSSProperties}
                 />
                 <button
                   onClick={() => commitKey(0)}
                   title="Back to the song's key"
-                  className="w-16 shrink-0 text-right text-[12px] tabular-nums text-foreground/80 transition hover:text-accent"
+                  className={`w-16 shrink-0 text-right text-[12px] tabular-nums text-foreground/90 transition hover:text-accent ${shade}`}
                 >
                   {keyUi > 0 ? `+${keyUi}` : keyUi} st
                 </button>

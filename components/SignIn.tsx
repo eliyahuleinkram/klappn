@@ -116,6 +116,12 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
               "radial-gradient(closest-side, rgba(224,49,156,.14), rgba(168,85,247,.05) 55%, transparent 75%)",
           }}
         />
+        {/* legibility scrims — the picture burns near-full behind (door-stage);
+            the words float on soft gradients, never on panels */}
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,.5),transparent_26%,transparent_58%,rgba(0,0,0,.62))]"
+        />
         {/* the brand signs the corner — the room belongs to the music */}
         <div className="relative z-10 flex items-center gap-2.5 pt-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
