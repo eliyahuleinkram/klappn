@@ -45,29 +45,36 @@ export interface DoorSong {
 
 // The three room chips — fixed, tasty amounts. One tap in, one tap out;
 // setLivePerf ramps on the audio graph, so the change is INSTANT and clickless.
-type FxKey = "filter" | "echo" | "space";
-const FX_KEYS: FxKey[] = ["filter", "echo", "space"];
+type FxKey = "filter" | "echo" | "punch" | "space";
+const FX_KEYS: FxKey[] = ["filter", "echo", "punch", "space"];
 const FX_LABEL: Record<FxKey, string> = {
   filter: "Filter",
   echo: "Echo",
+  punch: "Punch",
   space: "Space",
 };
 function perfValues(f: Record<FxKey, boolean>) {
   return {
     filter: f.filter ? -55 : 0,
     echo: f.echo ? 0.45 : 0,
-    punch: 0,
+    punch: f.punch ? 0.4 : 0,
     space: f.space ? 0.5 : 0,
   };
 }
 
 /**
- * THE DOOR — the signed-out page IS the instrument. One orb; tap it and a
- * whole song plays in the browser while its own picture takes the room. Then
- * the deck appears: drop the drums, the bass, the melody — instantly, on the
+ * THE DOOR — the signed-out page IS the instrument, and one tap starts a
+ * JOURNEY: each song plays through once, then hands the room to the next —
+ * new picture, new name, no buttons, no choices. The only hands-on controls
+ * are the deck: drop the drums, the bass, the melody — instantly, on the
  * audio graph (the same orbit-decade gates the Sets deck uses) — darken the
- * filter, throw the echo, open the space, unfold the live code, deal Another.
- * No account, no tour, no explanation. The technology is the pitch.
+ * filter, throw the echo, open the space. No account, no tour, no
+ * explanation. The technology is the pitch.
+ *
+ * The hand-off fires ON THE WRAP: playSong cycles its sections forever, so
+ * when the first section comes back around after the last one has played,
+ * the song has said everything once — that downbeat belongs to the next
+ * song (cross-song law: the transition is a cut, and it lands on the bar).
  *
  * Playback laws are home's: tap the sounding orb to hold, cut at tap time,
  * publish only after the engine sounds. The door OWNS its surface
@@ -85,8 +92,10 @@ export default function DoorGallery({
   const [at, setAt] = useState(0);
   const [loadingPlay, setLoadingPlay] = useState(false);
   const [error, setError] = useState(false);
-  const [codeOpen, setCodeOpen] = useState(false);
-  const [curSectionId, setCurSectionId] = useState<string | null>(null);
+  // The journey's odometer: set once the last section has sounded; the next
+  // arrival of the FIRST section is the wrap — that downbeat starts the next
+  // song. Guarded so one wrap fires exactly one hand-off.
+  const journeyRef = useRef({ sawLast: false, advancing: false });
   // Ref-first for anything a gesture must read synchronously (SetClient law:
   // a setState updater runs at render time — the gate would lag a tick).
   const [kills, setKills] = useState<Record<Channel, boolean>>({
@@ -98,6 +107,7 @@ export default function DoorGallery({
   const [fx, setFx] = useState<Record<FxKey, boolean>>({
     filter: false,
     echo: false,
+    punch: false,
     space: false,
   });
   const fxRef = useRef(fx);
@@ -179,9 +189,12 @@ export default function DoorGallery({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playingId]);
 
-  useEffect(() => {
-    if (!playingId) setCodeOpen(false); // the reveal belongs to a sounding room
-  }, [playingId]);
+  /** The next stop on the journey (the list is already a per-visit shuffle). */
+  function nextOf(s: DoorSong): DoorSong | null {
+    if (songs.length < 2) return null;
+    const from = songs.findIndex((x) => x.id === s.id);
+    return songs[(from + 1 + songs.length) % songs.length] ?? null;
+  }
 
   // Leaving the door (signing in!): the music rides along — the dock carries
   // it into the signed-in home. Only a silent page tears the engine down. The
@@ -225,12 +238,25 @@ export default function DoorGallery({
       setLivePerf(perfValues(fxRef.current));
       const { labels, holds } = entry;
       const cached = entry;
-      setCurSectionId(entry.sections[0].id);
+      journeyRef.current = { sawLast: false, advancing: false };
       await playSong(entry.sections, {
         owner: s.id,
         onSection: (id) => {
           updateNowPlaying({ sectionLabel: id ? (labels[id] ?? null) : null });
-          if (id) setCurSectionId(id);
+          if (!id) return;
+          // THE HAND-OFF: wrap detected → this downbeat belongs to the next
+          // song. (Wrap check before the last-mark so a one-section song
+          // advances on its second pass, not never.)
+          const j = journeyRef.current;
+          const secs = cached.sections;
+          if (id === secs[0].id && j.sawLast && !j.advancing) {
+            j.advancing = true;
+            const upNext = nextOf(s);
+            if (upNext) void onPlay(upNext);
+            else j.advancing = false;
+          } else if (id === secs[secs.length - 1].id) {
+            j.sawLast = true;
+          }
         },
         repeatsFor: (id) => {
           if (
@@ -258,19 +284,16 @@ export default function DoorGallery({
         paused: false,
         surfaceMounted: true,
       });
+      setAt(Math.max(0, songs.findIndex((x) => x.id === s.id)));
+      // The next stop warms up NOW — the hand-off must land on its downbeat,
+      // not on a network wait.
+      const upNext = nextOf(s);
+      if (upNext) void entryFor(upNext).catch(() => {});
     } catch {
       setError(true);
     } finally {
       setLoadingPlay(false);
     }
-  }
-
-  function onAnother() {
-    if (!songs.length) return;
-    const from = songs.findIndex((x) => x.id === current?.id);
-    const next = songs[(from + 1 + songs.length) % songs.length];
-    setAt(songs.indexOf(next));
-    void onPlay(next);
   }
 
   function toggleKill(ch: Channel) {
@@ -298,26 +321,18 @@ export default function DoorGallery({
     .filter(Boolean)
     .join(" · ");
 
-  // The unfolded live code: the section sounding right now, grade-spec blocks
-  // stripped (music + @hydra stay — the picture is code too).
-  const entry = codeCache.current.get(current.id);
-  const liveSection =
-    isPlaying && codeOpen && entry
-      ? (entry.sections.find((x) => x.id === curSectionId) ?? entry.sections[0])
-      : null;
-  const liveCode = liveSection
-    ? liveSection.code
-        .replace(/\/\*\s*@(?:vcontrols|vlooks)\b[\s\S]*?\*\/\n*/g, "")
-        .trim()
-    : null;
-
   const pill =
     "rounded-full px-4 py-2 text-[13px] font-medium backdrop-blur-xl transition active:scale-[.96]";
 
   return (
     <div className="flex w-full max-w-xl flex-col items-center text-center">
-      {/* the whisper — what's on, or waiting */}
-      <p className="text-[13px] tabular-nums text-muted/80">
+      {/* the whisper — where the journey is right now. Re-keyed per song so
+          every hand-off RISES in with its new name. */}
+      <p
+        key={current.id}
+        className="animate-rise text-[13px] tabular-nums text-muted/80"
+        style={{ "--i": 0 } as React.CSSProperties}
+      >
         <span className="wordmark text-[17px] tracking-tight text-foreground/90">
           {current.title}
         </span>
@@ -392,7 +407,7 @@ export default function DoorGallery({
               </button>
             ))}
           </div>
-          {/* the room — colour the sound, open the code, deal the next hand */}
+          {/* the room — colour the sound */}
           <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
             {FX_KEYS.map((k) => (
               <button
@@ -408,43 +423,13 @@ export default function DoorGallery({
                 {FX_LABEL[k]}
               </button>
             ))}
-            <button
-              onClick={() => setCodeOpen((v) => !v)}
-              aria-pressed={codeOpen}
-              className={`${pill} ${
-                codeOpen
-                  ? "border border-accent/30 bg-accent/20 text-accent"
-                  : "border border-white/[0.08] bg-white/[0.04] text-muted hover:text-foreground"
-              }`}
-            >
-              {codeOpen ? "✕ Code" : "Code"}
-            </button>
-            <button
-              onClick={onAnother}
-              className={`${pill} border border-white/[0.08] bg-white/[0.04] text-muted hover:text-foreground`}
-            >
-              Another
-            </button>
           </div>
         </>
       )}
 
-      {liveCode && (
-        <div className="mt-5 w-full rounded-xl border border-white/[0.08] bg-black/50 text-left backdrop-blur-xl">
-          <p className="flex items-center gap-2 border-b border-white/[0.06] px-3.5 py-2 text-[11px] tracking-wide text-muted/70">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_var(--accent)]" />
-            {(entry?.labels[liveSection!.id] ?? "Loop") +
-              " — the code, as it sounds"}
-          </p>
-          <pre className="max-h-52 overflow-auto px-3.5 py-3 font-mono text-[11px] leading-relaxed text-foreground/80">
-            {liveCode}
-          </pre>
-        </div>
-      )}
-
       {error && (
         <p className="mt-3 text-[13px] text-red-400">
-          Couldn&rsquo;t start that one — tap Another.
+          The journey stumbled — tap the orb.
         </p>
       )}
     </div>
