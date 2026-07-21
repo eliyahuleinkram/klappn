@@ -205,6 +205,24 @@ body.door-stage #k1-canvas {
 .pad-lit {
   animation: pad-breathe 2.4s ease-in-out calc(var(--i, 0) * -0.35s) infinite;
 }
+/* While the music SOUNDS, every lit pad throbs ON THE BEAT — --beat is the
+   song's live beat length (60 / (bpm × tempo-multiplier)), set inline. */
+@keyframes pad-throb {
+  0%,
+  100% {
+    box-shadow:
+      0 0 14px -8px rgba(224, 49, 156, 0.7),
+      inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  }
+  12% {
+    box-shadow:
+      0 0 38px -4px rgba(255, 99, 193, 1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+}
+.pad-pulse {
+  animation: pad-throb var(--beat, 0.5s) ease-out infinite;
+}
 
 /* THE DOOR'S RANGES — machined glass: a pink-filled track (--p = fill %) and a
    burning thumb. appearance-none so both engines take the custom skin. */

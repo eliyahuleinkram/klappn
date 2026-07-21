@@ -22,9 +22,11 @@ import {
   destroyDoorVisual,
   looksFor,
   pieceFor,
+  pulseDoorVisual,
   reseedDoorVisual,
   seedFrom,
   setDoorEnergy,
+  setDoorRush,
   showDoorVisual,
 } from "@/lib/door-visuals";
 import { layerAppendPos, stripDuckFamily } from "@/lib/reverb-orbits";
@@ -271,13 +273,20 @@ export default function DoorGallery({
   // THE ROOM IS LIT BEFORE THE TAP — the door's own visual engine paints the
   // first song's piece the moment the page exists (no audio boot in the way;
   // the engine self-heals if anything kills its frames). The first song's
-  // AUDIO is prefetched alongside so the orb answers instantly.
+  // AUDIO is prefetched alongside — and its PADS go up idle, so the page
+  // reads as an instrument before a single note: touch any pad, it starts.
   useEffect(() => {
     const first = songs[0];
     if (!first) return;
     void showDoorVisual(pieceFor(first), { bpm: first.plan?.bpm });
     onVisual?.(true);
-    void entryFor(first).catch(() => {});
+    void entryFor(first)
+      .then((e) => {
+        if (!e || nowPlaying()) return;
+        layersRef.current = e.layersBySection[e.sections[0].id] ?? [];
+        setLayersUi(layersRef.current);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -461,6 +470,7 @@ export default function DoorGallery({
     else next.add(name);
     offRef.current = next; // ref FIRST — the gate reads it synchronously
     applyOrbitGains(gainFor);
+    pulseDoorVisual(); // the light answers every touch
     setOffNames(next);
   }
 
@@ -479,15 +489,18 @@ export default function DoorGallery({
     fxRef.current = out;
     ensurePerfFx();
     setLivePerf(perfValues(out));
+    pulseDoorVisual(); // the light answers every touch
     setFx(out);
   }
 
   /** The momentary CUT: down = every layer bus to zero, up = everything back
-   *  mid-note. The 200ms tick re-asserts whichever state is held. */
+   *  mid-note. While held, the LIGHT RUSHES — silence with the visuals
+   *  screaming, then the drop. The 200ms tick re-asserts whichever is held. */
   function holdCut(on: boolean) {
     if (cutRef.current === on) return;
     cutRef.current = on; // ref FIRST — the gate reads it synchronously
     applyOrbitGains(gainFor);
+    setDoorRush(on);
     setCut(on);
   }
 
@@ -538,17 +551,21 @@ export default function DoorGallery({
 
   return (
     <div className="flex w-full max-w-xl flex-col items-center text-center">
-      {/* the whisper — where the run is right now. Re-keyed per song so every
+      {/* THE POSTER — the song's name in lights. Re-keyed per song so every
           hand-off RISES in with its new name. */}
       <p
         key={current.id}
-        className={`animate-rise text-[13px] tabular-nums text-foreground/75 ${shade}`}
+        className={`animate-rise tabular-nums ${shade}`}
         style={{ "--i": 0 } as React.CSSProperties}
       >
-        <span className="wordmark text-[17px] tracking-tight text-foreground">
+        <span className="wordmark block text-[clamp(30px,4.5vw,46px)] leading-none tracking-tight text-white">
           {current.title}
         </span>
-        {meta && <span className="mt-0.5 block">{meta}</span>}
+        {meta && (
+          <span className="mt-2 block text-[13px] font-medium uppercase tracking-[0.18em] text-foreground/70">
+            {meta}
+          </span>
+        )}
       </p>
 
       {/* THE ORB — one tap, the room fills. It burns while the music sounds.
@@ -613,39 +630,52 @@ export default function DoorGallery({
       )}
       </div>
 
-      {/* Fixed-height stage below the orb: the idle line and the whole deck
-          share the SAME reserved space, so the orb never moves. */}
+      {/* Fixed-height stage below the orb: idle and playing share the SAME
+          reserved space, so the orb never moves. */}
       <div className="mt-7 flex min-h-[17rem] w-full flex-col items-center justify-start">
-        {!isPlaying ? (
-          <p className={`mt-9 text-[15px] text-foreground/80 ${shade}`}>
-            It sounds like this.
+        {!isPlaying && (
+          <p className={`mb-3 text-[15px] text-foreground/85 ${shade}`}>
+            It sounds like this. Touch it.
           </p>
-        ) : (
+        )}
+        {/* THE LAUNCHPAD — a hardware grid, up BEFORE the first note (an idle
+            tap starts the song). While it sounds, every lit pad THROBS at the
+            song's own tempo; tap = that layer gone, instantly, tails and all;
+            tap again = back mid-note. Re-keyed per song so a fresh wall rises
+            in with every hand-off. */}
+        {layersUi.length > 0 && (
+          <div
+            key={`pads:${playingId ?? "idle"}`}
+            className="grid w-full max-w-md grid-cols-3 gap-2.5 sm:grid-cols-4"
+          >
+            {layersUi.map((l, i) => (
+              <button
+                key={l.name}
+                onClick={() =>
+                  isPlaying ? toggleLayer(l.name) : void onPlay(current)
+                }
+                aria-pressed={isPlaying ? !offNames.has(l.name) : undefined}
+                className={`animate-rise flex h-16 select-none items-center justify-center rounded-xl px-2 text-center text-[12.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.88] ${
+                  !isPlaying
+                    ? "border border-white/[0.14] bg-white/[0.05] text-white/75 hover:border-accent/50 hover:text-white"
+                    : offNames.has(l.name)
+                      ? "border border-white/[0.09] bg-black/45 text-white/40"
+                      : `${sounding ? "pad-pulse" : "pad-lit"} border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white`
+                }`}
+                style={
+                  {
+                    "--i": i,
+                    "--beat": `${60 / ((current.plan?.bpm || 120) * tempo)}s`,
+                  } as React.CSSProperties
+                }
+              >
+                {l.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {isPlaying && (
           <>
-            {/* THE LAUNCHPAD — every layer of the sounding loop is a PAD.
-                Lit pads breathe out of phase; tap = gone, instantly, tails and
-                all; tap again = back mid-note. Re-keyed per song so a fresh
-                wall of pads RISES in with every hand-off. */}
-            <div
-              key={`pads:${playingId}`}
-              className="flex max-w-lg flex-wrap items-center justify-center gap-2.5"
-            >
-              {layersUi.map((l, i) => (
-                <button
-                  key={l.name}
-                  onClick={() => toggleLayer(l.name)}
-                  aria-pressed={!offNames.has(l.name)}
-                  className={`animate-rise select-none rounded-2xl px-5 py-3.5 text-[13.5px] font-semibold tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.88] ${
-                    offNames.has(l.name)
-                      ? "border border-white/[0.09] bg-black/40 text-white/40"
-                      : "pad-lit border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white"
-                  }`}
-                  style={{ "--i": i } as React.CSSProperties}
-                >
-                  {l.name}
-                </button>
-              ))}
-            </div>
             {/* THE ROOM — colour the sound. And CUT: hold it, the whole mix
                 leaves; let go, it slams back on your fingertip. */}
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2">

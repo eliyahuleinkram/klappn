@@ -58,10 +58,11 @@ const PIECES: Piece[] = [
       { name: "Ultraviolet", tint: "#9b5cff", rgb: [0.95, 0.45, 1.4], energy: 1.3 },
     ],
     paint(s, L, bpm, seed) {
-      s.voronoi(5 + seed * 4, 0.9 * L.energy, 0.6)
+      s.voronoi(5 + seed * 4, 1.1 * L.energy, 0.6)
         .kaleid(6)
         .modulateRotate(s.osc(2 + seed * 2, 0.1 * L.energy, 0), 0.5)
-        .rotate(({ time }: any) => time * 0.04 * L.energy)
+        .modulateScale(s.osc(0.4, 0.05, 0), 0.2)
+        .rotate(({ time }: any) => time * 0.05 * L.energy)
         .blend(s.src(s.o0).scale(1.01).rotate(0.003), 0.45)
         .contrast(1.6)
         .color(...L.rgb)
@@ -79,8 +80,9 @@ const PIECES: Piece[] = [
       { name: "Midnight", tint: "#5c74ff", rgb: [0.45, 0.6, 1.3], energy: 0.65 },
     ],
     paint(s, L, bpm, seed) {
-      s.osc(3 + seed * 1.5, 0.06 * L.energy, 0)
-        .modulate(s.noise(2.4 + seed, 0.1 * L.energy).scale(1.3), 0.6)
+      s.osc(3 + seed * 1.5, 0.07 * L.energy, 0)
+        .modulate(s.noise(2.4 + seed, 0.12 * L.energy).scale(1.3), 0.6)
+        .rotate(({ time }: any) => time * 0.012 * L.energy)
         .contrast(1.7)
         .blend(s.src(s.o0).scale(1.015).scrollY(0, -0.0015), 0.55)
         .color(...L.rgb)
@@ -160,9 +162,9 @@ const PIECES: Piece[] = [
       { name: "Festival", tint: "#ff63c1", rgb: [1.3, 0.45, 1.0], energy: 1.2 },
     ],
     paint(s, L, bpm, seed) {
-      s.voronoi(3.2 + seed * 2, 0.3 * L.energy, 1.8)
-        .modulateScale(s.osc(0.5, 0.03, 0), 0.3)
-        .blend(s.src(s.o0).scale(1.006).scrollY(0, -0.003), 0.6)
+      s.voronoi(4 + seed * 2, 0.45 * L.energy, 1.8)
+        .modulateScale(s.osc(0.5, 0.04, 0), 0.35)
+        .blend(s.src(s.o0).scale(1.006).scrollY(0, -0.004), 0.6)
         .contrast(1.35)
         .color(...L.rgb)
         .brightness(-0.02)
@@ -195,8 +197,9 @@ export function seedFrom(id: string): number {
 // --- the engine --------------------------------------------------------------
 
 const CANVAS_ID = "door-visual";
-const IDLE_SPEED = 0.5;
-const PLAY_SPEED = 1.15;
+const IDLE_SPEED = 0.8;
+const PLAY_SPEED = 1.3;
+const RUSH_SPEED = 3.2;
 
 let hydra: any = null;
 let canvas: HTMLCanvasElement | null = null;
@@ -206,8 +209,14 @@ let frames = 0;
 let watchdog: ReturnType<typeof setInterval> | null = null;
 let resizeBound = false;
 let sounding = false;
+let rushing = false;
+let pulseTimer: ReturnType<typeof setTimeout> | null = null;
 let current: { piece: number; look: number; bpm: number; seed: number } | null =
   null;
+
+function baseSpeed(): number {
+  return rushing ? RUSH_SPEED : sounding ? PLAY_SPEED : IDLE_SPEED;
+}
 
 function res(): number {
   if (typeof window === "undefined") return 1;
@@ -253,7 +262,7 @@ async function build(): Promise<boolean> {
     canvas = document.createElement("canvas");
     canvas.id = CANVAS_ID;
     canvas.style.cssText =
-      "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:-1;opacity:.9;transition:opacity .6s ease";
+      "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:-1;opacity:1;transition:opacity .6s ease";
     document.body.prepend(canvas);
     sizeCanvas();
     hydra = new Hydra({
@@ -264,7 +273,7 @@ async function build(): Promise<boolean> {
       width: canvas.width,
       height: canvas.height,
     });
-    hydra.synth.speed = sounding ? PLAY_SPEED : IDLE_SPEED;
+    hydra.synth.speed = baseSpeed();
     lastFrameAt = 0;
     raf = requestAnimationFrame(frame);
     if (!resizeBound) {
@@ -317,7 +326,24 @@ export function reseedDoorVisual(seed: number): void {
 /** Play = the light moves at full tilt; idle/pause = a slow, alive drift. */
 export function setDoorEnergy(on: boolean): void {
   sounding = on;
-  if (hydra?.synth) hydra.synth.speed = on ? PLAY_SPEED : IDLE_SPEED;
+  if (hydra?.synth) hydra.synth.speed = baseSpeed();
+}
+
+/** CUT is held: the music leaves, the LIGHT RUSHES — release drops both back. */
+export function setDoorRush(on: boolean): void {
+  rushing = on;
+  if (hydra?.synth) hydra.synth.speed = baseSpeed();
+}
+
+/** Every touch on the deck SURGES the light for a beat — the room answers
+ *  your finger, every single time. */
+export function pulseDoorVisual(): void {
+  if (!hydra?.synth) return;
+  hydra.synth.speed = baseSpeed() * 2.4;
+  if (pulseTimer) clearTimeout(pulseTimer);
+  pulseTimer = setTimeout(() => {
+    if (hydra?.synth) hydra.synth.speed = baseSpeed();
+  }, 280);
 }
 
 /** Frames must advance while the page is visible — anything else (context
