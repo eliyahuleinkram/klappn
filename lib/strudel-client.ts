@@ -523,13 +523,18 @@ function installSinkGuard(ac: AudioContext): void {
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") {
-      // PHONES PLAY THROUGH THE BACKGROUND NOW (2026-07-22, reversing the
-      // 06-06d auto-pause): that call was made in the superdough era, when a
-      // starved main-thread scheduler garbled hidden playback. ZALTZ renders
-      // on the AUDIO THREAD and drives its scheduling off the worklet's
-      // MessagePort clock (never throttled), and the mobile <audio> sink —
-      // armed on every play — holds the OS audio session. Consistent with
-      // desktop: leaving the page keeps the music playing.
+      // MOBILE HOLDS ON HIDE (2026-07-22, confirmed on a real iPhone): the
+      // pattern walk lives on the MAIN thread and a backgrounded iOS page
+      // wakes it ~once a second — a 0.35s lookahead starves into stutter.
+      // Until scheduling moves into the worklet, phones HOLD the music the
+      // moment the page hides and resume on return; desktop plays on (its
+      // main thread never freezes). The armed sink + silent anchor keep the
+      // audio session alive through the hold, so the resume is instant.
+      if (isMobileDevice() && transportActive) {
+        autoPausedByHide = true;
+        pausePlayback();
+        autoPauseSink?.(true); // flip the UI + lock-screen icon to paused
+      }
       return;
     }
     if (autoPausedByHide) {
@@ -539,6 +544,15 @@ function installSinkGuard(ac: AudioContext): void {
       return;
     }
     if (transportActive && (ac.state as string) !== "running") void resumeAudio();
+  });
+  // BELT: iOS fires pagehide more reliably than visibilitychange on some
+  // app-switch/lock transitions — same hold, whichever arrives first.
+  window.addEventListener("pagehide", () => {
+    if (isMobileDevice() && transportActive) {
+      autoPausedByHide = true;
+      pausePlayback();
+      autoPauseSink?.(true);
+    }
   });
   // BELT #2: a bfcache restore (iOS back-swipe, Safari tab restore) fires
   // pageshow — and iOS Safari can bring the page back with the context left
