@@ -157,6 +157,21 @@ export default function OpenPage() {
       <p className="mt-8 text-[13px] leading-relaxed text-muted/70">
         We’d rather earn a community than rent customers. Every sentence on
         this page is a promise — if one ever breaks, that’s a bug. File it.
+        The binding version:{" "}
+        <Link
+          href="/terms"
+          className="underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
+        >
+          Terms
+        </Link>{" "}
+        ·{" "}
+        <Link
+          href="/privacy"
+          className="underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
+        >
+          Privacy
+        </Link>{" "}
+        — same plain words, signed.
       </p>
     </main>
   );

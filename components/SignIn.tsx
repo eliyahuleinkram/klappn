@@ -218,7 +218,22 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                   </button>
                 </form>
                 <p className="mt-2 select-none text-[12px] text-muted/60">
-                  No password — a 6-digit code lands in your inbox.
+                  No password — a 6-digit code lands in your inbox. Signing in
+                  agrees to the{" "}
+                  <a
+                    href="/terms"
+                    className="underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
+                  >
+                    Terms
+                  </a>{" "}
+                  and{" "}
+                  <a
+                    href="/privacy"
+                    className="underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
+                  >
+                    Privacy
+                  </a>{" "}
+                  — both in plain words.
                 </p>
                 {state === "error" && (
                   <p className="mt-2 text-[13px] text-red-400">
@@ -353,6 +368,21 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
             )}
             <p className="pt-1 text-[12px] leading-relaxed text-muted/50">
               A 6-digit code lands in your inbox — no password, no setup.
+              Signing in agrees to the{" "}
+              <a
+                href="/terms"
+                className="underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
+              >
+                Terms
+              </a>{" "}
+              and{" "}
+              <a
+                href="/privacy"
+                className="underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
+              >
+                Privacy
+              </a>
+              .
             </p>
           </form>
         )}
