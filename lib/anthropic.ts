@@ -957,7 +957,7 @@ export async function generateBreaks(
     /** The user's own words for this hand-off — steers the break when present. */
     direction?: string;
     feedback?: string;
-    /** Set when the break bridges TWO SONGS (a DJ-set hand-off): the outgoing
+    /** Set when the break bridges TWO SONGS (a Set hand-off): the outgoing
      *  song's tempo/key, so the model knows the material before the break may
      *  be in a different key/tempo and must land in the incoming song's. */
     crossSong?: { fromBpm?: number; fromKey?: string };
@@ -1012,7 +1012,7 @@ export async function generateBreaks(
   return out.slice(0, 1);
 }
 
-const ARRANGE_SET_SYSTEM = `You are ordering finished songs into ONE continuous DJ set. You get each song's tempo, key, genre and a one-line description. Choose the order that flows best as a single night: a coherent tempo arc, compatible keys at each hand-off, energy building where it should.
+const ARRANGE_SET_SYSTEM = `You are ordering finished songs into ONE continuous set. You get each song's tempo, key, genre and a one-line description. Choose the order that flows best as a single night: a coherent tempo arc, compatible keys at each hand-off, energy building where it should.
 Output ONLY JSON, no prose/fences: {"order":["<id>", …]} — every given id exactly once.`;
 
 /** Order a set's songs into one flowing night (ONE cheap call — it reads

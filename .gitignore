@@ -51,3 +51,4 @@ out/
 
 # local agent/editor config
 .claude/
+engine/golden/corpus-report.txt

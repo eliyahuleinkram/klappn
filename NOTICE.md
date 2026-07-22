@@ -18,9 +18,9 @@ Klappn is licensed under the GNU Affero General Public License v3.0 (see
   accordingly. (An audit of which banks we expose is part of the open-source
   release checklist.)
 - **General MIDI soundfonts** via `@strudel/soundfonts`.
-- **zaltz** (`engine/zaltz.c`) — Klappn's WebAssembly audio engine. *Zaltz*
-  is Yiddish for salt: dough is nothing without it. Written in C for this
-  project, but its DSP semantics are a faithful PORT of superdough's
+- **zaltz** (`engine/zaltz.c`) — Klappn's WebAssembly audio engine. Written
+  in C for this project, but its DSP semantics are a faithful PORT of
+  superdough's
   (formulas carry superdough file:line citations inline; the ladder filter
   is a verbatim translation). It is therefore a derivative work of
   superdough and carries AGPL-3.0-or-later, with gratitude to the Strudel

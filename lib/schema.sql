@@ -260,7 +260,7 @@ create trigger parts_bump_song
   after insert or update or delete on parts
   for each row execute function bump_song_updated_at();
 
--- DJ SETS: an ordered arrangement of the user's songs played as ONE continuous
+-- SETS: an ordered arrangement of the user's songs played as ONE continuous
 -- performance. `plan` mirrors songs.plan as the JSON home for everything set-level:
 --   entries:     [{ id, songId }]                      — the order (id = stable entry id,
 --                so one song can appear twice and transitions key cleanly)

@@ -2,7 +2,8 @@ import type { Sql } from "postgres";
 import { db } from "./db";
 
 /**
- * Billing — PREPAID TOKENS AT COST (2026-07-19, the open-source pivot),
+ * Billing — PREPAID TOKENS at one flat readable rate (2026-07-19, the
+ * open-source pivot),
  * metered in COST-WEIGHTED token units (lib/llm.ts onUsage: output ×5, cache
  * read ×0.1, cache write ×1.25 — the same price ratios every Anthropic model
  * uses, so the unit is model-agnostic; only the $/unit differs by model).

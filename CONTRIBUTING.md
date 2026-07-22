@@ -27,7 +27,7 @@ runs at your own cost, on your own account.
 
 ## Licensing of contributions
 
-Klappn is AGPL-3.0 (same as Strudel). By contributing you agree your
+Klappn is AGPL-3.0 (same license family as Strudel). By contributing you agree your
 contribution is licensed under the repository license. We use the
 [Developer Certificate of Origin](https://developercertificate.org/) —
 sign off your commits (`git commit -s`). There is no CLA and no copyright

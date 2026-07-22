@@ -124,6 +124,6 @@ the **ear is the acceptance test** for anything that touches sound, and
 
 ## License
 
-AGPL-3.0 — see `LICENSE`. Third-party credits in `NOTICE.md`. This matches
-Strudel's license: if you host a modified Klappn, your users are entitled to
+AGPL-3.0 — see `LICENSE`. Third-party credits in `NOTICE.md`. Same license
+family as Strudel: if you host a modified Klappn, your users are entitled to
 your source, the same way you're entitled to ours.
