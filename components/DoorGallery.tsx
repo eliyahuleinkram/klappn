@@ -264,6 +264,43 @@ export default function DoorGallery({
   // The LIGHT the current piece wears — an index into its own three looks.
   const [lookIdx, setLookIdx] = useState(0);
   const codeCache = useRef(new Map<string, DoorEntry>());
+  // The sky adapts to the hand that holds it — phones get their own portrait
+  // slot map (denser columns, everything above the doorway).
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  // SECTION CHANGES REARRANGE THE SKY, never jump-cut it: layers that left the
+  // mix fold away (box-leave) while the arriving ones bloom in (box-enter).
+  const [shownLayers, setShownLayers] = useState<
+    { l: DoorLayer; leaving: boolean }[]
+  >([]);
+  useEffect(() => {
+    setShownLayers((prev) => {
+      const cur = new Map(layersUi.map((l) => [l.name, l]));
+      const kept = prev
+        .filter((x) => cur.has(x.l.name) || !x.leaving)
+        .map((x) =>
+          cur.has(x.l.name)
+            ? { l: cur.get(x.l.name)!, leaving: false }
+            : { ...x, leaving: true },
+        );
+      const seen = new Set(kept.map((x) => x.l.name));
+      const added = layersUi
+        .filter((l) => !seen.has(l.name))
+        .map((l) => ({ l, leaving: false }));
+      return [...kept, ...added];
+    });
+    const t = setTimeout(
+      () => setShownLayers((prev) => prev.filter((x) => !x.leaving)),
+      460,
+    );
+    return () => clearTimeout(t);
+  }, [layersUi]);
 
   const playingId = useNowPlayingValue(
     (s) => (s?.kind === "song" ? s.id : null),
@@ -631,16 +668,18 @@ export default function DoorGallery({
     ink?: boolean;
     small?: boolean;
     on: boolean;
+    leaving?: boolean;
     onClick?: () => void;
     hold?: { down: () => void; up: () => void };
   }
-  const boxes: Box[] = [
-    ...layersUi.map((l) => ({
-      key: `L:${l.name}`,
-      label: l.name,
-      on: isPlaying && !offNames.has(l.name),
-      onClick: () => (isPlaying ? toggleLayer(l.name) : void onPlay(current)),
-    })),
+  const layerBoxes: Box[] = shownLayers.map(({ l, leaving }) => ({
+    key: `L:${l.name}`,
+    label: l.name,
+    leaving,
+    on: isPlaying && !leaving && !offNames.has(l.name),
+    onClick: () => (isPlaying ? toggleLayer(l.name) : void onPlay(current)),
+  }));
+  const controlBoxes: Box[] = [
     ...FX_KEYS.map((k) => ({
       key: `F:${k}`,
       label: FX_LABEL[k],
@@ -665,7 +704,7 @@ export default function DoorGallery({
       hold: { down: () => startSweep(hueStep), up: stopSweep },
     },
     // DESTINATIONS, not increments: one touch takes you there (the tempo
-    // GLIDES like a pitch fader), touching the lit square brings you home.
+    // GLIDES like a pitch fader) and the SAME square brings you home.
     {
       key: "t+",
       label: "Faster",
@@ -673,14 +712,6 @@ export default function DoorGallery({
       small: true,
       on: tempo > 1.05,
       onClick: () => glideTempo(tempo > 1.05 ? 1 : 1.18),
-    },
-    {
-      key: "t-",
-      label: "Slower",
-      sub: tempo < 0.95 ? bpmNow : "bring us down",
-      small: true,
-      on: tempo < 0.95,
-      onClick: () => glideTempo(tempo < 0.95 ? 1 : 0.85),
     },
     {
       key: "k+",
@@ -707,7 +738,35 @@ export default function DoorGallery({
       onClick: () => applyLook(i),
     })),
   ];
-  const order = scatterOrder(current.id, SLOTS.length);
+  const boxes = [...layerBoxes, ...controlBoxes];
+
+  // EVERY SQUARE OWNS ITS SLOT for the whole song — controls claim first (in
+  // fixed order), layers claim by name-hash — so a section change moves ONLY
+  // the layers that actually changed; nothing else drifts an inch.
+  const SL = isMobile ? SLOTS_MOBILE : SLOTS;
+  const order = scatterOrder(current.id, SL.length);
+  const slotOf = new Map<string, number>();
+  {
+    const taken = new Set<number>();
+    const claim = (key: string) => {
+      const n = SL.length;
+      const start = hashKey(key) % n;
+      for (let a = 0; a < n; a++) {
+        const s = order[(start + a) % n];
+        if (!taken.has(s)) {
+          taken.add(s);
+          slotOf.set(key, s);
+          return;
+        }
+      }
+      slotOf.set(key, order[start]);
+    };
+    controlBoxes.forEach((b) => claim(b.key));
+    layerBoxes
+      .map((b) => b.key)
+      .sort()
+      .forEach(claim);
+  }
 
   return (
     <>
@@ -735,7 +794,7 @@ export default function DoorGallery({
         className="pointer-events-none fixed inset-0 z-0"
       >
         {boxes.map((b, i) => {
-          const [x, y] = SLOTS[order[i % order.length]];
+          const [x, y] = SL[slotOf.get(b.key) ?? 0];
           return (
             <div
               key={b.key}
@@ -760,12 +819,14 @@ export default function DoorGallery({
                 aria-pressed={b.on}
                 aria-label={b.label}
                 title={b.ink ? b.label : undefined}
-                className={`pointer-events-auto animate-rise flex select-none flex-col items-center justify-center text-center font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.86] ${
+                className={`pointer-events-auto flex select-none flex-col items-center justify-center text-center font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.86] ${
+                  b.leaving ? "box-leave" : "box-enter"
+                } ${
                   b.ink
                     ? "h-10 w-10 rounded-2xl sm:h-12 sm:w-12"
                     : b.small
-                      ? "h-14 w-14 rounded-2xl text-[10.5px] sm:h-[4.5rem] sm:w-[4.5rem] sm:text-[12px]"
-                      : "h-16 w-16 rounded-2xl text-[10.5px] sm:h-24 sm:w-24 sm:text-[13px]"
+                      ? "h-[3.75rem] w-[3.75rem] rounded-2xl text-[11px] sm:h-[4.5rem] sm:w-[4.5rem] sm:text-[12px]"
+                      : "h-[4.25rem] w-[4.25rem] rounded-2xl text-[11px] sm:h-24 sm:w-24 sm:text-[13px]"
                 } ${
                   b.ink
                     ? b.on
@@ -773,7 +834,7 @@ export default function DoorGallery({
                       : "ring-1 ring-white/25 shadow-[inset_0_2px_3px_rgba(255,255,255,.5),0_2px_12px_rgba(0,0,0,.6)] hover:ring-white/60"
                     : b.on
                       ? `${sounding ? "pad-pulse" : "pad-lit"} border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white`
-                      : "border border-white/[0.12] bg-black/45 text-white/65 hover:border-accent/45 hover:text-white"
+                      : "border border-white/[0.12] bg-black/50 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,.1),0_10px_28px_-14px_rgba(0,0,0,.9)] hover:border-accent/45 hover:text-white"
                 }`}
                 style={
                   {
@@ -785,7 +846,7 @@ export default function DoorGallery({
               >
                 {!b.ink && <span className="px-1.5">{b.label}</span>}
                 {b.sub && !b.ink && (
-                  <span className="mt-0.5 text-[8.5px] font-medium tabular-nums text-white/70 sm:text-[10px]">
+                  <span className="mt-0.5 text-[9px] font-medium tabular-nums text-white/70 sm:text-[10px]">
                     {b.sub}
                   </span>
                 )}
@@ -808,7 +869,28 @@ const SLOTS: [number, number][] = [
   [64, 22], [62, 44], [66, 60],
   [78, 14], [80, 36], [78, 58], [82, 76],
   [92, 26], [93, 50], [90, 68], [88, 90],
+  [6, 12], [95, 86],
 ];
+
+/** PORTRAIT sky for phones — jittered columns filling the upper two thirds,
+ *  everything comfortably above the doorway, every square a full thumb-size. */
+const SLOTS_MOBILE: [number, number][] = [
+  [18, 12], [46, 68], [84, 10],
+  [10, 19], [38, 15], [65, 18], [90, 16],
+  [20, 26], [52, 23], [82, 26],
+  [12, 33], [40, 31], [68, 33], [92, 34],
+  [22, 40], [50, 39], [80, 42],
+  [12, 48], [38, 47], [66, 50], [90, 49],
+  [24, 57], [54, 56], [82, 58],
+  [30, 65], [58, 64], [86, 66],
+];
+
+/** Stable per-key hash — every square claims the same slot all song long. */
+function hashKey(k: string): number {
+  let h = 0;
+  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0;
+  return h;
+}
 
 /** Deterministic slot shuffle per song — every song deals a fresh sky. */
 function scatterOrder(seedStr: string, n: number): number[] {
