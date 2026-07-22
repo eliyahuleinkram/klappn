@@ -12,16 +12,6 @@
 	"compatibility_date": "2025-05-01",
   "compatibility_flags": ["nodejs_compat"],
 
-  // LLM_PROVIDER selects the composer model ("minimax" | "deepseek" | "anthropic");
-  // keep in sync with the app worker. Keys (MINIMAX_API_KEY / DEEPSEEK_API_KEY /
-  // ANTHROPIC_API_KEY) are set as secrets via `wrangler secret put`.
-  "vars": {
-    "LLM_PROVIDER": "anthropic",
-    // The Anthropic env default; lib/llm.ts hard-pins Fable 5 per call
-    // regardless (see completeRoute — a soft pin once lost to this value).
-    "CLAUDE_MODEL": "claude-opus-4-8",
-  },
-
   // Neutralise @strudel/core's eager @kabelsalat/web import (a WebAudio synth
   // REPL it only uses inside repl(), which we never call) so the REAL Strudel
   // engine loads headless and lib/strudel-eval.ts can build+query patterns to

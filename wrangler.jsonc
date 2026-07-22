@@ -44,19 +44,11 @@
 		// with the grain (host-aware favicon rewrite in worker/index.ts).
 		"run_worker_first": ["/", "/song/*", "/api/*", "/engine", "/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"]
 	},
-	// Non-secret config. Secrets (ANTHROPIC_API_KEY, XAI_API_KEY, BETTER_AUTH_SECRET,
-	// BETTER_AUTH_URL, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, EMAIL_FROM)
-	// are set with `wrangler secret put <NAME>` and read via process.env.
-	// (XAI_API_KEY powers the "grok" model toggle — the derive call runs on the app worker.)
+	// Non-secret config. Secrets (ANTHROPIC_API_KEY, BETTER_AUTH_SECRET,
+	// BETTER_AUTH_URL, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, EMAIL_FROM,
+	// REALTIME_APP_TOKEN, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET) are set with
+	// `wrangler secret put <NAME>` and read via process.env.
 	"vars": {
-		// LLM_PROVIDER selects the composer model: "minimax" (MiniMax-M3, max
-		// thinking), "deepseek" (deepseek-v4-pro, agent pipeline) or "anthropic"
-		// (ONE-SHOT mode — a single steered call, no jury/refine). Flip this one
-		// value to switch — all three stay wired (see lib/llm.ts). Keys are secrets.
-		"LLM_PROVIDER": "anthropic",
-		// Claude Opus 4.8 — the composer (layer engine) runs on this via the anthropic
-		// provider; high adaptive thinking, no gate/regenerate net (see lib/anthropic.ts).
-		"CLAUDE_MODEL": "claude-opus-4-8",
 		"GENERATION_WORKFLOW_NAME": "klappn-generation",
 		"EDIT_WORKFLOW_NAME": "klappn-edit",
 		// Stripe PRICE ids (public identifiers, not secrets — the keys are secrets):
@@ -93,10 +85,6 @@
 			"id": "cc55a8abb77a4f64aaa393b0a68894a4"
 		}
 	],
-	// Workers AI — the vocal transcription fallback (@cf/openai/whisper). The
-	// primary ASR is NVIDIA's nemotron streaming model when NVIDIA_ASR_URL +
-	// NVIDIA_API_KEY secrets are set (see app/api/songs/[id]/vocal/[takeId]/transcribe).
-	"ai": { "binding": "AI" },
 	// R2 store for user-uploaded + generated ASSETS: event posters (events/poster/*),
 	// vocal takes (vocals/*). Named RENDER_CACHE for historical reasons (it once held
 	// the parked stem-render audio cache — now removed); the binding name is load-
