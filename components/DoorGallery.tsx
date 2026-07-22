@@ -99,6 +99,8 @@ type DoorEntry = PlayEntry & {
    *  name that owns it. A kill by name silences every orbit wearing it, in
    *  every section and every break. */
   orbitNames: [number, string][];
+  /** Whole-song layer-name union, stable order — THE grid never reflows. */
+  names: string[];
 };
 
 const LAYER_ORBIT_BASE = 10;
@@ -153,11 +155,13 @@ function rebusSong(sections: { id: string; code: string }[]): {
   codes: Map<string, string>;
   layersBySection: Record<string, DoorLayer[]>;
   orbitNames: [number, string][];
+  names: string[];
 } {
   const reg = new Map<string, number>(); // name - signature → orbit
   const orbitName = new Map<number, string>();
   const codes = new Map<string, string>();
   const layersBySection: Record<string, DoorLayer[]> = {};
+  const names: string[] = []; // whole-song union, first-appearance order
   for (const sec of sections) {
     const code = sec.code ?? "";
     const metaAt = code.search(
@@ -175,16 +179,12 @@ function rebusSong(sections: { id: string; code: string }[]): {
     }
     const out: string[] = [music.slice(0, starts[0])];
     const layers: DoorLayer[] = [];
-    const seen = new Map<string, number>();
     for (let i = 0; i < starts.length; i++) {
       const end = i + 1 < starts.length ? starts[i + 1] : music.length;
       const layer = stripDuckFamily(
         music.slice(starts[i], end).replace(/\.orbit\(\s*\d+\s*\)/g, ""),
       );
-      const base = layerName(layer);
-      const n = (seen.get(base) ?? 0) + 1;
-      seen.set(base, n);
-      const name = n > 1 ? `${base} ${n}` : base;
+      const name = layerName(layer);
       const key = `${name}-${layerSignature(layer)}`;
       let orbit = reg.get(key);
       if (orbit === undefined) {
@@ -195,11 +195,12 @@ function rebusSong(sections: { id: string; code: string }[]): {
       const at = layerAppendPos(layer);
       out.push(`${layer.slice(0, at)}.orbit(${orbit})${layer.slice(at)}`);
       if (!layers.some((l) => l.name === name)) layers.push({ orbit, name });
+      if (!names.includes(name)) names.push(name);
     }
     codes.set(sec.id, out.join("") + tail);
     layersBySection[sec.id] = layers;
   }
-  return { codes, layersBySection, orbitNames: [...orbitName.entries()] };
+  return { codes, layersBySection, orbitNames: [...orbitName.entries()], names };
 }
 
 /**
@@ -261,33 +262,9 @@ export default function DoorGallery({
   const [keyUi, setKeyUi] = useState(0);
   const keyRef = useRef(0);
   const codeCache = useRef(new Map<string, DoorEntry>());
-  // SECTION CHANGES REARRANGE THE SKY, never jump-cut it: layers that left the
-  // mix fold away (box-leave) while the arriving ones bloom in (box-enter).
-  const [shownLayers, setShownLayers] = useState<
-    { l: DoorLayer; leaving: boolean }[]
-  >([]);
-  useEffect(() => {
-    setShownLayers((prev) => {
-      const cur = new Map(layersUi.map((l) => [l.name, l]));
-      const kept = prev
-        .filter((x) => cur.has(x.l.name) || !x.leaving)
-        .map((x) =>
-          cur.has(x.l.name)
-            ? { l: cur.get(x.l.name)!, leaving: false }
-            : { ...x, leaving: true },
-        );
-      const seen = new Set(kept.map((x) => x.l.name));
-      const added = layersUi
-        .filter((l) => !seen.has(l.name))
-        .map((l) => ({ l, leaving: false }));
-      return [...kept, ...added];
-    });
-    const t = setTimeout(
-      () => setShownLayers((prev) => prev.filter((x) => !x.leaving)),
-      460,
-    );
-    return () => clearTimeout(t);
-  }, [layersUi]);
+  // THE GRID NEVER MOVES: every sound in the song owns a permanent square.
+  // Section changes only WAKE and DIM them — light transitions, zero reflow.
+  const [songNames, setSongNames] = useState<string[]>([]);
 
   const playingId = useNowPlayingValue(
     (s) => (s?.kind === "song" ? s.id : null),
@@ -323,12 +300,12 @@ export default function DoorGallery({
     );
     const built = buildPlayEntry(d?.parts ?? [], d?.song?.plan ?? {});
     if (!built) return null;
-    const { codes, layersBySection, orbitNames } = rebusSong(built.sections);
+    const { codes, layersBySection, orbitNames, names } = rebusSong(built.sections);
     const sections = built.sections.map((sec) => ({
       ...sec,
       code: codes.get(sec.id) ?? sec.code,
     }));
-    entry = { ...built, sections, layersBySection, orbitNames };
+    entry = { ...built, sections, layersBySection, orbitNames, names };
     codeCache.current.set(s.id, entry);
     return entry;
   }
@@ -353,6 +330,7 @@ export default function DoorGallery({
     void entryFor(first)
       .then((e) => {
         if (!e || nowPlaying()) return;
+        setSongNames(e.names);
         setLayersUi(e.layersBySection[e.sections[0].id] ?? []);
       })
       .catch(() => {});
@@ -437,6 +415,7 @@ export default function DoorGallery({
       journeyRef.current = { sawLast: false, advancing: false };
       curSectionIdRef.current = list[0].id;
       orbitNamesRef.current = new Map(entry.orbitNames);
+      setSongNames(entry.names);
       if (!list[0].id.startsWith("break:"))
         setLayersUi(cached.layersBySection[list[0].id] ?? []);
       await playSong(list, {
@@ -641,16 +620,19 @@ export default function DoorGallery({
     label: string;
     sub?: string;
     on: boolean;
-    leaving?: boolean;
+    dim?: boolean;
     onClick?: () => void;
     hold?: { down: () => void; up: () => void };
   }
-  const layerBoxes: Box[] = shownLayers.map(({ l, leaving }) => ({
-    key: `L:${l.name}`,
-    label: l.name,
-    leaving,
-    on: isPlaying && !leaving && !offNames.has(l.name),
-    onClick: () => (isPlaying ? toggleLayer(l.name) : void onPlay(current)),
+  const awake = new Set(layersUi.map((l) => l.name));
+  const layerBoxes: Box[] = songNames.map((name) => ({
+    key: `L:${name}`,
+    label: name,
+    on: isPlaying && awake.has(name) && !offNames.has(name),
+    // asleep = not in the sounding section; it keeps its square, dimmed, and
+    // a tap still pre-arms its kill for when it wakes.
+    dim: isPlaying && !awake.has(name),
+    onClick: () => (isPlaying ? toggleLayer(name) : void onPlay(current)),
   }));
   const controlBoxes: Box[] = [
     ...FX_KEYS.map((k) => ({
@@ -708,12 +690,12 @@ export default function DoorGallery({
       onContextMenu={b.hold ? (e) => e.preventDefault() : undefined}
       aria-pressed={b.on}
       aria-label={b.label}
-      className={`flex h-[3.75rem] w-[3.75rem] select-none flex-col items-center justify-center rounded-[1.15rem] text-center text-[10.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.88] sm:h-24 sm:w-24 sm:rounded-[1.35rem] sm:text-[13px] ${
-        b.leaving ? "box-leave" : "box-enter"
-      } ${
+      className={`box-enter flex h-[3.75rem] w-[3.75rem] select-none flex-col items-center justify-center rounded-[1.15rem] text-center text-[10.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-500 active:scale-[.88] sm:h-24 sm:w-24 sm:rounded-[1.35rem] sm:text-[13px] ${
         b.on
           ? `${sounding ? "pad-pulse" : "pad-lit"} border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white`
-          : "border border-white/[0.12] bg-black/50 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,.1),0_10px_28px_-14px_rgba(0,0,0,.9)] hover:border-accent/45 hover:text-white"
+          : b.dim
+            ? "border border-white/[0.05] bg-black/35 text-white/30 opacity-45"
+            : "border border-white/[0.12] bg-black/50 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,.1),0_10px_28px_-14px_rgba(0,0,0,.9)] hover:border-accent/45 hover:text-white"
       }`}
       style={{ "--i": i, "--beat": beat } as React.CSSProperties}
     >

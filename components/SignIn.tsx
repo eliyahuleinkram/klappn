@@ -196,11 +196,11 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
               </>
             ) : (
               <>
-                <p className="select-none text-[13.5px] leading-relaxed text-muted">
+                <p className="hidden select-none text-[13.5px] leading-relaxed text-muted sm:block">
                   Type a sentence. Klappn writes all of this —{" "}
                   <span className="text-foreground/85">yours to keep.</span>
                 </p>
-                <form onSubmit={send} className="mt-3.5 flex flex-col gap-2.5 sm:flex-row sm:gap-2">
+                <form onSubmit={send} className="flex flex-col gap-2.5 sm:mt-3.5 sm:flex-row sm:gap-2">
                   <input
                     type="email"
                     required
@@ -217,7 +217,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                     {state === "sending" ? "Sending…" : "Sign in"}
                   </button>
                 </form>
-                <p className="mt-2 select-none text-[12px] text-muted/60">
+                <p className="mt-2 hidden select-none text-[12px] text-muted/60 sm:block">
                   No password — a 6-digit code lands in your inbox.
                 </p>
                 {state === "error" && (
