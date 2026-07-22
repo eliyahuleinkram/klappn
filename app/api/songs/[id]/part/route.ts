@@ -5,6 +5,7 @@ import {
   injectPart,
   saveSongDirection,
   setGenerationWorkflowId,
+  setPartStatus,
   setSongStatus,
 } from "@/lib/songs";
 import { triggerGeneration } from "@/lib/workflows";
@@ -132,12 +133,15 @@ export async function POST(
     const wf = await triggerGeneration(id, part.id); // compose ONLY the new part
     await setGenerationWorkflowId(id, wf);
   } catch (e) {
-    // Don't strand the song in "generating" — the section stays (pending, with
-    // its own Generate button); only the kick-off failed.
+    // Don't strand the song in "generating" — and don't strand the PART either:
+    // the client renders `pending` with the same growing card as `generating`,
+    // so a failed kick-off left `pending` looked like an eternal load (seen
+    // live 2026-07-22). `error` is the status with a "Try again" button.
     console.error(`[klappn] trigger failed for new part ${part.id}:`, e);
+    await setPartStatus(part.id, "error").catch(() => {});
     await setSongStatus(id, prevStatus).catch(() => {});
     return Response.json(
-      { error: "The section was added but composing didn’t start — tap Generate on it." },
+      { error: "The section was added but composing didn’t start — tap Try again on it." },
       { status: 502 },
     );
   }

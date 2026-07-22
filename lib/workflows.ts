@@ -42,31 +42,50 @@ async function createInstance(
   if (!cf) {
     throw new Error("Cloudflare config missing");
   }
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${cf.accountId}/workflows/${workflowName}/instances`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${cf.apiToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ params }),
-      // A hung control-plane call must FAIL (the routes walk their status flip
-      // back and tell the user) rather than hold the request open.
-      signal: AbortSignal.timeout(15_000),
-    },
-  );
-  const json = (await res.json()) as {
-    success: boolean;
-    result?: { id: string };
-    errors?: unknown;
-  };
-  if (!res.ok || !json.success || !json.result?.id) {
-    throw new Error(
-      `Workflows API error (${res.status}): ${JSON.stringify(json.errors ?? json)}`,
-    );
+  // ONE retry on a transient control-plane failure (timeout / 5xx / 429): a
+  // single hiccup here used to strand the just-inserted part — the kick-off
+  // failed, nothing composed, and the card sat "loading" forever (seen live
+  // 2026-07-22). A hard 4xx (bad token, bad params) still fails immediately.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 800));
+    try {
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${cf.accountId}/workflows/${workflowName}/instances`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${cf.apiToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ params }),
+          // A hung control-plane call must FAIL (the routes walk their status flip
+          // back and tell the user) rather than hold the request open.
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      const json = (await res.json()) as {
+        success: boolean;
+        result?: { id: string };
+        errors?: unknown;
+      };
+      if (!res.ok || !json.success || !json.result?.id) {
+        const err = new Error(
+          `Workflows API error (${res.status}): ${JSON.stringify(json.errors ?? json)}`,
+        );
+        if (res.status >= 500 || res.status === 429) {
+          lastErr = err;
+          continue; // transient → one more try
+        }
+        throw err;
+      }
+      return json.result.id;
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith("Workflows API error")) throw e;
+      lastErr = e; // timeout / network — retry once
+    }
   }
-  return json.result.id;
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 const GENERATION_WORKFLOW =
