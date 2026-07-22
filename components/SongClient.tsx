@@ -269,6 +269,11 @@ export default function SongClient({
   // fresh play starts the scheduler at cycle 0, so the delay is ~0).
   const [playStart, setPlayStart] = useState(0);
   const sweepDelayRef = useRef(0);
+  // The playing loop's sweep anchor: which section, and the wall-clock moment
+  // its current pass would have started at — set from the AUDIO clock, then
+  // left alone so every re-render's delay recompute lands exactly where the
+  // CSS animation already is (see the playhead block below).
+  const sweepAnchorRef = useRef<{ id: string; wallStart: number; key: number } | null>(null);
 
   const plan = song.plan as {
     summary?: string;
@@ -3578,28 +3583,53 @@ export default function SongClient({
               // forever) — buttery-smooth on the compositor. `key` (the play time)
               // restarts it on each play; `delay` phase-aligns it to the audio.
               if (loopBars > 0) {
-                // Phase computed LIVE at render (negative animation-delay =
-                // elapsed-within-loop), from the AUDIO CLOCK (2026-07-22, the
-                // user: sweeps must always reach the loop's end — and reach it
-                // twice on a ×2 hold). sectionPlayhead() is the scheduler's own
-                // position (1 cycle = 1 bar), so the anchor is exact no matter
-                // how late this render commits — the old wall-clock estimate
-                // (elapsed since a playStart stamped inside a deferred
-                // transition) drifted by the commit lag and the watcher's poll
-                // granularity at every boundary. Modding by loopSec makes a
-                // held (×2/×4) span sweep end-to-end once per pass. Wall clock
-                // stays as the fallback for the non-arrangement path.
+                // AUDIO-ANCHORED, WALL-DRIVEN (2026-07-22, the user: sweeps
+                // must always reach the loop's end — twice on a ×2 hold — and
+                // never jump). Two clocks, one job each: the AUDIO clock
+                // (sectionPlayhead(), the scheduler's own position, 1 cycle =
+                // 1 bar) sets the ANCHOR — exact no matter how late a render
+                // commits; the WALL clock advances the phase between renders,
+                // at exactly the CSS animation's own rate, so recomputing the
+                // negative delay on re-render re-anchors the animation onto
+                // itself invisibly. (Deriving the delay from the audio clock
+                // on EVERY render — the first version of this fix — snapped
+                // the running animation to a fresh position each render and
+                // flapped to the wall fallback whenever the query returned
+                // null: the bar visibly jumped around.) The anchor is re-set
+                // only when the section changes or true drift exceeds 0.35s
+                // (tempo override, resume from pause) — one honest snap to
+                // the truth, then smooth.
                 const ph = sectionPlayhead();
-                const elapsed =
+                const nowMs = performance.now();
+                const audioElapsed =
                   ph && ph.id === part.id
                     ? (ph.bar * barSeconds) % loopSec
-                    : playStart > 0
-                      ? ((performance.now() - playStart) / 1000) % loopSec
-                      : 0;
+                    : null;
+                let anchor = sweepAnchorRef.current;
+                let drift = 0;
+                if (anchor && anchor.id === part.id && audioElapsed !== null) {
+                  const cssElapsed =
+                    ((nowMs - anchor.wallStart) / 1000) % loopSec;
+                  const d = Math.abs(cssElapsed - audioElapsed);
+                  drift = Math.min(d, loopSec - d); // circular — 14.9s vs 0.1s is 0.2 apart, not 14.8
+                }
+                if (!anchor || anchor.id !== part.id || drift > 0.35) {
+                  const startElapsed =
+                    audioElapsed ??
+                    (playStart > 0
+                      ? ((nowMs - playStart) / 1000) % loopSec
+                      : 0);
+                  anchor = {
+                    id: part.id,
+                    wallStart: nowMs - startElapsed * 1000,
+                    key: nowMs,
+                  };
+                  sweepAnchorRef.current = anchor;
+                }
                 playhead = {
                   loopSec,
-                  delay: -elapsed,
-                  key: playStart,
+                  delay: -(((nowMs - anchor.wallStart) / 1000) % loopSec),
+                  key: anchor.key,
                 };
               }
             }
