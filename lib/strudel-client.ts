@@ -3485,15 +3485,24 @@ function visualClock(): number {
     visLastMs = now;
     visLastSched = schedulerCycle();
   }
-  const dt = (now - visLastMs) / 1000;
+  const dtReal = (now - visLastMs) / 1000;
   visLastMs = now;
+  // STALL CLAMP (2026-07-22, the user: "no jumps"): the odometer advances by
+  // wall-clock dt, so when the main thread stalls — a section-boundary
+  // re-render walking the whole song tree, a GC pause — the NEXT frame used
+  // to leap the visual forward by the entire stall: a visible jump-cut. Cap
+  // the per-frame advance at ~2 frames' worth; after a stall the visual
+  // GLIDES on from where it froze. (The odometer is freewheeling — phase
+  // continuity is its whole contract — so the small lag this trades in is
+  // invisible; the rate measure below still uses the REAL dt.)
+  const dt = Math.min(dtReal, 0.1);
   if (transportActive) {
     const s = schedulerCycle();
     const dCyc = s - visLastSched;
     visLastSched = s;
     // Measure the music's true rate from FORWARD deltas only; IGNORE the scheduler resets
     // (dCyc <= 0 at a play / section / loop boundary) and glitches — so the odometer never jumps.
-    if (dt > 0 && dCyc > 0 && dCyc < 2) visCps = dCyc / dt;
+    if (dtReal > 0 && dCyc > 0 && dCyc < 2) visCps = dCyc / dtReal;
     visCycles += dt * visCps;
   } else {
     visCycles += dt * IDLE_CPS; // idle / paused → calm creep, continuing from where it is

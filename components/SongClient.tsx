@@ -36,6 +36,7 @@ import { isOwnSession, useNowPlayingValue } from "@/lib/use-now-playing";
 import {
   applyOrbitGains,
   currentSectionId,
+  sectionPlayhead,
   isSongPlaying,
   refreshArrangement,
   isMobileDevice,
@@ -3578,15 +3579,23 @@ export default function SongClient({
               // restarts it on each play; `delay` phase-aligns it to the audio.
               if (loopBars > 0) {
                 // Phase computed LIVE at render (negative animation-delay =
-                // elapsed-within-loop): a bar that mounts LATE — the user
-                // opens the loop mid-play, the page re-renders — lands at the
-                // true position instead of sweeping from 0. Recomputing on
-                // re-render is safe: the delay always equals the current
-                // phase, so the animation re-anchors onto itself.
+                // elapsed-within-loop), from the AUDIO CLOCK (2026-07-22, the
+                // user: sweeps must always reach the loop's end — and reach it
+                // twice on a ×2 hold). sectionPlayhead() is the scheduler's own
+                // position (1 cycle = 1 bar), so the anchor is exact no matter
+                // how late this render commits — the old wall-clock estimate
+                // (elapsed since a playStart stamped inside a deferred
+                // transition) drifted by the commit lag and the watcher's poll
+                // granularity at every boundary. Modding by loopSec makes a
+                // held (×2/×4) span sweep end-to-end once per pass. Wall clock
+                // stays as the fallback for the non-arrangement path.
+                const ph = sectionPlayhead();
                 const elapsed =
-                  playStart > 0
-                    ? ((performance.now() - playStart) / 1000) % loopSec
-                    : 0;
+                  ph && ph.id === part.id
+                    ? (ph.bar * barSeconds) % loopSec
+                    : playStart > 0
+                      ? ((performance.now() - playStart) / 1000) % loopSec
+                      : 0;
                 playhead = {
                   loopSec,
                   delay: -elapsed,
