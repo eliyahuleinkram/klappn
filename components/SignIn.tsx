@@ -145,7 +145,13 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
 
           {/* THE DOOR ITSELF — a pink-lit doorway; the key is one email. */}
           <div className="mt-5 w-full max-w-xl sm:mt-9">
-          <div className="rounded-3xl border border-accent/20 bg-black/45 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+          <div
+            className={
+              gateUp
+                ? "rounded-3xl border border-accent/20 bg-black/60 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl"
+                : "sm:rounded-3xl sm:border sm:border-accent/20 sm:bg-black/45 sm:p-4 sm:shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] sm:backdrop-blur-2xl"
+            }
+          >
             {gateUp ? (
               <>
                 <p className="select-none text-[13.5px] leading-relaxed text-muted">
@@ -207,12 +213,12 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
-                    className="min-w-0 flex-1 rounded-xl border border-white/[0.07] bg-white/[0.04] px-4 py-2.5 text-[15px] text-foreground outline-none transition placeholder:text-muted/45 focus:border-accent/40 focus:bg-white/[0.07] focus:shadow-[0_0_40px_-14px_rgba(224,49,156,.55)]"
+                    className="min-w-0 flex-1 rounded-2xl border border-white/[0.12] bg-black/50 px-4 py-3 text-[15px] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,.08)] outline-none backdrop-blur-xl transition placeholder:text-muted/50 focus:border-accent/45 focus:shadow-[0_0_40px_-14px_rgba(224,49,156,.55)] sm:rounded-xl sm:py-2.5"
                   />
                   <button
                     type="submit"
                     disabled={state === "sending"}
-                    className="btn-primary w-full shrink-0 rounded-xl px-5 py-2.5 text-[15px] font-medium transition active:scale-[.98] disabled:opacity-50 sm:w-auto"
+                    className="btn-primary w-full shrink-0 rounded-2xl px-5 py-3 text-[15px] font-semibold transition active:scale-[.98] disabled:opacity-50 sm:w-auto sm:rounded-xl sm:py-2.5"
                   >
                     {state === "sending" ? "Sending…" : "Sign in"}
                   </button>

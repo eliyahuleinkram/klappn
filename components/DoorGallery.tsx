@@ -20,7 +20,6 @@ import {
 } from "@/lib/strudel-client";
 import {
   destroyDoorVisual,
-  doorHue,
   pieceFor,
   pulseDoorVisual,
   reseedDoorVisual,
@@ -104,6 +103,12 @@ type DoorEntry = PlayEntry & {
 };
 
 const LAYER_ORBIT_BASE = 10;
+
+// The CORE squares a phone shows — the dramatic handles. Desktop shows all.
+const MOBILE_SOUNDS = new Set([
+  "Kick", "Snare", "Hats", "Sub", "Bassline", "Anthem", "Pads", "Riser",
+]);
+const MOBILE_HIDDEN_CONTROLS = new Set(["F:dark", "F:bright"]);
 
 // Button names people FEEL — the role in the room, not the sample id.
 const SOUND_NAMES: Record<string, string> = {
@@ -517,16 +522,26 @@ export default function DoorGallery({
     setFx(out);
   }
 
-  /** The momentary CUT: down = every layer bus to zero, up = everything back
-   *  mid-note. While held, the LIGHT RUSHES — silence with the visuals
-   *  screaming, then the drop. The 200ms tick re-asserts whichever is held. */
-  function holdCut(on: boolean) {
-    if (on && !isPlaying) return; // the touch itself just started the room
-    if (cutRef.current === on) return;
+  /** CUT, a toggle like everything else: tap = the whole mix leaves and the
+   *  light races; tap again = it all slams back mid-note. */
+  function toggleCut() {
+    if (!isPlaying) return; // the touch itself just started the room
+    const on = !cutRef.current;
     cutRef.current = on; // ref FIRST — the gate reads it synchronously
     applyOrbitGains(gainFor);
     setDoorRush(on);
     setCut(on);
+  }
+
+  /** COLOUR, a toggle: tap = the room turns to its other colourway (the hue
+   *  glides there live), tap again = back to the song's own ink. */
+  const [colourOn, setColourOn] = useState(false);
+  function toggleColour() {
+    if (!isPlaying) return; // the touch itself just started the room
+    const on = !colourOn;
+    setColourOn(on);
+    setDoorHue(on ? 0.42 : 0);
+    pulseDoorVisual();
   }
 
 
@@ -565,21 +580,6 @@ export default function DoorGallery({
     }, 60);
   }
 
-  // HOLD-TO-TURN — the colour keeps turning while your finger is down.
-  const sweepRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  function stopSweep() {
-    if (sweepRef.current) clearInterval(sweepRef.current);
-    sweepRef.current = null;
-  }
-  function startSweep(fn: () => void) {
-    if (!isPlaying) return; // the touch itself just started the room
-    stopSweep();
-    fn();
-    sweepRef.current = setInterval(fn, 80);
-  }
-  function hueStep() {
-    setDoorHue(doorHue() + 0.012); // live uniform — the colour just turns
-  }
 
 
   if (!songs.length || !current) return null;
@@ -587,7 +587,6 @@ export default function DoorGallery({
   // Over a full-bright picture, floating text needs its own shadow to hold.
   const shade = "[text-shadow:0_1px_14px_rgba(0,0,0,.9)]";
   const beat = `${60 / ((current.plan?.bpm || 120) * tempo)}s`;
-  const bpmNow = `${Math.round((current.plan?.bpm || 120) * tempo)} BPM`;
 
   // THE CONSTELLATION — every control is a SQUARE, scattered across the whole
   // page, each drifting on its own small orbit. One system: sounds, effects,
@@ -596,12 +595,12 @@ export default function DoorGallery({
   interface Box {
     key: string;
     label: string;
-    sub?: string;
     on: boolean;
     dim?: boolean;
     woke?: boolean;
+    /** Phones show only the core — the rest appear from sm: up. */
+    desktopOnly?: boolean;
     onClick?: () => void;
-    hold?: { down: () => void; up: () => void };
   }
   const awake = new Set(layersUi.map((l) => l.name));
   const layerBoxes: Box[] = songNames.map((name) => ({
@@ -612,6 +611,7 @@ export default function DoorGallery({
     // a tap still pre-arms its kill for when it wakes.
     dim: isPlaying && !awake.has(name),
     woke: isPlaying && awake.has(name) && !prevAwakeRef.current.has(name),
+    desktopOnly: !MOBILE_SOUNDS.has(name),
     onClick: () => (isPlaying ? toggleLayer(name) : void onPlay(current)),
   }));
   const controlBoxes: Box[] = [
@@ -619,42 +619,38 @@ export default function DoorGallery({
       key: `F:${k}`,
       label: FX_LABEL[k],
       on: fx[k],
+      desktopOnly: MOBILE_HIDDEN_CONTROLS.has(`F:${k}`),
       onClick: () => toggleFx(k),
     })),
     {
       key: "cut",
       label: "Cut",
-      sub: "hold me",
       on: cut,
-      hold: { down: () => holdCut(true), up: () => holdCut(false) },
+      onClick: toggleCut,
     },
     {
       key: "hue",
       label: "Colour",
-      sub: "hold me",
-      on: false,
-      hold: { down: () => startSweep(hueStep), up: stopSweep },
+      on: colourOn,
+      onClick: toggleColour,
     },
-    // DESTINATIONS, not increments: one touch takes you there (the tempo
+    // DESTINATIONS, not increments: one tap takes you there (the tempo
     // GLIDES like a pitch fader) and the SAME square brings you home.
     {
       key: "t+",
       label: "Faster",
-      sub: tempo > 1.05 ? bpmNow : "take us up",
       on: tempo > 1.05,
       onClick: () => glideTempo(tempo > 1.05 ? 1 : 1.18),
     },
     {
       key: "k+",
       label: "Higher",
-      sub: keyUi > 0 ? "up two keys" : "lift the key",
       on: keyUi > 0,
       onClick: () => keyTo(keyUi > 0 ? 0 : 2),
     },
     {
       key: "k-",
       label: "Lower",
-      sub: keyUi < 0 ? "down two keys" : "sink the key",
       on: keyUi < 0,
       onClick: () => keyTo(keyUi < 0 ? 0 : -2),
     },
@@ -663,14 +659,9 @@ export default function DoorGallery({
     <button
       key={b.key}
       onClick={b.onClick}
-      onPointerDown={b.hold ? () => b.hold!.down() : undefined}
-      onPointerUp={b.hold ? () => b.hold!.up() : undefined}
-      onPointerLeave={b.hold ? () => b.hold!.up() : undefined}
-      onPointerCancel={b.hold ? () => b.hold!.up() : undefined}
-      onContextMenu={b.hold ? (e) => e.preventDefault() : undefined}
       aria-pressed={b.on}
       aria-label={b.label}
-      className={`box-enter flex h-[min(3.75rem,7.2vh)] w-[min(3.75rem,7.2vh)] select-none flex-col items-center justify-center rounded-[1.15rem] text-center text-[10.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-500 active:scale-[.88] sm:h-[min(5.5rem,8.8vh)] sm:w-[min(5.5rem,8.8vh)] sm:rounded-[1.35rem] sm:text-[13px] ${b.woke ? "box-wake " : ""}${
+      className={`box-enter h-[min(4.5rem,8.6vh)] w-[min(4.5rem,8.6vh)] select-none flex-col items-center justify-center rounded-[1.25rem] text-center text-[11.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-500 active:scale-[.88] sm:h-[min(5.5rem,8.8vh)] sm:w-[min(5.5rem,8.8vh)] sm:rounded-[1.35rem] sm:text-[13px] ${b.desktopOnly ? "hidden sm:flex" : "flex"} ${b.woke ? "box-wake " : ""}${
         b.on
           ? `${sounding ? "pad-pulse" : "pad-lit"} border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white`
           : b.dim
@@ -680,11 +671,6 @@ export default function DoorGallery({
       style={{ "--i": i, "--beat": beat } as React.CSSProperties}
     >
       <span className="px-1.5">{b.label}</span>
-      {b.sub && (
-        <span className="mt-0.5 text-[8.5px] font-medium tabular-nums text-white/70 sm:text-[10px]">
-          {b.sub}
-        </span>
-      )}
     </button>
   );
 
