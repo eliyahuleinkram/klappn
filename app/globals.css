@@ -243,6 +243,26 @@ body.door-stage #k1-canvas {
   animation: box-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: calc(var(--i, 0) * 45ms);
 }
+/* A square WAKING into the mix blooms — a quick swell with a flare of light,
+   rippling across the grid (staggered by --i). Pure transform+glow: the grid
+   itself never moves an inch. */
+@keyframes box-wake {
+  0% {
+    transform: scale(0.92);
+    box-shadow: 0 0 6px -6px rgba(255, 99, 193, 0);
+  }
+  45% {
+    transform: scale(1.08);
+    box-shadow: 0 0 44px -4px rgba(255, 99, 193, 1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.box-wake {
+  animation: box-wake 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 30ms);
+}
 @media (prefers-reduced-motion: reduce) {
   .box-enter {
     animation: none;

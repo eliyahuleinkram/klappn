@@ -231,13 +231,6 @@ export default function DoorGallery({
   const [at, setAt] = useState(0);
   const [loadingPlay, setLoadingPlay] = useState(false);
   const [error, setError] = useState(false);
-  // The journey's odometer — canonical first/last ids survive key-change
-  // restarts that rotate the section list.
-  const journeyRef = useRef({ sawLast: false, advancing: false });
-  const canonRef = useRef<{ first: string | null; last: string | null }>({
-    first: null,
-    last: null,
-  });
   // THE LAUNCHPAD state — `off` is keyed by layer NAME, so a killed "Kick"
   // stays killed through section boundaries and the one-bar breaks between
   // them (their layers wear the same names). Ref-first for anything a gesture
@@ -265,6 +258,10 @@ export default function DoorGallery({
   // THE GRID NEVER MOVES: every sound in the song owns a permanent square.
   // Section changes only WAKE and DIM them — light transitions, zero reflow.
   const [songNames, setSongNames] = useState<string[]>([]);
+  // Squares that JUST woke get a bloom ripple (box-wake re-applies per wake);
+  // the tick hands them back to the beat-throb once the bloom lands.
+  const prevAwakeRef = useRef<Set<string>>(new Set());
+  const [, setWakeTick] = useState(0);
 
   const playingId = useNowPlayingValue(
     (s) => (s?.kind === "song" ? s.id : null),
@@ -308,13 +305,6 @@ export default function DoorGallery({
     entry = { ...built, sections, layersBySection, orbitNames, names };
     codeCache.current.set(s.id, entry);
     return entry;
-  }
-
-  /** The next stop (the list is already a per-visit shuffle). */
-  function nextOf(s: DoorSong): DoorSong | null {
-    if (songs.length < 2) return null;
-    const from = songs.findIndex((x) => x.id === s.id);
-    return songs[(from + 1 + songs.length) % songs.length] ?? null;
   }
 
   // THE ROOM IS LIT BEFORE THE TAP — the door's own visual engine paints the
@@ -364,6 +354,12 @@ export default function DoorGallery({
     setDoorEnergy(sounding);
   }, [sounding]);
 
+  useEffect(() => {
+    prevAwakeRef.current = new Set(layersUi.map((l) => l.name));
+    const t = setTimeout(() => setWakeTick((x) => x + 1), 700);
+    return () => clearTimeout(t);
+  }, [layersUi]);
+
   // Leaving the door (signing in!): the music rides along — the dock carries
   // it into the signed-in home. Only a silent page tears the engine down. The
   // room chips reset either way: the app inside must open clean.
@@ -407,12 +403,7 @@ export default function DoorGallery({
       setLivePerf(perfValues(fxRef.current));
       const { labels } = entry;
       const cached = entry;
-      canonRef.current = {
-        first: entry.sections[0].id,
-        last: entry.sections[entry.sections.length - 1].id,
-      };
       const list = entry.sections;
-      journeyRef.current = { sawLast: false, advancing: false };
       curSectionIdRef.current = list[0].id;
       orbitNamesRef.current = new Map(entry.orbitNames);
       setSongNames(entry.names);
@@ -435,20 +426,9 @@ export default function DoorGallery({
           // loop's pads on screen (its gates share the song-wide orbit map).
           if (!id.startsWith("break:"))
             setLayersUi(cached.layersBySection[id] ?? []);
-          // Every boundary RESHAPES the piece — new cell counts, new spin,
-          // same soul. The room keeps moving with the music.
+          // Every boundary breathes the LIGHT a step — the room keeps moving
+          // with the music, and the arc wraps forever.
           reseedDoorVisual(seedFrom(id));
-          // THE HAND-OFF: wrap detected → this downbeat belongs to the next
-          // song.
-          const j = journeyRef.current;
-          if (id === canonRef.current.first && j.sawLast && !j.advancing) {
-            j.advancing = true;
-            const upNext = nextOf(s);
-            if (upNext) void onPlay(upNext);
-            else j.advancing = false;
-          } else if (id === canonRef.current.last) {
-            j.sawLast = true;
-          }
         },
         // THE DOOR NEVER LINGERS: every section — loop, break, unfold — plays
         // exactly once. The room keeps MOVING (new picture, new pads).
@@ -473,8 +453,6 @@ export default function DoorGallery({
         surfaceMounted: true,
       });
       setAt(Math.max(0, songs.findIndex((x) => x.id === s.id)));
-      const upNext = nextOf(s);
-      if (upNext) void entryFor(upNext).catch(() => {});
     } catch {
       setError(true);
     } finally {
@@ -621,6 +599,7 @@ export default function DoorGallery({
     sub?: string;
     on: boolean;
     dim?: boolean;
+    woke?: boolean;
     onClick?: () => void;
     hold?: { down: () => void; up: () => void };
   }
@@ -632,6 +611,7 @@ export default function DoorGallery({
     // asleep = not in the sounding section; it keeps its square, dimmed, and
     // a tap still pre-arms its kill for when it wakes.
     dim: isPlaying && !awake.has(name),
+    woke: isPlaying && awake.has(name) && !prevAwakeRef.current.has(name),
     onClick: () => (isPlaying ? toggleLayer(name) : void onPlay(current)),
   }));
   const controlBoxes: Box[] = [
@@ -690,7 +670,7 @@ export default function DoorGallery({
       onContextMenu={b.hold ? (e) => e.preventDefault() : undefined}
       aria-pressed={b.on}
       aria-label={b.label}
-      className={`box-enter flex h-[3.75rem] w-[3.75rem] select-none flex-col items-center justify-center rounded-[1.15rem] text-center text-[10.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-500 active:scale-[.88] sm:h-24 sm:w-24 sm:rounded-[1.35rem] sm:text-[13px] ${
+      className={`box-enter flex h-[min(3.75rem,7.2vh)] w-[min(3.75rem,7.2vh)] select-none flex-col items-center justify-center rounded-[1.15rem] text-center text-[10.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-500 active:scale-[.88] sm:h-[min(5.5rem,8.8vh)] sm:w-[min(5.5rem,8.8vh)] sm:rounded-[1.35rem] sm:text-[13px] ${b.woke ? "box-wake " : ""}${
         b.on
           ? `${sounding ? "pad-pulse" : "pad-lit"} border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white`
           : b.dim
@@ -712,7 +692,7 @@ export default function DoorGallery({
   // the room below, generous air, and motion ONLY when it means something:
   // the beat-throb, the bloom of an arriving layer, the fold of a leaving one.
   return (
-    <div className="flex w-full max-w-xl flex-col items-center text-center">
+    <div className="flex w-full max-w-xl flex-col items-center text-center sm:max-w-2xl">
       <div className={`mb-3 flex h-7 select-none items-center sm:mb-5 ${shade}`}>
         {loadingPlay ? (
           <p className="text-[17px] text-foreground/90">
