@@ -21,7 +21,6 @@ import {
 import {
   destroyDoorVisual,
   doorHue,
-  looksFor,
   pieceFor,
   pulseDoorVisual,
   reseedDoorVisual,
@@ -261,8 +260,6 @@ export default function DoorGallery({
   const tempoRef = useRef(1);
   const [keyUi, setKeyUi] = useState(0);
   const keyRef = useRef(0);
-  // The LIGHT the current piece wears — an index into its own three looks.
-  const [lookIdx, setLookIdx] = useState(0);
   const codeCache = useRef(new Map<string, DoorEntry>());
   // The sky adapts to the hand that holds it — phones get their own portrait
   // slot map (denser columns, everything above the doorway).
@@ -389,7 +386,6 @@ export default function DoorGallery({
 
   useEffect(() => {
     // A new song brings its own default light and a fresh launchpad.
-    setLookIdx(0);
     offRef.current = new Set();
     setOffNames(new Set());
   }, [playingId]);
@@ -490,7 +486,8 @@ export default function DoorGallery({
         repeatsFor: () => 1,
         effectsFor: () => cached.effects,
         overlaysFor: () => cached.overlays,
-        ending: entry.ending,
+        // THE DOOR NEVER ENDS — no ending-stop, the arc wraps forever.
+        ending: null,
         onEnded: () => clearNowPlaying(),
       });
       onVisual?.(true);
@@ -637,20 +634,9 @@ export default function DoorGallery({
     setDoorHue(doorHue() + 0.012); // live uniform — the colour just turns
   }
 
-  /** Switch the LIGHT — the piece re-runs instantly under the chosen look. */
-  function applyLook(i: number) {
-    if (!current) return;
-    setLookIdx(i);
-    void showDoorVisual(pieceFor(current), {
-      bpm: current.plan?.bpm,
-      look: i,
-      seed: curSectionIdRef.current ? seedFrom(curSectionIdRef.current) : 0,
-    });
-  }
 
   if (!songs.length || !current) return null;
 
-  const looks = looksFor(pieceFor(current));
   // Over a full-bright picture, floating text needs its own shadow to hold.
   const shade = "[text-shadow:0_1px_14px_rgba(0,0,0,.9)]";
   const beat = `${60 / ((current.plan?.bpm || 120) * tempo)}s`;
@@ -664,8 +650,6 @@ export default function DoorGallery({
     key: string;
     label: string;
     sub?: string;
-    tint?: string;
-    ink?: boolean;
     small?: boolean;
     on: boolean;
     leaving?: boolean;
@@ -729,14 +713,6 @@ export default function DoorGallery({
       on: keyUi < 0,
       onClick: () => keyTo(keyUi < 0 ? 0 : -2),
     },
-    ...looks.map((l, i) => ({
-      key: `ink:${l.name}`,
-      label: l.name,
-      tint: l.tint,
-      ink: true,
-      on: lookIdx === i,
-      onClick: () => applyLook(i),
-    })),
   ];
   const boxes = [...layerBoxes, ...controlBoxes];
 
@@ -772,7 +748,7 @@ export default function DoorGallery({
     <>
       {/* THE LINE — the only words in the room, floating top centre. */}
       <div
-        className={`pointer-events-none fixed left-1/2 top-[9%] z-0 w-full -translate-x-1/2 text-center ${shade}`}
+        className={`pointer-events-none fixed left-1/2 top-[9%] z-0 w-full -translate-x-1/2 select-none text-center ${shade}`}
       >
         {loadingPlay ? (
           <p className="text-[17px] text-foreground/90">
@@ -818,34 +794,26 @@ export default function DoorGallery({
                 onContextMenu={b.hold ? (e) => e.preventDefault() : undefined}
                 aria-pressed={b.on}
                 aria-label={b.label}
-                title={b.ink ? b.label : undefined}
                 className={`pointer-events-auto flex select-none flex-col items-center justify-center text-center font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.86] ${
                   b.leaving ? "box-leave" : "box-enter"
                 } ${
-                  b.ink
-                    ? "h-10 w-10 rounded-2xl sm:h-12 sm:w-12"
-                    : b.small
-                      ? "h-[3.75rem] w-[3.75rem] rounded-2xl text-[11px] sm:h-[4.5rem] sm:w-[4.5rem] sm:text-[12px]"
-                      : "h-[4.25rem] w-[4.25rem] rounded-2xl text-[11px] sm:h-24 sm:w-24 sm:text-[13px]"
+                  b.small
+                    ? "h-[3.75rem] w-[3.75rem] rounded-2xl text-[11px] sm:h-[4.5rem] sm:w-[4.5rem] sm:text-[12px]"
+                    : "h-[4.25rem] w-[4.25rem] rounded-2xl text-[11px] sm:h-24 sm:w-24 sm:text-[13px]"
                 } ${
-                  b.ink
-                    ? b.on
-                      ? "scale-110 ring-2 ring-accent/80 shadow-[inset_0_2px_3px_rgba(255,255,255,.5),0_2px_12px_rgba(0,0,0,.6)]"
-                      : "ring-1 ring-white/25 shadow-[inset_0_2px_3px_rgba(255,255,255,.5),0_2px_12px_rgba(0,0,0,.6)] hover:ring-white/60"
-                    : b.on
-                      ? `${sounding ? "pad-pulse" : "pad-lit"} border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white`
-                      : "border border-white/[0.12] bg-black/50 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,.1),0_10px_28px_-14px_rgba(0,0,0,.9)] hover:border-accent/45 hover:text-white"
+                  b.on
+                    ? `${sounding ? "pad-pulse" : "pad-lit"} border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white`
+                    : "border border-white/[0.12] bg-black/50 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,.1),0_10px_28px_-14px_rgba(0,0,0,.9)] hover:border-accent/45 hover:text-white"
                 }`}
                 style={
                   {
                     "--i": i,
                     "--beat": beat,
-                    ...(b.tint ? { background: b.tint } : {}),
                   } as React.CSSProperties
                 }
               >
-                {!b.ink && <span className="px-1.5">{b.label}</span>}
-                {b.sub && !b.ink && (
+                <span className="px-1.5">{b.label}</span>
+                {b.sub && (
                   <span className="mt-0.5 text-[9px] font-medium tabular-nums text-white/70 sm:text-[10px]">
                     {b.sub}
                   </span>
@@ -875,14 +843,14 @@ const SLOTS: [number, number][] = [
 /** PORTRAIT sky for phones — jittered columns filling the upper two thirds,
  *  everything comfortably above the doorway, every square a full thumb-size. */
 const SLOTS_MOBILE: [number, number][] = [
-  [18, 12], [46, 68], [84, 10],
-  [10, 19], [38, 15], [65, 18], [90, 16],
-  [20, 26], [52, 23], [82, 26],
-  [12, 33], [40, 31], [68, 33], [92, 34],
-  [22, 40], [50, 39], [80, 42],
-  [12, 48], [38, 47], [66, 50], [90, 49],
-  [24, 57], [54, 56], [82, 58],
-  [30, 65], [58, 64], [86, 66],
+  [86, 8],
+  [14, 18], [38, 17], [62, 18], [86, 18],
+  [20, 26], [50, 26], [80, 26],
+  [14, 34], [38, 33], [62, 34], [86, 34],
+  [20, 42], [50, 43], [80, 42],
+  [14, 51], [38, 50], [62, 51], [86, 50],
+  [20, 59], [50, 60], [80, 59],
+  [14, 66], [32, 67], [50, 66], [68, 67], [86, 66],
 ];
 
 /** Stable per-key hash — every square claims the same slot all song long. */

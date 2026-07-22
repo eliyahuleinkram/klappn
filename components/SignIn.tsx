@@ -148,7 +148,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
           <div className="rounded-2xl border border-accent/20 bg-black/45 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
             {gateUp ? (
               <>
-                <p className="text-[13.5px] leading-relaxed text-muted">
+                <p className="select-none text-[13.5px] leading-relaxed text-muted">
                   A 6-digit code is in your inbox — sent to{" "}
                   <span className="text-foreground/80">{email.trim()}</span>.
                   Type it and you&rsquo;re in.
@@ -196,7 +196,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
               </>
             ) : (
               <>
-                <p className="text-[13.5px] leading-relaxed text-muted">
+                <p className="select-none text-[13.5px] leading-relaxed text-muted">
                   You type a sentence. Klappn writes everything you&rsquo;re
                   hearing — the sound, the picture, the code.{" "}
                   <span className="text-foreground/85">Yours to keep.</span>
@@ -218,7 +218,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                     {state === "sending" ? "Sending…" : "Sign in"}
                   </button>
                 </form>
-                <p className="mt-2 text-[12px] text-muted/60">
+                <p className="mt-2 select-none text-[12px] text-muted/60">
                   New or returning — same door. A 6-digit code lands in your
                   inbox. No password.
                 </p>
