@@ -223,22 +223,6 @@ body.door-stage #k1-canvas {
 .pad-pulse {
   animation: pad-throb var(--beat, 0.5s) ease-out infinite;
 }
-/* THE CONSTELLATION — each box drifts on its own small orbit around its slot
-   (--dx/--dy set per box), so the whole sky is alive without ever wandering. */
-@keyframes box-drift {
-  from {
-    transform: translate(-50%, -50%);
-  }
-  to {
-    transform: translate(
-      calc(-50% + var(--dx, 12px)),
-      calc(-50% + var(--dy, -10px))
-    );
-  }
-}
-.box-drift {
-  animation: box-drift var(--dur, 10s) ease-in-out infinite alternate;
-}
 /* Squares ARRIVE with a bloom (overshoot) and LEAVE by folding away — every
    section change reads as the sky rearranging itself, never a jump-cut. */
 @keyframes box-in {
@@ -274,10 +258,6 @@ body.door-stage #k1-canvas {
   pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .box-drift {
-    animation: none;
-    transform: translate(-50%, -50%);
-  }
   .box-enter,
   .box-leave {
     animation: none;

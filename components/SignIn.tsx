@@ -145,7 +145,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
 
           {/* THE DOOR ITSELF — a pink-lit doorway; the key is one email. */}
           <div className="w-full max-w-xl">
-          <div className="rounded-2xl border border-accent/20 bg-black/45 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+          <div className="rounded-3xl border border-accent/20 bg-black/45 p-5 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl sm:p-4">
             {gateUp ? (
               <>
                 <p className="select-none text-[13.5px] leading-relaxed text-muted">
@@ -201,7 +201,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                   hearing — the sound, the picture, the code.{" "}
                   <span className="text-foreground/85">Yours to keep.</span>
                 </p>
-                <form onSubmit={send} className="mt-3 flex gap-2">
+                <form onSubmit={send} className="mt-3.5 flex flex-col gap-2.5 sm:flex-row sm:gap-2">
                   <input
                     type="email"
                     required
@@ -213,7 +213,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                   <button
                     type="submit"
                     disabled={state === "sending"}
-                    className="btn-primary shrink-0 rounded-xl px-5 py-3 text-[15px] font-medium transition active:scale-[.98] disabled:opacity-50"
+                    className="btn-primary w-full shrink-0 rounded-xl px-5 py-3 text-[15px] font-medium transition active:scale-[.98] disabled:opacity-50 sm:w-auto"
                   >
                     {state === "sending" ? "Sending…" : "Sign in"}
                   </button>

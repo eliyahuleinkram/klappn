@@ -261,16 +261,6 @@ export default function DoorGallery({
   const [keyUi, setKeyUi] = useState(0);
   const keyRef = useRef(0);
   const codeCache = useRef(new Map<string, DoorEntry>());
-  // The sky adapts to the hand that holds it — phones get their own portrait
-  // slot map (denser columns, everything above the doorway).
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 640px)");
-    const sync = () => setIsMobile(mq.matches);
-    sync();
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
-  }, []);
   // SECTION CHANGES REARRANGE THE SKY, never jump-cut it: layers that left the
   // mix fold away (box-leave) while the arriving ones bloom in (box-enter).
   const [shownLayers, setShownLayers] = useState<
@@ -650,7 +640,6 @@ export default function DoorGallery({
     key: string;
     label: string;
     sub?: string;
-    small?: boolean;
     on: boolean;
     leaving?: boolean;
     onClick?: () => void;
@@ -667,7 +656,6 @@ export default function DoorGallery({
     ...FX_KEYS.map((k) => ({
       key: `F:${k}`,
       label: FX_LABEL[k],
-      small: true,
       on: fx[k],
       onClick: () => toggleFx(k),
     })),
@@ -675,7 +663,6 @@ export default function DoorGallery({
       key: "cut",
       label: "Cut",
       sub: "hold me",
-      small: true,
       on: cut,
       hold: { down: () => holdCut(true), up: () => holdCut(false) },
     },
@@ -683,7 +670,6 @@ export default function DoorGallery({
       key: "hue",
       label: "Colour",
       sub: "hold me",
-      small: true,
       on: false,
       hold: { down: () => startSweep(hueStep), up: stopSweep },
     },
@@ -693,7 +679,6 @@ export default function DoorGallery({
       key: "t+",
       label: "Faster",
       sub: tempo > 1.05 ? bpmNow : "take us up",
-      small: true,
       on: tempo > 1.05,
       onClick: () => glideTempo(tempo > 1.05 ? 1 : 1.18),
     },
@@ -701,7 +686,6 @@ export default function DoorGallery({
       key: "k+",
       label: "Higher",
       sub: keyUi > 0 ? "up two keys" : "lift the key",
-      small: true,
       on: keyUi > 0,
       onClick: () => keyTo(keyUi > 0 ? 0 : 2),
     },
@@ -709,47 +693,45 @@ export default function DoorGallery({
       key: "k-",
       label: "Lower",
       sub: keyUi < 0 ? "down two keys" : "sink the key",
-      small: true,
       on: keyUi < 0,
       onClick: () => keyTo(keyUi < 0 ? 0 : -2),
     },
   ];
-  const boxes = [...layerBoxes, ...controlBoxes];
+  const box = (b: Box, i: number) => (
+    <button
+      key={b.key}
+      onClick={b.onClick}
+      onPointerDown={b.hold ? () => b.hold!.down() : undefined}
+      onPointerUp={b.hold ? () => b.hold!.up() : undefined}
+      onPointerLeave={b.hold ? () => b.hold!.up() : undefined}
+      onPointerCancel={b.hold ? () => b.hold!.up() : undefined}
+      onContextMenu={b.hold ? (e) => e.preventDefault() : undefined}
+      aria-pressed={b.on}
+      aria-label={b.label}
+      className={`flex aspect-square w-full select-none flex-col items-center justify-center rounded-[1.35rem] text-center text-[11.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.88] sm:text-[13px] ${
+        b.leaving ? "box-leave" : "box-enter"
+      } ${
+        b.on
+          ? `${sounding ? "pad-pulse" : "pad-lit"} border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white`
+          : "border border-white/[0.12] bg-black/50 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,.1),0_10px_28px_-14px_rgba(0,0,0,.9)] hover:border-accent/45 hover:text-white"
+      }`}
+      style={{ "--i": i, "--beat": beat } as React.CSSProperties}
+    >
+      <span className="px-1.5">{b.label}</span>
+      {b.sub && (
+        <span className="mt-0.5 text-[9px] font-medium tabular-nums text-white/70 sm:text-[10px]">
+          {b.sub}
+        </span>
+      )}
+    </button>
+  );
 
-  // EVERY SQUARE OWNS ITS SLOT for the whole song — controls claim first (in
-  // fixed order), layers claim by name-hash — so a section change moves ONLY
-  // the layers that actually changed; nothing else drifts an inch.
-  const SL = isMobile ? SLOTS_MOBILE : SLOTS;
-  const order = scatterOrder(current.id, SL.length);
-  const slotOf = new Map<string, number>();
-  {
-    const taken = new Set<number>();
-    const claim = (key: string) => {
-      const n = SL.length;
-      const start = hashKey(key) % n;
-      for (let a = 0; a < n; a++) {
-        const s = order[(start + a) % n];
-        if (!taken.has(s)) {
-          taken.add(s);
-          slotOf.set(key, s);
-          return;
-        }
-      }
-      slotOf.set(key, order[start]);
-    };
-    controlBoxes.forEach((b) => claim(b.key));
-    layerBoxes
-      .map((b) => b.key)
-      .sort()
-      .forEach(claim);
-  }
-
+  // ONE calm, centred grid — a home screen, not a storm. The sounds above,
+  // the room below, generous air, and motion ONLY when it means something:
+  // the beat-throb, the bloom of an arriving layer, the fold of a leaving one.
   return (
-    <>
-      {/* THE LINE — the only words in the room, floating top centre. */}
-      <div
-        className={`pointer-events-none fixed left-1/2 top-[9%] z-0 w-full -translate-x-1/2 select-none text-center ${shade}`}
-      >
+    <div className="flex w-full max-w-xl flex-col items-center text-center">
+      <div className={`mb-5 flex h-7 select-none items-center ${shade}`}>
         {loadingPlay ? (
           <p className="text-[17px] text-foreground/90">
             <span className="shimmer-text">Coming alive…</span>
@@ -757,119 +739,26 @@ export default function DoorGallery({
         ) : !isPlaying ? (
           <p className="text-[17px] text-foreground/90">Touch anything.</p>
         ) : null}
-        {error && (
-          <p className="mt-2 text-[13px] text-red-400">
-            The room stumbled — touch it again.
-          </p>
-        )}
       </div>
-
-      {/* THE FIELD — re-keyed per song so a fresh constellation rises in. */}
+      {/* THE SOUNDS — every layer of the sounding loop */}
       <div
-        key={`field:${playingId ?? "idle"}`}
-        className="pointer-events-none fixed inset-0 z-0"
+        key={`sounds:${playingId ?? "idle"}`}
+        className="grid w-full grid-cols-4 gap-2.5 sm:grid-cols-5 sm:gap-3"
       >
-        {boxes.map((b, i) => {
-          const [x, y] = SL[slotOf.get(b.key) ?? 0];
-          return (
-            <div
-              key={b.key}
-              className="box-drift absolute"
-              style={
-                {
-                  left: `${x}%`,
-                  top: `${y}%`,
-                  "--dx": `${(i % 2 ? -1 : 1) * (8 + ((i * 7) % 12))}px`,
-                  "--dy": `${(i % 3 ? -1 : 1) * (6 + ((i * 5) % 10))}px`,
-                  "--dur": `${9 + (i % 6)}s`,
-                } as React.CSSProperties
-              }
-            >
-              <button
-                onClick={b.onClick}
-                onPointerDown={b.hold ? () => b.hold!.down() : undefined}
-                onPointerUp={b.hold ? () => b.hold!.up() : undefined}
-                onPointerLeave={b.hold ? () => b.hold!.up() : undefined}
-                onPointerCancel={b.hold ? () => b.hold!.up() : undefined}
-                onContextMenu={b.hold ? (e) => e.preventDefault() : undefined}
-                aria-pressed={b.on}
-                aria-label={b.label}
-                className={`pointer-events-auto flex select-none flex-col items-center justify-center text-center font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.86] ${
-                  b.leaving ? "box-leave" : "box-enter"
-                } ${
-                  b.small
-                    ? "h-[3.75rem] w-[3.75rem] rounded-2xl text-[11px] sm:h-[4.5rem] sm:w-[4.5rem] sm:text-[12px]"
-                    : "h-[4.25rem] w-[4.25rem] rounded-2xl text-[11px] sm:h-24 sm:w-24 sm:text-[13px]"
-                } ${
-                  b.on
-                    ? `${sounding ? "pad-pulse" : "pad-lit"} border border-accent/40 bg-gradient-to-br from-[#ff63c1]/30 via-accent/20 to-[#b3126f]/30 text-white`
-                    : "border border-white/[0.12] bg-black/50 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,.1),0_10px_28px_-14px_rgba(0,0,0,.9)] hover:border-accent/45 hover:text-white"
-                }`}
-                style={
-                  {
-                    "--i": i,
-                    "--beat": beat,
-                  } as React.CSSProperties
-                }
-              >
-                <span className="px-1.5">{b.label}</span>
-                {b.sub && (
-                  <span className="mt-0.5 text-[9px] font-medium tabular-nums text-white/70 sm:text-[10px]">
-                    {b.sub}
-                  </span>
-                )}
-              </button>
-            </div>
-          );
-        })}
+        {layerBoxes.map(box)}
       </div>
-    </>
+      {/* THE ROOM — colour, physics, the cut */}
+      <div
+        key={`room:${playingId ?? "idle"}`}
+        className="mt-5 grid w-full grid-cols-4 gap-2.5 sm:grid-cols-5 sm:gap-3"
+      >
+        {controlBoxes.map((b, i) => box(b, i + layerBoxes.length))}
+      </div>
+      {error && (
+        <p className="mt-4 text-[13px] text-red-400">
+          The room stumbled — touch it again.
+        </p>
+      )}
+    </div>
   );
-}
-
-/** The sky's fixed anchor points (viewport %), leaving the top-centre line,
- *  the top-left brand and the bottom-centre doorway clear. */
-const SLOTS: [number, number][] = [
-  [8, 30], [7, 52], [9, 74], [15, 88],
-  [20, 16], [22, 40], [24, 62], [20, 80],
-  [34, 22], [38, 44], [36, 60],
-  [48, 34], [52, 54], [50, 18],
-  [64, 22], [62, 44], [66, 60],
-  [78, 14], [80, 36], [78, 58], [82, 76],
-  [92, 26], [93, 50], [90, 68], [88, 90],
-  [6, 12], [95, 86],
-];
-
-/** PORTRAIT sky for phones — jittered columns filling the upper two thirds,
- *  everything comfortably above the doorway, every square a full thumb-size. */
-const SLOTS_MOBILE: [number, number][] = [
-  [86, 8],
-  [14, 18], [38, 17], [62, 18], [86, 18],
-  [20, 26], [50, 26], [80, 26],
-  [14, 34], [38, 33], [62, 34], [86, 34],
-  [20, 42], [50, 43], [80, 42],
-  [14, 51], [38, 50], [62, 51], [86, 50],
-  [20, 59], [50, 60], [80, 59],
-  [14, 66], [32, 67], [50, 66], [68, 67], [86, 66],
-];
-
-/** Stable per-key hash — every square claims the same slot all song long. */
-function hashKey(k: string): number {
-  let h = 0;
-  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0;
-  return h;
-}
-
-/** Deterministic slot shuffle per song — every song deals a fresh sky. */
-function scatterOrder(seedStr: string, n: number): number[] {
-  let h = 2166136261;
-  for (let i = 0; i < seedStr.length; i++)
-    h = ((h ^ seedStr.charCodeAt(i)) * 16777619) >>> 0;
-  const idx = Array.from({ length: n }, (_, i) => i);
-  for (let i = n - 1; i > 0; i--) {
-    h = (h * 1664525 + 1013904223) >>> 0;
-    const j = h % (i + 1);
-    [idx[i], idx[j]] = [idx[j], idx[i]];
-  }
-  return idx;
 }
