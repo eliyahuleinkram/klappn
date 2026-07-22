@@ -493,8 +493,8 @@ export class EditWorkflow extends WorkflowEntrypoint<
         const [s] = await sql<{ user_id: string; model: string | null }[]>`
           select user_id, model from songs where id = ${songId}`;
         return {
-          // model is a reserved native id ("anthropic"/"glm"/"moonshot"/"gemini") OR an OpenRouter
-          // slug — pass it through verbatim; complete() routes on it.
+          // model is a stored routing id — pass it through verbatim;
+          // complete() maps legacy ids and routes everything to Fable.
           userId: s?.user_id ?? "",
           model: s?.model ?? "anthropic",
         };
