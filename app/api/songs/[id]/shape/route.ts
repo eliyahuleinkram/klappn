@@ -10,10 +10,11 @@ import type { BreakOverlay } from "@/lib/breaks-catalog";
 /**
  * THE WHOLE-SONG SWEEP — one tap on the pill the song page offers after a new
  * loop lands (2026-07-21, the user; an at-birth auto-run was reversed same
- * day). Runs autoShapeSong: effects across every loop, then breaks at the
- * turns, REPLACING what rides — the pill says so before the tap. Two high
- * calls, owner-scoped, billed like any generation. Returns the fresh lists so
- * the page can swap them in without a reload.
+ * day). Runs autoShapeSong: ONE high call authors the whole shape — effect
+ * glides AND break fills together, REPLACING both sets (the pill says so
+ * before the tap; empty lists clear). Owner-scoped, billed like any
+ * generation. Returns the fresh lists so the page can swap them in without a
+ * reload.
  */
 export async function POST(
   req: Request,

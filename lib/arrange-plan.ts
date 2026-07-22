@@ -571,93 +571,22 @@ export async function composeNextUnfoldFx(
 }
 
 
-// ── PAGE EFFECTS — the whole song's motion, authored in ONE call ─────────────
-// The auto-effects button: the model sees every loop on the page (in play
-// order, with its layers) and returns the COMPLETE set of glides for the song
-// at once — params, values, spans. REPLACES whatever rode before (the UI
-// warns first).
+// ── PAGE SHAPE — the whole song's motion AND its turns, in ONE call ──────────
+// The Sweep: effect glides and break fills are one gesture — the glide and the
+// fill at the same turn are one decision — so a single call authors BOTH
+// complete sets, told plainly that everything riding (both kinds) is replaced.
+// (The old shape ran two sequential calls, each told the other category
+// "stays": the effects argued around fills that the very next call deleted.
+// Merged 2026-07-22 — the user: let it do whatever it thinks best.)
 
-const PAGE_FX_SYSTEM = `You write the EFFECTS that ride a finished instrumental piece — parameter glides living OUTSIDE its loops, each spanning a range of them. You're given the song's identity and its loops in play order, each with its layers. Write the COMPLETE set of glides for the piece.
-
-Respond with ONLY a JSON object, no markdown:
-{"effects": [{"name": "2-4 words for the MOVE a listener feels", "param": "<control>", "from": n, "to": n, "curve": "linear"|"sine", "fromLoop": first loop it rides (1-based), "toLoop": last loop it rides}, …]}
-
-Each glide runs ONCE across its whole range — from the first bar of fromLoop to the last bar of toLoop. Loop numbers refer to the play order given. Glidable params: lpf, hpf, gain, room, delay, delayfeedback, resonance, shape, phaserrate. Params that rebuild a shared bus (roomsize, delaytime) cannot glide.`;
-
-export async function composePageEffects(
-  args: {
-    genre?: string;
-    key: string;
-    bpm: number;
-    timeSignature: string;
-    summary?: string;
-    /** Every loop on the page, in play order. */
-    loops: { name: string; intent?: string; layers: string[]; bars?: number }[];
-    /** The effects riding NOW — the set being replaced. */
-    riding?: { name?: string; param: string; from: number; to: number; fromLoop: number; toLoop: number }[];
-    /** Breaks on the page — drum fills at the turns. They stay. */
-    breaks?: { tpl: string; atLoop: number }[];
-  },
-  cfg?: LlmConfig,
-): Promise<UnfoldFx[]> {
-  if (!args.loops.length) return [];
-  let user = [
-    `${args.genre ? `${args.genre} — ` : ""}key of ${args.key}, ${args.bpm} BPM, ${args.timeSignature}.`,
-    args.summary ? `The song: ${args.summary}` : "",
-    "THE LOOPS (in play order):",
-    ...args.loops.map(
-      (c, i) =>
-        `${i + 1}. "${c.name}"${c.bars ? ` (${c.bars} bars)` : ""}${c.intent?.trim() ? ` — ${c.intent.trim()}` : ""}${
-          c.layers.length ? ` [layers: ${c.layers.join(", ")}]` : ""
-        }`,
-    ),
-    args.riding?.length
-      ? [
-          "RIDING NOW (your set replaces all of these):",
-          ...args.riding.map(
-            (r) =>
-              `- ${r.name ? `"${r.name}" — ` : ""}${r.param} ${r.from}→${r.to}, loops ${r.fromLoop}–${r.toLoop}`,
-          ),
-        ].join("\n")
-      : "",
-    args.breaks?.length
-      ? [
-          "BREAKS ON THE PAGE (drum fills at these turns — they stay):",
-          ...args.breaks.map((b) => `- ${b.tpl}, the turn out of loop ${b.atLoop}`),
-        ].join("\n")
-      : "",
-    `The complete set of effects for the piece. JSON only.`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const reply = (
-      await complete(PAGE_FX_SYSTEM, user, cfg, {
-        ...ROUTE.compose,
-        effort: "high",
-        maxTokens: 3000,
-        trace: { kind: "page-fx", attempt },
-      })
-    ).trim();
-    const parsed = sanitizeUnfoldFx(firstJsonObject(reply), args.loops.length);
-    if (parsed.length) return parsed;
-    user += `\n\nThat reply was not usable. Resend ONLY the JSON object with an "effects" array.`;
-  }
-  return [];
-}
-
-
-// ── PAGE BREAKS — deterministic drum overlays placed in ONE call ─────────────
-// The auto-breaks button: the model sees the loops in play order and the
-// fixed template catalog, and returns the complete set of break placements
-// (template, span, gain). REPLACES whatever rode before (the UI warns first).
-
-const PAGE_BREAKS_SYSTEM = `You place BREAKS — short drum fills at the turns of a finished instrumental piece. A break rides the closing bar(s) of one loop so the music breaks into the next: a point of release, not a running beat. You're given the song's identity, its loops in play order, and the fill templates. Write the complete set of placements.
+const PAGE_SHAPE_SYSTEM = `You shape a finished instrumental piece: its EFFECTS — parameter glides living OUTSIDE its loops, each spanning a range of them — and its BREAKS — short drum fills at its turns. You're given the song's identity and its loops in play order, each with its layers. Author BOTH complete sets together, as one gesture: a glide and a fill at the same turn are one decision — a long rise may want its turn bare, a hard cut may want the fill to carry it alone.
 
 Respond with ONLY a JSON object, no markdown:
-{"breaks": [{"tpl": "<template key>", "atLoop": the loop whose ending it rides (1-based), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8}, …]}
+{"effects": [{"name": "2-4 words for the MOVE a listener feels", "param": "<control>", "from": n, "to": n, "curve": "linear"|"sine", "fromLoop": first loop it rides (1-based), "toLoop": last loop it rides}, …],
+ "breaks": [{"tpl": "<template key>", "atLoop": the loop whose ending it rides (1-based), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8}, …]}
 
-Templates: roll (snare roll, last bar) · run (tom run, last bar) · build (doubling roll, last four bars) · stutter (kick stutter, last bar) · lift (rising hats, last bar) · clap (doubling claps, last two bars) · crash (push into a ringing crash, last bar) · tumble (tom cascade, last two bars). Knobs: gain = level, heat = drive, tone = how open the top is (1 = fully open), space = room send. At most one break per turn. An empty list is a valid answer.`;
+Each glide runs ONCE across its whole range — from the first bar of fromLoop to the last bar of toLoop. Loop numbers refer to the play order given. Glidable params: lpf, hpf, gain, room, delay, delayfeedback, resonance, shape, phaserrate. Params that rebuild a shared bus (roomsize, delaytime) cannot glide.
+A break rides the closing bar(s) of one loop so the music breaks into the next: a point of release, not a running beat. Templates: roll (snare roll, last bar) · run (tom run, last bar) · build (doubling roll, last four bars) · stutter (kick stutter, last bar) · lift (rising hats, last bar) · clap (doubling claps, last two bars) · crash (push into a ringing crash, last bar) · tumble (tom cascade, last two bars). Knobs: gain = level, heat = drive, tone = how open the top is (1 = fully open), space = room send. At most one break per turn. An empty list is a valid answer for either.`;
 
 export interface PageBreak {
   tpl: string;
@@ -668,84 +597,94 @@ export interface PageBreak {
   space: number;
 }
 
-export async function composePageBreaks(
+const BREAK_TPLS = new Set(["roll", "run", "build", "stutter", "lift", "clap", "crash", "tumble"]);
+
+function sanitizePageBreaks(list: unknown[], loopCount: number): PageBreak[] {
+  const knob = (v: unknown, min: number, max: number, def: number) =>
+    Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Number(v))) : def;
+  return list
+    .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+    .map((e) => ({
+      tpl: String(e.tpl ?? ""),
+      atLoop: Math.max(1, Math.min(loopCount, Math.floor(Number(e.atLoop)) || 1)),
+      gain: knob(e.gain, 0, 1.2, 0.8),
+      heat: knob(e.heat, 0, 0.6, 0),
+      tone: knob(e.tone, 0, 1, 1),
+      space: knob(e.space, 0, 0.8, 0),
+    }))
+    .filter((e) => BREAK_TPLS.has(e.tpl))
+    // one break per turn — the first placement at a loop wins
+    .filter((e, i, all) => all.findIndex((x) => x.atLoop === e.atLoop) === i)
+    .slice(0, 8);
+}
+
+/** The Sweep's one call: the complete shape — effects AND breaks — for the
+ *  piece. null = the model whiffed (caller changes nothing); a successful
+ *  parse REPLACES both sets, and an empty list is a real answer (a piece can
+ *  want bare turns), not a failure. */
+export async function composePageShape(
   args: {
     genre?: string;
     key: string;
     bpm: number;
     timeSignature: string;
     summary?: string;
-    loops: { name: string; intent?: string; bars?: number }[];
-    /** The set riding now — replaced wholesale. */
-    riding?: {
-      tpl: string;
-      atLoop: number;
-      gain?: number;
-      heat?: number;
-      tone?: number;
-      space?: number;
-    }[];
-    /** Effects riding the page — parameter glides. They stay. */
-    effects?: { name?: string; param: string; from: number; to: number; fromLoop: number; toLoop: number }[];
+    /** Every loop on the page, in play order. */
+    loops: { name: string; intent?: string; layers: string[]; bars?: number }[];
+    /** The effects riding NOW — replaced wholesale. */
+    ridingEffects?: { name?: string; param: string; from: number; to: number; fromLoop: number; toLoop: number }[];
+    /** The break fills riding NOW — replaced wholesale. */
+    ridingBreaks?: { tpl: string; atLoop: number; gain?: number; heat?: number; tone?: number; space?: number }[];
   },
   cfg?: LlmConfig,
-): Promise<PageBreak[]> {
-  if (!args.loops.length) return [];
-  const TPLS = new Set(["roll", "run", "build", "stutter", "lift", "clap", "crash", "tumble"]);
+): Promise<{ effects: UnfoldFx[]; breaks: PageBreak[] } | null> {
+  if (!args.loops.length) return null;
+  const riding = [
+    ...(args.ridingEffects ?? []).map(
+      (r) => `- effect: ${r.name ? `"${r.name}" — ` : ""}${r.param} ${r.from}→${r.to}, loops ${r.fromLoop}–${r.toLoop}`,
+    ),
+    ...(args.ridingBreaks ?? []).map(
+      (r) => `- break: ${r.tpl}, the turn out of loop ${r.atLoop} (gain ${r.gain ?? 0.8}, heat ${r.heat ?? 0}, tone ${r.tone ?? 1}, space ${r.space ?? 0})`,
+    ),
+  ];
   let user = [
     `${args.genre ? `${args.genre} — ` : ""}key of ${args.key}, ${args.bpm} BPM, ${args.timeSignature}.`,
     args.summary ? `The song: ${args.summary}` : "",
     "THE LOOPS (in play order):",
     ...args.loops.map(
-      (c, i) => `${i + 1}. "${c.name}"${c.bars ? ` (${c.bars} bars)` : ""}${c.intent?.trim() ? ` — ${c.intent.trim()}` : ""}`,
+      (c, i) =>
+        `${i + 1}. "${c.name}"${c.bars ? ` (${c.bars} bars)` : ""}${c.intent?.trim() ? ` — ${c.intent.trim()}` : ""}${
+          c.layers.length ? ` [layers: ${c.layers.join(", ")}]` : ""
+        }`,
     ),
-    args.riding?.length
-      ? ["RIDING NOW (your set replaces all of these):", ...args.riding.map((r) => `- ${r.tpl}, the turn out of loop ${r.atLoop} (gain ${r.gain ?? 0.8}, heat ${r.heat ?? 0}, tone ${r.tone ?? 1}, space ${r.space ?? 0})`)].join("\n")
-      : "",
-    args.effects?.length
-      ? [
-          "EFFECTS RIDING THE PAGE (they stay):",
-          ...args.effects.map(
-            (e) => `- ${e.name ? `"${e.name}" — ` : ""}${e.param} ${e.from}→${e.to}, loops ${e.fromLoop}–${e.toLoop}`,
-          ),
-        ].join("\n")
-      : "",
-    `The complete set of breaks. JSON only.`,
+    riding.length
+      ? ["RIDING NOW (your sets replace ALL of this — both kinds):", ...riding].join("\n")
+      : "Nothing rides yet.",
+    `The complete shape — effects and breaks. JSON only.`,
   ]
     .filter(Boolean)
     .join("\n");
   for (let attempt = 0; attempt < 2; attempt++) {
     const reply = (
-      await complete(PAGE_BREAKS_SYSTEM, user, cfg, {
+      await complete(PAGE_SHAPE_SYSTEM, user, cfg, {
         ...ROUTE.compose,
         effort: "high",
-        maxTokens: 2000,
-        trace: { kind: "page-breaks", attempt },
+        maxTokens: 4000,
+        trace: { kind: "page-shape", attempt },
       })
     ).trim();
-    const raw = firstJsonObject(reply);
-    const list = raw && Array.isArray((raw as { breaks?: unknown }).breaks) ? ((raw as { breaks: unknown[] }).breaks) : null;
-    if (list) {
-      return list
-        .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
-        .map((e) => {
-          const knob = (v: unknown, min: number, max: number, def: number) =>
-            Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Number(v))) : def;
-          return {
-            tpl: String(e.tpl ?? ""),
-            atLoop: Math.max(1, Math.min(args.loops.length, Math.floor(Number(e.atLoop)) || 1)),
-            gain: knob(e.gain, 0, 1.2, 0.8),
-            heat: knob(e.heat, 0, 0.6, 0),
-            tone: knob(e.tone, 0, 1, 1),
-            space: knob(e.space, 0, 0.8, 0),
-          };
-        })
-        .filter((e) => TPLS.has(e.tpl))
-        // one break per turn — the first placement at a loop wins
-        .filter((e, i, all) => all.findIndex((x) => x.atLoop === e.atLoop) === i)
-        .slice(0, 8);
+    const raw = firstJsonObject(reply) as { effects?: unknown; breaks?: unknown } | null;
+    const fxList = raw && Array.isArray(raw.effects) ? raw.effects : null;
+    const brList = raw && Array.isArray(raw.breaks) ? raw.breaks : null;
+    // At least one array must be present to count as an answer; a missing
+    // sibling reads as an intentional empty (the contract asks for both).
+    if (fxList || brList) {
+      return {
+        effects: fxList ? sanitizeUnfoldFx({ effects: fxList }, args.loops.length) : [],
+        breaks: brList ? sanitizePageBreaks(brList, args.loops.length) : [],
+      };
     }
-    user += `\n\nThat reply was not usable. Resend ONLY the JSON object with a "breaks" array.`;
+    user += `\n\nThat reply was not usable. Resend ONLY the JSON object with "effects" and "breaks" arrays.`;
   }
-  return [];
+  return null;
 }

@@ -91,8 +91,7 @@ import {
   composeNextChapter,
   composeSongArrangement,
   composeNextUnfoldFx,
-  composePageBreaks,
-  composePageEffects,
+  composePageShape,
   enrichSweepControls,
 } from "./arrange-plan";
 import { sentenceLabel } from "./labels";
@@ -743,40 +742,36 @@ export async function autoShapeSong(
       if (fl < 1 || tl < 1) return [];
       return [{ name: e.name, param: e.param, from: e.from, to: e.to, fromLoop: fl, toLoop: tl }];
     });
-  let effects = ((plan.effects ?? []) as SongFx[]);
-  const fx = await composePageEffects(
+  // ONE call authors the whole shape — glides AND fills together, both told
+  // "replaced wholesale" (merged 2026-07-22, the user: two sequential calls
+  // each held the other category fixed, and the effects argued around fills
+  // the next call deleted). null = the model whiffed → leave what rides.
+  // A successful answer REPLACES both sets even when a list is empty — bare
+  // turns are a real answer, not a failure.
+  const effectsNow = ((plan.effects ?? []) as SongFx[]);
+  const shape = await composePageShape(
     {
       ...identity,
       loops: loops.map(({ name, intent, layers, bars }) => ({ name, intent, layers, bars })),
-      riding: fxContext(effects),
-      breaks: overlaysNow.map(({ tpl, atLoop }) => ({ tpl, atLoop })),
+      ridingEffects: fxContext(effectsNow),
+      ridingBreaks: overlaysNow,
     },
     cfg,
-  ).catch(() => []);
-  if (fx.length) {
-    effects = fx.map((e) => ({
-      id: crypto.randomUUID(),
-      param: e.param,
-      from: e.from,
-      to: e.to,
-      curve: e.curve ?? "linear",
-      ...(e.name ? { name: e.name } : {}),
-      home: { from: e.from, to: e.to },
-      fromId: loops[Math.min(loops.length, Math.max(1, e.fromLoop)) - 1].id,
-      toId: loops[Math.min(loops.length, Math.max(1, e.toLoop)) - 1].id,
-    }));
-    await replaceSongEffects(songId, song.user_id, effects, sql);
-  }
-  const placed = await composePageBreaks(
-    {
-      ...identity,
-      loops: loops.map(({ name, intent, bars }) => ({ name, intent, bars })),
-      riding: overlaysNow,
-      effects: fxContext(effects),
-    },
-    cfg,
-  ).catch(() => []);
-  const overlays = placed.flatMap((b) => {
+  ).catch(() => null);
+  if (!shape) return;
+  const effects = shape.effects.map((e) => ({
+    id: crypto.randomUUID(),
+    param: e.param,
+    from: e.from,
+    to: e.to,
+    curve: e.curve ?? "linear",
+    ...(e.name ? { name: e.name } : {}),
+    home: { from: e.from, to: e.to },
+    fromId: loops[Math.min(loops.length, Math.max(1, e.fromLoop)) - 1].id,
+    toId: loops[Math.min(loops.length, Math.max(1, e.toLoop)) - 1].id,
+  }));
+  await replaceSongEffects(songId, song.user_id, effects, sql);
+  const overlays = shape.breaks.flatMap((b) => {
     const move = breakMoveOf(b.tpl);
     if (!move) return [];
     const anchor = loops[b.atLoop - 1].id;
@@ -794,7 +789,9 @@ export async function autoShapeSong(
       } satisfies BreakOverlay,
     ];
   });
-  if (overlays.length) await replaceSongOverlays(songId, song.user_id, overlays, sql);
+  // Unconditional — the shape call answered, so an empty list CLEARS old fills
+  // (the piece may want its turns bare).
+  await replaceSongOverlays(songId, song.user_id, overlays, sql);
 }
 
 // ── NATURAL-LANGUAGE LOOP EDIT: route one request → ordered ops → apply, in memory ──
