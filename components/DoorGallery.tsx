@@ -678,7 +678,7 @@ export default function DoorGallery({
   // the room below, generous air, and motion ONLY when it means something:
   // the beat-throb, the bloom of an arriving layer, the fold of a leaving one.
   return (
-    <div className="flex w-full max-w-xl flex-col items-center text-center sm:max-w-2xl">
+    <div className="my-auto flex w-full max-w-xl flex-col items-center text-center sm:max-w-2xl">
       <div className={`mb-3 flex h-7 select-none items-center sm:mb-5 ${shade}`}>
         {loadingPlay ? (
           <p className="text-[17px] text-foreground/90">
