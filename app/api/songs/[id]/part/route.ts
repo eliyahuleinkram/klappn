@@ -3,6 +3,7 @@ import { getUserId, unauthorized } from "@/lib/session";
 import {
   getSongWithParts,
   injectPart,
+  saveSongDirection,
   setGenerationWorkflowId,
   setSongStatus,
 } from "@/lib/songs";
@@ -107,6 +108,12 @@ export async function POST(
     },
   );
   await sink.flush();
+
+  // THE SONG'S DIRECTION NOTE follows the words: when the derive judged the
+  // user's direction a whole-track steer, its rewritten note lands on
+  // plan.direction — every later compose/extend/edit reads it. Best-effort.
+  if (d.direction && d.direction !== (plan.direction ?? "").trim())
+    await saveSongDirection(id, d.direction).catch(() => {});
 
   // Append lands via the "end" sentinel — the index is computed inside the
   // insert transaction, so a concurrent extend-before can't stale our tail.

@@ -260,6 +260,14 @@ export interface SongPlan {
   key: string;
   /** The workspace's genre — set at creation, drives how every loop is composed. */
   genre?: string;
+  /** THE SONG'S DIRECTION NOTE — the maker's accumulated whole-track steer,
+   *  distilled from their edit/extend requests into purely musical terms (the
+   *  song's own memory, like a README for its identity). A short note (≤160
+   *  chars), REWRITTEN whole on each update — newest steer wins — never an
+   *  appended log. Raw user words never land here (no-raw-prompt-downstream);
+   *  the model that serves the request distills them in the same call. Read by
+   *  buildBrief so every later compose/extend/edit inherits the steer. */
+  direction?: string;
   /** Time signature, e.g. "4/4", "3/4", "7/8". Numerator = beats per bar; the
    *  composer writes in it and playback maps 1 cycle = 1 bar. Defaults to "4/4". */
   timeSignature?: string;
@@ -503,7 +511,9 @@ and energy, clearly different from every existing section's intent. Cohesion com
 the shared genre, key and tempo, never from restating an existing section's melody or
 groove; a referenced motif is TRANSFORMED (fragmented, answered, moved to another
 voice), not repeated.
-- "before" leads into the current first section; "after" makes the NEXT move after the
+- "before" is the track's NEW OPENING — it leads into the current first section and
+  arrives UNDER it: plan it lighter (fewer, quieter elements; never heavier artillery
+  than the section it sets up carries). "after" makes the NEXT move after the
   last; "between" takes the hand-off from the section before it and converges into the
   one after.
 (The composer sees the neighbours' actual code — the intent's job is the section's own
@@ -512,7 +522,8 @@ Keep the track's genre, key and tempo. Every section LOOPS: the intent describes
 state held on every repeat, never a one-way arc from silence or into a finale.
 If the user gives a DIRECTION, that is your brief — realize THEIR idea in this slot;
 a named artist, band or song is translated into purely musical terms, never echoed.
-Otherwise choose what best fits the arc.
+Otherwise choose what best fits the arc. When a TRACK DIRECTION NOTE is given, it is
+the maker's accumulated steer for the whole track — honor it.
 Respond with ONLY JSON, no prose, no fences:
 { "label": a NEW distinctive 1-3 word label (never one already in the list),
   "intent": a 1-2 sentence description of the section's own material, character and
@@ -520,7 +531,11 @@ Respond with ONLY JSON, no prose, no fences:
   "kind": "loop" for a full section; "break" when the user's direction asks for a
     short transitional hand-off between its neighbours (a breather, a suspension,
     a riser seam) rather than a section of its own,
-  "bars": the loop length in bars — match the song's existing sections (a break is 1-4) }`;
+  "bars": the loop length in bars — match the song's existing sections (a break is 1-4),
+  "direction": ONLY when the user's direction steers the WHOLE track (its genre, era,
+    style or energy as a whole, not just this slot): the track's direction note
+    rewritten to absorb that steer — at most 160 characters of purely musical terms,
+    no quoted request, no artist names. Omit otherwise — when unsure, omit }`;
 
 /** Plan ONE new section to prepend ("before"), append ("after") or BRIDGE
  *  ("between", at index `at` — i.e. it will sit before the current parts[at]),
@@ -538,7 +553,15 @@ export async function deriveAdjacentPart(
     kind?: "loop" | "break";
   },
   cfg?: ClaudeConfig,
-): Promise<{ label: string; intent: string; bars: number; kind: "loop" | "break" }> {
+): Promise<{
+  label: string;
+  intent: string;
+  bars: number;
+  kind: "loop" | "break";
+  /** plan.direction rewritten by the SAME call when the user's words steered
+   *  the whole track (absent when the ask was slot-local). */
+  direction?: string;
+}> {
   const { plan, parts, side, at, prompt } = args;
   // An explicit "break" from the caller still forces it (API compat); the UI
   // no longer sends one — THE WORDS decide (2026-07-14, the user: "the AI
@@ -594,6 +617,9 @@ export async function deriveAdjacentPart(
   const user = [
     `TRACK: ${plan.genre || "—"} · ${plan.bpm} BPM · ${plan.key}`,
     plan.summary ? `OVERVIEW: ${plan.summary}` : "",
+    plan.direction?.trim()
+      ? `TRACK DIRECTION NOTE (the maker's accumulated steer): ${plan.direction.trim()}`
+      : "",
     ``,
     `CURRENT SECTIONS (in order):`,
     arrangement,
@@ -606,7 +632,9 @@ export async function deriveAdjacentPart(
       ? `Add ONE new BREAK — a SHORT (1-4 bar) transitional section — BETWEEN section ${at ?? 1} ("${parts[(at ?? 1) - 1]?.label || "?"}") and section ${(at ?? 1) + 1} ("${parts[at ?? 1]?.label || "?"}"): sparser than its neighbours, tension into release.`
       : side === "between"
         ? `Add ONE new BRIDGE section BETWEEN section ${at ?? 1} ("${parts[(at ?? 1) - 1]?.label || "?"}") and section ${(at ?? 1) + 1} ("${parts[at ?? 1]?.label || "?"}").`
-        : `Add ONE new section ${side === "before" ? "BEFORE the first" : "AFTER the last"} section.`,
+        : side === "before"
+          ? `Add ONE new section BEFORE the first section — the track's new OPENING, arriving UNDER "${parts[0]?.label || "the first section"}".`
+          : `Add ONE new section AFTER the last section — the track's new LAST section, taking the hand-off from "${parts[parts.length - 1]?.label || "the last section"}".`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -622,11 +650,13 @@ export async function deriveAdjacentPart(
   if (!intent) return fallback;
   const kind: "loop" | "break" =
     forced || str(j!.kind) === "break" ? "break" : "loop";
+  const direction = str(j!.direction).trim().slice(0, 160);
   return {
     label: cleanLabel(str(j!.label, fallback.label)),
     intent,
     bars: clampBars(j!.bars, kind === "break") ?? (kind === "break" ? Math.min(2, medianBars) : medianBars),
     kind,
+    ...(direction ? { direction } : {}),
   };
 }
 

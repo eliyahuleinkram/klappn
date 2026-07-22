@@ -352,6 +352,22 @@ export async function saveSongVisual(
     where id = ${songId}`;
 }
 
+/** Persist the song's DIRECTION NOTE (plan.direction) — the maker's distilled
+ *  whole-track steer. Same targeted-jsonb_set contract as saveSongVisual: other
+ *  plan keys may be changing concurrently, so never a whole-plan rewrite. */
+export async function saveSongDirection(
+  songId: string,
+  direction: string,
+  sql: Sql = db(),
+): Promise<void> {
+  const note = direction.trim().slice(0, 160);
+  if (!note) return;
+  await sql`
+    update songs
+    set plan = jsonb_set(plan, '{direction}', ${sql.json(note)})
+    where id = ${songId}`;
+}
+
 // ── CHAPTERS-ERA SONG EFFECTS (plan.effects) ─────────────────────────────────
 // Song-level glides anchored to part ranges (lib/arrange SongFx), written at
 // chapterize time and edited zero-AI from the song page. Array-valued but tiny

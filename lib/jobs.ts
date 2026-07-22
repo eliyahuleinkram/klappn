@@ -62,6 +62,7 @@ import {
   replaceSongEffects,
   replaceSongOverlays,
   saveSongArrangement,
+  saveSongDirection,
   saveSongSectionSpec,
   saveSongVisual,
   setSongSectionSweeps,
@@ -938,13 +939,21 @@ export async function editLoopDirect(
       failures: string[];
       changed: number;
       intent?: string;
+      /** The track's direction note, rewritten by the SAME call when the
+       *  request steered the whole track (absent for loop-local changes). */
+      direction?: string;
       /** origin[newIndex] = old 0-based track index (null = brand-new layer) —
        *  the exact mapping the unfold re-points itself with after the write. */
       origin: (number | null)[];
     } | null> => {
-      const reply = await editStrudelWholeLoop(layers, brief, change, cfg, intent0 || undefined).catch(
-        () => null,
-      );
+      const reply = await editStrudelWholeLoop(
+        layers,
+        brief,
+        change,
+        cfg,
+        intent0 || undefined,
+        plan.direction,
+      ).catch(() => null);
       const bodies = reply?.bodies;
       if (!bodies?.length) return null;
       // Match each returned line to a surviving track: byte-identical first (that track carries
@@ -1028,7 +1037,14 @@ export async function editLoopDirect(
           );
         }
       }
-      return { tracks: out.map(ensureVolumeKnob), failures, changed, intent: reply?.brief, origin };
+      return {
+        tracks: out.map(ensureVolumeKnob),
+        failures,
+        changed,
+        intent: reply?.brief,
+        direction: reply?.direction,
+        origin,
+      };
     };
 
     let res = await attempt(request);
@@ -1061,6 +1077,12 @@ export async function editLoopDirect(
     const intent1 = (res.intent ?? "").trim();
     if (intent0 && intent1 && intent1 !== intent0)
       await sql`update parts set intent = ${intent1.slice(0, 600)} where id = ${partId}`;
+    // THE SONG'S DIRECTION NOTE follows the edit: when the same call judged the
+    // request a whole-track steer, its rewritten note lands on plan.direction —
+    // every later compose/extend/edit reads it from the brief. Best-effort.
+    const direction1 = (res.direction ?? "").trim();
+    if (direction1 && direction1 !== (plan.direction ?? "").trim())
+      await saveSongDirection(songId, direction1, sql).catch(() => {});
     await setPartMessage(partId, "", sql);
     await settleSong();
   } catch (e) {
@@ -1239,11 +1261,21 @@ function buildBrief(
    *  intent). Direct neighbours carry their full Strudel below; the rest give
    *  the new loop the track's shape without flooding the context. */
   others: { label: string; intent?: string }[] = [],
+  /** WHERE this section sits when it's an EDGE against a finished neighbour
+   *  (2026-07-22, the user: a section composed before/after the track must
+   *  know it IS the opening/last section — and an opening arrives UNDER the
+   *  section it leads into, never over it). `label` = that neighbour. */
+  place?: { kind: "opening" | "last"; label: string },
 ): string {
   const bits: string[] = [];
   if (plan.genre?.trim()) bits.push(`${plan.genre.trim()}.`);
   bits.push(`Key of ${plan.key}.`);
   bits.push(`${plan.bpm} BPM.`);
+  // THE SONG'S DIRECTION NOTE — the maker's accumulated whole-track steer
+  // (distilled from their own edit/extend words). Rides every brief so each
+  // later loop, extend and edit pulls the same way.
+  if (plan.direction?.trim())
+    bits.push(`The maker's steer for the whole track: ${plan.direction.trim()}.`);
   const ts = plan.timeSignature ?? "4/4";
   if (ts !== "4/4") bits.push(`Time signature ${ts}.`);
   // HARMONY IS EMERGENT (2026-07-01, the user): we no longer dictate an explicit chord grid —
@@ -1259,6 +1291,17 @@ function buildBrief(
   const intent = (target.intent || target.label || plan.summary || "").trim();
   if (intent)
     bits.push(`This section: ${intent.endsWith(".") ? intent : `${intent}.`}`);
+  // EDGE FACTS (2026-07-22, the user): a loop landing at the track's edge must
+  // know it. The opening carries the one hard weight rule — it sits UNDER the
+  // section it leads into (drums before a drumless intro was the bug).
+  if (place?.kind === "opening")
+    bits.push(
+      `This is the track's OPENING — the first thing heard, playing immediately before "${place.label}". Arrive UNDER "${place.label}": fewer and quieter voices, nothing heavier than it carries — if "${place.label}" has no drums, the opening has none.`,
+    );
+  if (place?.kind === "last")
+    bits.push(
+      `This is the track's LAST section — it takes the hand-off from "${place.label}" (the track wraps back to its start after it).`,
+    );
   if (target.kind === "bridge")
     bits.push("This is a short BRIDGE — a one-time transition, not a repeating loop.");
   if (target.kind === "break")
@@ -1355,12 +1398,32 @@ async function composePart(
   //  better layer by layer. Git history has the experiment.)
   // THE REST OF THE TRACK as descriptions: every other section (not the
   // target, not a direct neighbour — those carry full Strudel) rides along as
-  // label + intent, so the new loop knows the track's shape.
+  // label + intent, so the new loop knows the track's shape. ONLY while the
+  // song is still being born: a SOLO compose (extend / regenerate into an
+  // otherwise-finished song) sees its DIRECT NEIGHBOURS and nothing further
+  // (2026-07-22, the user) — the far sections' energy has no business pulling
+  // on a loop that only ever touches its neighbours.
+  const solo = (arrangement ?? []).length > 0 && arrangement!.every((a) => a.isTarget || a.done);
   const neighbourLabels = new Set(neighbours.map((n) => n.label));
-  const others = (arrangement ?? [])
-    .filter((a) => !a.isTarget && !neighbourLabels.has(a.label))
-    .map((a) => ({ label: a.label, intent: a.intent }));
-  const brief = buildBrief(plan, target, neighbours, others);
+  const others = solo
+    ? []
+    : (arrangement ?? [])
+        .filter((a) => !a.isTarget && !neighbourLabels.has(a.label))
+        .map((a) => ({ label: a.label, intent: a.intent }));
+  // EDGE PLACE: the target sits at the track's edge against a FINISHED
+  // neighbour → the brief says so (opening = the weight rule; last = the fact).
+  // During the song's initial sequential birth the next section has no code
+  // yet, so an opening-in-progress never gets a rule it can't ground.
+  const ti = (arrangement ?? []).findIndex((a) => a.isTarget);
+  const nextA = ti >= 0 ? arrangement![ti + 1] : undefined;
+  const prevA = ti > 0 ? arrangement![ti - 1] : undefined;
+  const place =
+    ti === 0 && nextA?.done && nextA.strudel
+      ? ({ kind: "opening", label: nextA.label } as const)
+      : ti >= 0 && ti === arrangement!.length - 1 && prevA?.done && prevA.strudel
+        ? ({ kind: "last", label: prevA.label } as const)
+        : undefined;
+  const brief = buildBrief(plan, target, neighbours, others, place);
   // Each landed track → narrate progress AND stream the partial loop to the caller
   // (which persists it), so the UI shows + plays tracks the moment they arrive.
   const onTrack = async (t: LoopTrack, all: LoopTrack[]) => {

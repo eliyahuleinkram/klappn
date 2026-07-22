@@ -233,13 +233,18 @@ export async function editStrudelWholeLoop(
   change: string,
   cfg?: LlmConfig,
   sectionBrief?: string,
-): Promise<{ bodies: string[]; brief?: string } | null> {
+  /** The track's current direction note (plan.direction) — offering it invites
+   *  the SAME call to return a `DIRECTION:` rewrite when the change steers the
+   *  whole track (the song-README update rides the edit, no extra call). */
+  directionNote?: string | null,
+): Promise<{ bodies: string[]; brief?: string; direction?: string } | null> {
   if (!layers.length) return null;
   const labels = layers.map((l, i) => `line ${i + 1}=${l.label || `layer ${i + 1}`}`).join(', ');
   const loop = layers.map((l) => `$: ${l.body}`).join('\n');
   const user =
     `Brief: ${brief}\n\nThe loop in Strudel (${labels}):\n${loop}\n\n` +
     (sectionBrief ? `THIS SECTION'S BRIEF: ${sectionBrief}\n\n` : '') +
+    `THE TRACK'S DIRECTION NOTE: ${(directionNote ?? '').trim() || '(none yet)'}\n\n` +
     `CHANGE TO APPLY: ${change}`;
   const reply = (
     await complete(EDIT_STRUDEL_WHOLE_SYSTEM, user, cfg, { ...ROUTE.compose, effort: 'high', trace: { kind: 'edit' } })
@@ -254,7 +259,14 @@ export async function editStrudelWholeLoop(
     .pop()
     ?.replace(/^BRIEF:\s*/i, '')
     .trim();
-  return lines.length ? { bodies: lines.map(stripDollar), brief: revised || undefined } : null;
+  const direction = rows
+    .filter((s) => /^DIRECTION:/i.test(s))
+    .pop()
+    ?.replace(/^DIRECTION:\s*/i, '')
+    .trim();
+  return lines.length
+    ? { bodies: lines.map(stripDollar), brief: revised || undefined, direction: direction || undefined }
+    : null;
 }
 
 /**
