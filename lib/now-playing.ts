@@ -89,14 +89,16 @@ export function subscribeNowPlaying(fn: () => void): () => void {
 }
 
 export function publishNowPlaying(next: NowPlayingSession): void {
-  // A SONG session never rides a set's background <audio> sink — restore the
-  // direct output route the moment a song takes over, or the whole mix can
-  // play slower/pitched-down through the stale element after a device change.
-  // It never inherits a set's KILL GATES either: those are Web Audio gain gates on
-  // the channel orbits, and they outlive the set that engaged them, so a song taking
-  // the engine from a killed-drums set played with no drums. Open every channel bus.
+  // Songs RIDE the background sink now (2026-07-22): phones keep playing when
+  // the page hides, same as desktop — playSong arms the sink on every play,
+  // and the sink router only carries audio through the element while hidden,
+  // which is what retired the old stale-element pitch hazard. (The historic
+  // disableBackgroundPlayback() here was the bug that killed mobile
+  // background playback: it tore down the sink playSong had just armed.)
+  // A song still never inherits a set's KILL GATES: those are Web Audio gain
+  // gates on the channel orbits, and they outlive the set that engaged them —
+  // open every channel bus.
   if (next.kind === "song") {
-    disableBackgroundPlayback();
     applyOrbitGains((orbit) => (channelOfOrbit(orbit) ? 1 : undefined));
   }
   session = next;

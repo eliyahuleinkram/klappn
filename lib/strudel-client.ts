@@ -468,6 +468,21 @@ function armResumeRetry(ac: AudioContext): void {
     }
     void ac.resume().catch(() => {});
   }, 1000);
+  // BELT: iOS can refuse every timer-driven resume() after a background kill —
+  // only a real gesture wins. Borrow the next tap anywhere.
+  if (typeof document !== "undefined") {
+    document.addEventListener(
+      "pointerdown",
+      () => {
+        if ((ac.state as string) !== "running" && transportActive) {
+          void ac.resume().catch(() => {});
+          for (const el of [bgAudioEl, bgAnchorEl])
+            if (el && el.paused) void el.play().catch(() => {});
+        }
+      },
+      { once: true, capture: true },
+    );
+  }
 }
 /** Spend the CURRENT tap on the context, synchronously — before any await.
  *  iOS Safari and Chrome's autoplay policy honour AudioContext.resume() only
