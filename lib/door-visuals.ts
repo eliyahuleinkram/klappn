@@ -61,18 +61,22 @@ const INKS: [DoorLook, DoorLook, DoorLook] = [
  *     wash (the solid-red-screen bug, seen live on prod 07-22). */
 const PIECES: Piece[] = [
   {
-    // a crystalline flower turning slowly in the dark
+    // a crystalline flower that PUMPS AT THE SONG'S TEMPO — shattering,
+    // re-forming, breathing with the kick
     name: "Mandala",
     match: /techno|trance|edm|electro|rave/i,
     looks: INKS,
     paint(s, L, bpm, seed) {
-      s.voronoi(5 + seed * 4, 1.0 * L.energy, 0.6)
-        .kaleid(6)
-        .modulateRotate(s.osc(2 + seed * 2, 0.09 * L.energy, 0), 0.4)
-        .modulate(s.src(s.o0), 0.12)
-        .rotate(({ time }: any) => time * 0.045 * L.energy)
-        .mult(s.shape(999, 0.5, 1))
-        .contrast(1.6)
+      const beat = ((bpm || 128) / 60) * Math.PI;
+      s.voronoi(6 + seed * 4, 1.4 * L.energy, 0.8)
+        .kaleid(8)
+        .modulateRotate(s.osc(3 + seed * 2, 0.12 * L.energy, 0), 0.5)
+        .modulateScale(s.osc(0.5, 0.05, 0), 0.15)
+        .modulate(s.src(s.o0), 0.14)
+        .rotate(({ time }: any) => time * 0.06 * L.energy)
+        .scale(({ time }: any) => 1 + 0.09 * Math.sin(time * beat))
+        .mult(s.shape(999, 0.55, 1))
+        .contrast(1.75)
         .color(() => inkNow[0], () => inkNow[1], () => inkNow[2])
         .hue(() => hueNow)
         .out(s.o0);

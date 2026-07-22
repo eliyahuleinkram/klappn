@@ -61,12 +61,21 @@ export interface DoorSong {
 // so the wall has more to press — they trade places, never stack.
 type FxKey = "dark" | "bright" | "echo" | "punch" | "space";
 const FX_KEYS: FxKey[] = ["dark", "bright", "echo", "punch", "space"];
+// Human words, lit BY DEFAULT where the song wants them — the room opens with
+// its echoes, drive and width already in the mix; you take them OUT.
 const FX_LABEL: Record<FxKey, string> = {
-  dark: "Dark",
-  bright: "Bright",
-  echo: "Echo",
-  punch: "Punch",
-  space: "Space",
+  dark: "Darker",
+  bright: "Brighter",
+  echo: "Echoes",
+  punch: "Harder",
+  space: "Wider",
+};
+const FX_DEFAULT: Record<FxKey, boolean> = {
+  dark: false,
+  bright: false,
+  echo: true,
+  punch: true,
+  space: true,
 };
 function perfValues(f: Record<FxKey, boolean>) {
   return {
@@ -95,26 +104,36 @@ type DoorEntry = PlayEntry & {
 
 const LAYER_ORBIT_BASE = 10;
 
-// Button names people feel: classic shorthands spelled out; noise tides named
-// for what they do in the room; everything else is the sound's own name.
+// Button names people FEEL — the role in the room, not the sample id.
 const SOUND_NAMES: Record<string, string> = {
   bd: "Kick",
   sd: "Snare",
   hh: "Hats",
   ch: "Hats",
-  oh: "Open hat",
-  cp: "Clap",
+  oh: "Open hats",
+  cp: "Claps",
   cr: "Crash",
   rd: "Ride",
   rim: "Rim",
   sh: "Shaker",
-  lt: "Tom",
-  mt: "Tom",
-  ht: "Tom",
+  lt: "Toms",
+  mt: "Toms",
+  ht: "Toms",
   cb: "Cowbell",
-  white: "Air",
+  white: "Riser",
   pink: "Air",
   brown: "Tide",
+  sine: "Sub",
+  sawtooth: "Saws",
+  square: "Stabs",
+  triangle: "Arp",
+  gm_lead_2_sawtooth: "Anthem",
+  gm_synth_bass_1: "Bassline",
+  gm_pad_halo: "Pads",
+  gm_pad_warm: "Warmth",
+  gm_pad_new_age: "Pads",
+  gm_fx_crystal: "Sparkle",
+  gm_choir_aahs: "Choir",
 };
 function layerName(code: string): string {
   const m = code.match(/\b(?:s|sound)\(\s*["'`]([^"'`]*)["'`]/);
@@ -230,13 +249,7 @@ export default function DoorGallery({
   const [layersUi, setLayersUi] = useState<DoorLayer[]>([]);
   // WHOLE-SONG orbit → layer name (the gating truth; sections/breaks share it).
   const orbitNamesRef = useRef<Map<number, string>>(new Map());
-  const [fx, setFx] = useState<Record<FxKey, boolean>>({
-    dark: false,
-    bright: false,
-    echo: false,
-    punch: false,
-    space: false,
-  });
+  const [fx, setFx] = useState<Record<FxKey, boolean>>({ ...FX_DEFAULT });
   const fxRef = useRef(fx);
   // CUT — hold to pull the whole mix out of the room, release to slam it back.
   // A momentary gate on every layer bus; the tails ring, the drop hits.
@@ -536,11 +549,11 @@ export default function DoorGallery({
   }
 
 
-  /** Shift the key LIVE: decorate carries the new transpose into a seamless
-   *  in-place rebuild — the transport never stops, nothing re-enters. */
-  function keyStep(d: number) {
+  /** Take the key SOMEWHERE — a destination, not an increment. Decorate
+   *  carries the transpose into a seamless in-place rebuild: the transport
+   *  never stops, nothing re-enters. Tap the lit square = come home. */
+  function keyTo(v: number) {
     if (!isPlaying) return; // the touch itself just started the room
-    const v = Math.max(-7, Math.min(7, keyRef.current + d));
     if (v === keyRef.current) return;
     keyRef.current = v;
     setKeyUi(v);
@@ -548,8 +561,30 @@ export default function DoorGallery({
     requestSongRebuild();
   }
 
-  // HOLD-TO-SWEEP — continuous control inside a square: press = the value
-  // starts moving, release = it stops. One shared interval; 80ms ticks.
+  /** Take the tempo SOMEWHERE — it GLIDES there like a DJ riding the pitch
+   *  fader, live on the scheduler the whole way. Tap the lit square = glide
+   *  home. */
+  const glideRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  function glideTempo(target: number) {
+    if (!isPlaying || !current) return; // the touch itself just started the room
+    if (glideRef.current) clearInterval(glideRef.current);
+    pulseDoorVisual();
+    const song = current;
+    glideRef.current = setInterval(() => {
+      const d = target - tempoRef.current;
+      const step = Math.sign(d) * Math.min(Math.abs(d), 0.012);
+      const v = tempoRef.current + step;
+      tempoRef.current = v;
+      setTempo(v);
+      setLiveCps(cpsFor(song, v));
+      if (Math.abs(target - v) < 0.001 && glideRef.current) {
+        clearInterval(glideRef.current);
+        glideRef.current = null;
+      }
+    }, 60);
+  }
+
+  // HOLD-TO-TURN — the colour keeps turning while your finger is down.
   const sweepRef = useRef<ReturnType<typeof setInterval> | null>(null);
   function stopSweep() {
     if (sweepRef.current) clearInterval(sweepRef.current);
@@ -560,12 +595,6 @@ export default function DoorGallery({
     stopSweep();
     fn();
     sweepRef.current = setInterval(fn, 80);
-  }
-  function tempoStep(d: number) {
-    const v = Math.max(0.6, Math.min(1.4, tempoRef.current + d));
-    tempoRef.current = v;
-    setTempo(v);
-    if (playingId && current) setLiveCps(cpsFor(current, v));
   }
   function hueStep() {
     setDoorHue(doorHue() + 0.012); // live uniform — the colour just turns
@@ -589,7 +618,6 @@ export default function DoorGallery({
   const shade = "[text-shadow:0_1px_14px_rgba(0,0,0,.9)]";
   const beat = `${60 / ((current.plan?.bpm || 120) * tempo)}s`;
   const bpmNow = `${Math.round((current.plan?.bpm || 120) * tempo)} BPM`;
-  const stNow = `${keyUi > 0 ? `+${keyUi}` : keyUi} st`;
 
   // THE CONSTELLATION — every control is a SQUARE, scattered across the whole
   // page, each drifting on its own small orbit. One system: sounds, effects,
@@ -623,48 +651,52 @@ export default function DoorGallery({
     {
       key: "cut",
       label: "Cut",
+      sub: "hold me",
       small: true,
       on: cut,
       hold: { down: () => holdCut(true), up: () => holdCut(false) },
     },
     {
       key: "hue",
-      label: "Hue",
+      label: "Colour",
+      sub: "hold me",
       small: true,
       on: false,
       hold: { down: () => startSweep(hueStep), up: stopSweep },
     },
-    {
-      key: "t-",
-      label: "Slower",
-      sub: bpmNow,
-      small: true,
-      on: false,
-      hold: { down: () => startSweep(() => tempoStep(-0.01)), up: stopSweep },
-    },
+    // DESTINATIONS, not increments: one touch takes you there (the tempo
+    // GLIDES like a pitch fader), touching the lit square brings you home.
     {
       key: "t+",
       label: "Faster",
-      sub: bpmNow,
+      sub: tempo > 1.05 ? bpmNow : "take us up",
       small: true,
-      on: false,
-      hold: { down: () => startSweep(() => tempoStep(0.01)), up: stopSweep },
+      on: tempo > 1.05,
+      onClick: () => glideTempo(tempo > 1.05 ? 1 : 1.18),
     },
     {
-      key: "k-",
-      label: "Key −",
-      sub: stNow,
+      key: "t-",
+      label: "Slower",
+      sub: tempo < 0.95 ? bpmNow : "bring us down",
       small: true,
-      on: keyUi < 0,
-      onClick: () => keyStep(-1),
+      on: tempo < 0.95,
+      onClick: () => glideTempo(tempo < 0.95 ? 1 : 0.85),
     },
     {
       key: "k+",
-      label: "Key +",
-      sub: stNow,
+      label: "Higher",
+      sub: keyUi > 0 ? "up two keys" : "lift the key",
       small: true,
       on: keyUi > 0,
-      onClick: () => keyStep(1),
+      onClick: () => keyTo(keyUi > 0 ? 0 : 2),
+    },
+    {
+      key: "k-",
+      label: "Lower",
+      sub: keyUi < 0 ? "down two keys" : "sink the key",
+      small: true,
+      on: keyUi < 0,
+      onClick: () => keyTo(keyUi < 0 ? 0 : -2),
     },
     ...looks.map((l, i) => ({
       key: `ink:${l.name}`,
