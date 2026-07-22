@@ -186,9 +186,10 @@ function parseEnrichArray(out: string): Record<string, unknown>[] | null {
   );
 }
 
-// Cosmetic panels run on the SONG'S OWN model (the toggle), the same one that wrote the
-// music, LAYER BY LAYER (not one big N-object array) with thinking OFF — so a single bad
-// reply can't wipe every layer's panel. The first arg is the layer's stored notation (its
+// Cosmetic panels run on SONNET 5 with thinking OFF (2026-07-22, the user): pure naming
+// needs no Fable — the composing model stays out of it. LAYER BY LAYER (not one big
+// N-object array) — so a single bad reply can't wipe every layer's panel. The first arg
+// is the layer's stored notation (its
 // Strudel body); the panel is then validated against the playable Strudel: each control
 // the AI names is canonicalised to its real Strudel method and KEPT only if that method
 // is actually on the line — so a slider can never drive a missing method. A short retry
@@ -197,7 +198,7 @@ async function enrichOneLayer(notation: string, strudel: string, cfg?: LlmConfig
   for (let i = 0; i < 2; i++) {
     let out = "";
     try {
-      out = await complete(ENRICH_SYSTEM, `Layer 1: ${notation}`, cfg, { effort: "low", thinking: false, trace: { kind: "enrich" } });
+      out = await complete(ENRICH_SYSTEM, `Layer 1: ${notation}`, { ...cfg, model: "sonnet" }, { effort: "low", thinking: false, trace: { kind: "enrich" } });
     } catch {
       continue;
     }

@@ -213,7 +213,8 @@ export async function composeSongArrangement(
 // ("Darkness floor", "Bloom") and frames the range worth exploring; riding a
 // knob is then pure math — real-time, zero AI. Runs at birth beside the unfold
 // (jobs.arrangeSong) with a lazy on-open fallback (the arrange route's
-// enrichSweeps op), mirroring enrichPartLayer exactly.
+// enrichSweeps op), mirroring enrichPartLayer exactly — including its model:
+// SONNET 5, thinking off (2026-07-22, the user) — pure naming needs no Fable.
 
 const FX_ENRICH_SYSTEM = `Each effect below is a parameter glide riding one loop of a song. For each, in the order given: name up to 2 knobs a musician would ride on it — one per glide end (field "from" = where it starts, "to" = where it lands) — each with a 1-3 word musical name (never the parameter's name) and the min..max range worth exploring, current value inside it.
 
@@ -242,8 +243,9 @@ export async function enrichSweepControls(
     ),
   ].join("\n");
   const reply = (
-    await complete(FX_ENRICH_SYSTEM, user, cfg, {
+    await complete(FX_ENRICH_SYSTEM, user, { ...cfg, model: "sonnet" }, {
       ...ROUTE.transform,
+      thinking: false,
       maxTokens: 1500,
       trace: { kind: "fx-enrich" },
     })
