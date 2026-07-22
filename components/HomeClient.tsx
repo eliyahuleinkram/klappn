@@ -15,6 +15,7 @@ import {
   type PlayEntry,
 } from "@/lib/home-sections";
 import {
+  loopCycles,
   playSong,
   setVisuals,
   stop,
@@ -93,6 +94,8 @@ export default function HomeClient({
   // the sounding card to HOLD it, tap again to carry on (the dock's ✕ is the one true
   // stop). Navigating away stops audio + canvas.
   const [loadingPlay, setLoadingPlay] = useState<string | null>(null);
+  // Engine-measured loop periods, keyed `partId:codeLength` — see onPlaySong.
+  const measuredBarsRef = useRef<Record<string, number>>({});
   // A song's visual is UP (mounted on the backdrop canvas) — the aura steps aside. It
   // stays up after a stop (the idle clock keeps it drifting, like the song page) and
   // comes down when a visual-less song plays or the page unmounts.
@@ -170,7 +173,28 @@ export default function HomeClient({
       else setVisuals(true);
       const { labels, holds } = entry;
       const cached = entry;
+      // ENGINE-MEASURED loop periods, refined after play starts — the same
+      // truth the song page plays by. Until a measurement lands, the baked
+      // regex estimate holds; the arrangement watcher then picks the corrected
+      // boundary up seamlessly. (The estimate over-counts repeating slowcat
+      // elements — home held loops past their real length, so a song looped
+      // differently here than on its own page.)
+      void (async () => {
+        for (const r of cached.raw) {
+          if (!r.code.trim()) continue;
+          const key = `${r.id}:${r.code.length}`;
+          if (measuredBarsRef.current[key]) continue;
+          const n = await loopCycles(r.code);
+          if (n && n > 0) measuredBarsRef.current[key] = n;
+        }
+      })();
       await playSong(entry.sections, {
+        secondsFor: (id) => {
+          const r = cached.raw.find((x) => x.id === id);
+          if (!r) return undefined; // breaks keep their one baked bar
+          const m = measuredBarsRef.current[`${r.id}:${r.code.length}`];
+          return m ? m * cached.bar : undefined;
+        },
         owner: s.id, // the song owns the program — anything else playing is cut, not crossfaded
         onSection: (id) =>
           updateNowPlaying({ sectionLabel: id ? (labels[id] ?? null) : null }),

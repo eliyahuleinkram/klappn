@@ -153,13 +153,23 @@ export interface PlayEntry {
   overlays: BreakOverlay[];
   visual: boolean;
   ending?: SongEnding | null;
+  /** Each loop section's RAW strudel + the bar length — so a gallery can
+   *  refine the baked regex seconds to the ENGINE-MEASURED period after play
+   *  starts (loopCycles), the same truth the song page plays by. */
+  raw: { id: string; code: string }[];
+  bar: number;
 }
 
 export function buildPlayEntry(parts: HomePart[], plan: HomePlan): PlayEntry | null {
   const sections = buildHomeSections(parts, plan);
   if (!sections.length) return null;
+  const byId = new Map(parts.map((p) => [p.id, p.strudel ?? ""]));
   return {
     sections,
+    raw: sections
+      .filter((s) => !String(s.id).startsWith("break:"))
+      .map((s) => ({ id: s.id, code: byId.get(s.id) ?? "" })),
+    bar: barSeconds(plan.bpm || 120, plan.timeSignature || "4/4"),
     labels: sectionLabels(parts, plan),
     holds: decodeHolds(plan.holdCycles),
     effects: (plan as { effects?: SongFx[] }).effects ?? [],
