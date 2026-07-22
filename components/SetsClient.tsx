@@ -9,6 +9,7 @@ import type { PartRow, SongRow } from "@/lib/songs";
 import {
   applyOrbitGains,
   enableBackgroundPlayback,
+  loopCycles,
   playSong,
   setVisuals,
   stop,
@@ -61,6 +62,28 @@ export default function SetsClient({ initialSets }: { initialSets: SetCard[] }) 
   // --- inline set playback (mirrors home's per-card song playback) -----------
   const [loadingPlay, setLoadingPlay] = useState<string | null>(null);
   const ctxCache = useRef(new Map<string, SetLiveCtx>());
+  // ENGINE-MEASURED loop periods, keyed `partId:codeLength` — the same truth the
+  // song page plays by. buildSetSections falls back to the regex estimate until
+  // a measurement lands; the sequencer's watcher then picks the new boundary up
+  // seamlessly. (The estimate over-counts repeating slowcat elements — sets were
+  // holding loops well past their real length.)
+  const measuredBarsRef = useRef<Record<string, number>>({});
+  const barsForPart = (p: PartRow): number | undefined =>
+    measuredBarsRef.current[`${p.id}:${(p.strudel || "").length}`];
+  function measureCtx(c: SetLiveCtx): void {
+    void (async () => {
+      for (const b of Object.values(c.songs)) {
+        for (const p of b?.parts ?? []) {
+          const code = p.strudel;
+          if (!code?.trim()) continue;
+          const key = `${p.id}:${code.length}`;
+          if (measuredBarsRef.current[key]) continue;
+          const n = await loopCycles(code);
+          if (n && n > 0) measuredBarsRef.current[key] = n;
+        }
+      }
+    })();
+  }
   // Leaving the page: a live session — started HERE or riding along — keeps
   // sounding (the dock carries it). Only a silent page tears the engine down.
   useEffect(
@@ -128,7 +151,8 @@ export default function SetsClient({ initialSets }: { initialSets: SetCard[] }) 
         setLoadingPlay(null);
       }
       const c = ctx;
-      const sections = buildSetSections(c);
+      measureCtx(c); // kick the real-period measurements; boundaries refine live
+      const sections = buildSetSections(c, barsForPart);
       if (sections.length === 0) {
         setError("That set has nothing to play yet — its songs are still empty.");
         return;
@@ -159,22 +183,28 @@ export default function SetsClient({ initialSets }: { initialSets: SetCard[] }) 
       // arranged on their song pages, and every transform (tempo, key, channel
       // orbits) rides the same shared decorate as the deck and live listeners.
       const dials = { nudge: 0, perf: PERF_ZERO };
-      let holdPlays = 0;
       await playSong(sections, {
         owner: s.id, // the set owns the program — anything else playing is cut, not crossfaded
-        sectionsFor: () => buildSetSections(c),
+        sectionsFor: () => buildSetSections(c, barsForPart),
         onSection: (id) => {
-          holdPlays = 0; // fresh section → restart its repeat count
           updateNowPlaying({ sectionLabel: setSectionLabel(id, c) });
         },
         decorate: (code, id) => decorateSetSection(code, id, c, dials),
-        holdSection: (id) => {
+        // HOLD is a pure LEVEL, polled at any frequency — only an ∞ latch pins
+        // its section. Finite saved repeats (2×/4×/8×) bake into the pattern as
+        // extra cycles instead (same contract as the deck — counting inside
+        // holdSection double-counted under the arrangement watcher's ~5Hz poll).
+        holdSection: (id) => sectionHoldTarget(id, c) === Infinity,
+        repeatsFor: (id) => {
           const target = sectionHoldTarget(id, c);
-          if (target === Infinity) return true;
-          holdPlays += 1;
-          return holdPlays < target;
+          return Number.isFinite(target) ? target : 1;
         },
-        secondsFor: (id) => buildSetSections(c).find((x) => x.id === id)?.seconds,
+        secondsFor: (id) => buildSetSections(c, barsForPart).find((x) => x.id === id)?.seconds,
+        // decorateSetSection already bused every layer onto its channel's kill
+        // decade — the arrangement's global re-bus would fold them back onto
+        // 1..n and the deck's kills (adopted mid-play on the set page) would
+        // gate buses nothing plays on.
+        keepOrbits: true,
       });
     } catch {
       setLoadingPlay(null);

@@ -387,8 +387,15 @@ export interface SetSection {
 /** Every entry's playable loops in order (RAW code — decorateSetSection applies
  *  the transforms at the moment a section starts), each song's own chosen
  *  breaks between its loops, and the chosen hand-off leaving each entry
- *  (played at the INCOMING song's tempo). */
-export function buildSetSections(ctx: SetLiveCtx): SetSection[] {
+ *  (played at the INCOMING song's tempo). `barsFor` lets the caller supply the
+ *  ENGINE-MEASURED loop period (lib/strudel-client loopCycles) — the same truth
+ *  the song page plays by. Without it the regex estimate over-counts loops with
+ *  repeating slowcat elements, and the set held every loop past its real length
+ *  (a 54s song stretched past two minutes). */
+export function buildSetSections(
+  ctx: SetLiveCtx,
+  barsFor?: (part: PartRow) => number | undefined,
+): SetSection[] {
   const es = ctx.entries;
   const out: SetSection[] = [];
   es.forEach((e, ei) => {
@@ -401,7 +408,7 @@ export function buildSetSections(ctx: SetLiveCtx): SetSection[] {
       out.push({
         id: `${e.id}|${part.id}`,
         code: pickCode(part.strudel),
-        seconds: computeLoopBars(part.strudel || "") * bs,
+        seconds: (barsFor?.(part) ?? computeLoopBars(part.strudel || "")) * bs,
         entryId: e.id,
         partId: part.id,
         isBreak: false,

@@ -28,6 +28,7 @@ import {
   isSongPlaying,
   liveMicActive,
   liveUpdate,
+  loopCycles,
   outputLatencyMs,
   pausePlayback,
   playSong,
@@ -1328,6 +1329,36 @@ export default function SetClient({
    *  the user last saved on the song page. */
   const holdTargetFor = (id: string): number => sectionHoldTarget(id, liveCtx());
 
+  // EXACT loop length per part, measured from the real pattern — the same truth
+  // the song page plays by. Until measured, buildSetSections falls back to the
+  // regex estimate (computeLoopBars), which over-counts loops with repeating
+  // slowcat elements — the set held every loop past its real period, playing a
+  // 54-second song out past two minutes.
+  const [measuredBars, setMeasuredBars] = useState<Record<string, number>>({});
+  const measuredBarsRef = useRef(measuredBars);
+  measuredBarsRef.current = measuredBars;
+  const barsForPart = (part: PartRow): number | undefined =>
+    measuredBarsRef.current[`${part.id}:${(part.strudel || "").length}`];
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const b of Object.values(songsRef.current)) {
+        for (const p of b?.parts ?? []) {
+          const code = p.strudel;
+          if (!code?.trim()) continue;
+          const key = `${p.id}:${code.length}`;
+          if (measuredBarsRef.current[key]) continue;
+          const n = await loopCycles(code);
+          if (cancelled) return;
+          if (n && n > 0) setMeasuredBars((m) => (m[key] ? m : { ...m, [key]: n }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [songs]);
+
   // The kill gains, pushed straight onto the orbit buses (instant — see
   // lib/set-live.ts). Orbits outside our decades are left untouched.
   const killGainFor = (orbit: number): number | undefined => {
@@ -1410,7 +1441,7 @@ export default function SetClient({
   // at the moment each section starts, so mid-play tweaks always win. ONE shared
   // builder (lib/set-live.ts) — the sets-page player sequences the same list.
   function buildFlat(): FlatSection[] {
-    return buildSetSections(liveCtx());
+    return buildSetSections(liveCtx(), barsForPart);
   }
 
   /** Every live transform, applied fresh as a section starts (and on hot-swaps).
@@ -1483,6 +1514,11 @@ export default function SetClient({
       if (sec == null) return undefined;
       return sec / (1 + nudgeRef.current / 100); // live tempo → live boundary
     },
+    // decorateSetSection already bused every layer onto its channel's kill
+    // decade (drums 10–19 · bass 20–29 · melody 30–39) — the arrangement's
+    // global re-bus would fold them back onto 1..n and the deck's three kills
+    // would gate buses nothing plays on (the dead-kills bug).
+    keepOrbits: true,
   });
 
   async function startFrom(sectionId: string) {
@@ -2031,7 +2067,7 @@ export default function SetClient({
   const flat = useMemo(
     () => buildFlat(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entries, transitions, songs],
+    [entries, transitions, songs, measuredBars],
   );
   // The set's REAL length: every section × its saved repeat. A ∞ hold anywhere
   // makes the set open-ended — say ∞, never a made-up number.
@@ -2285,7 +2321,7 @@ export default function SetClient({
       return t;
     };
     playable.forEach((x, i) => {
-      seconds += computeLoopBars(x.strudel || "") * bs * mult(x.id);
+      seconds += (barsForPart(x) ?? computeLoopBars(x.strudel || "")) * bs * mult(x.id);
       const set = p.breaks?.[x.id];
       const br = set && set.chosen != null ? set.options[set.chosen] : null;
       if (br && i < playable.length - 1) seconds += bs * mult(`break:${x.id}`);
