@@ -145,13 +145,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
 
           {/* THE DOOR ITSELF — a pink-lit doorway; the key is one email. */}
           <div className="mt-5 w-full max-w-xl sm:mt-9">
-          <div
-            className={
-              gateUp
-                ? "rounded-3xl border border-accent/20 bg-black/60 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl"
-                : "sm:rounded-3xl sm:border sm:border-accent/20 sm:bg-black/45 sm:p-4 sm:shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] sm:backdrop-blur-2xl"
-            }
-          >
+          <div className="rounded-3xl border border-accent/20 bg-black/50 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
             {gateUp ? (
               <>
                 <p className="select-none text-[13.5px] leading-relaxed text-muted">
@@ -202,11 +196,11 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
               </>
             ) : (
               <>
-                <p className="hidden select-none text-[13.5px] leading-relaxed text-muted sm:block">
+                <p className="select-none text-[13.5px] leading-relaxed text-muted">
                   Type a sentence. Klappn writes all of this —{" "}
                   <span className="text-foreground/85">yours to keep.</span>
                 </p>
-                <form onSubmit={send} className="flex flex-col gap-2.5 sm:mt-3.5 sm:flex-row sm:gap-2">
+                <form onSubmit={send} className="mt-3 flex flex-col gap-2.5 sm:mt-3.5 sm:flex-row sm:gap-2">
                   <input
                     type="email"
                     required
@@ -223,7 +217,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                     {state === "sending" ? "Sending…" : "Sign in"}
                   </button>
                 </form>
-                <p className="mt-2 hidden select-none text-[12px] text-muted/60 sm:block">
+                <p className="mt-2 select-none text-[12px] text-muted/60">
                   No password — a 6-digit code lands in your inbox.
                 </p>
                 {state === "error" && (
