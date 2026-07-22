@@ -73,8 +73,8 @@ const PIECES: Piece[] = [
         .rotate(({ time }: any) => time * 0.045 * L.energy)
         .mult(s.shape(999, 0.5, 1))
         .contrast(1.6)
-        .color(...L.rgb)
-        .hue(() => hueShift)
+        .color(() => inkNow[0], () => inkNow[1], () => inkNow[2])
+        .hue(() => hueNow)
         .out(s.o0);
     },
   },
@@ -90,8 +90,8 @@ const PIECES: Piece[] = [
         .rotate(({ time }: any) => time * 0.012 * L.energy)
         .mult(s.shape(999, 0.6, 1))
         .contrast(1.8)
-        .color(...L.rgb)
-        .hue(() => hueShift)
+        .color(() => inkNow[0], () => inkNow[1], () => inkNow[2])
+        .hue(() => hueNow)
         .out(s.o0);
     },
   },
@@ -107,8 +107,8 @@ const PIECES: Piece[] = [
         .modulate(s.src(s.o0), 0.1)
         .mult(s.shape(999, 0.55, 1))
         .contrast(1.7)
-        .color(...L.rgb)
-        .hue(() => hueShift)
+        .color(() => inkNow[0], () => inkNow[1], () => inkNow[2])
+        .hue(() => hueNow)
         .out(s.o0);
     },
   },
@@ -126,8 +126,8 @@ const PIECES: Piece[] = [
         .modulate(s.src(s.o0), 0.1)
         .mult(s.shape(999, 0.55, 1))
         .contrast(1.6)
-        .color(...L.rgb)
-        .hue(() => hueShift)
+        .color(() => inkNow[0], () => inkNow[1], () => inkNow[2])
+        .hue(() => hueNow)
         .out(s.o0);
     },
   },
@@ -144,8 +144,8 @@ const PIECES: Piece[] = [
         .modulate(s.src(s.o0), 0.08)
         .mult(s.shape(999, 0.55, 1))
         .contrast(1.5)
-        .color(...L.rgb)
-        .hue(() => hueShift)
+        .color(() => inkNow[0], () => inkNow[1], () => inkNow[2])
+        .hue(() => hueNow)
         .out(s.o0);
     },
   },
@@ -160,8 +160,8 @@ const PIECES: Piece[] = [
         .modulate(s.src(s.o0), 0.1)
         .mult(s.shape(999, 0.6, 1))
         .contrast(1.45)
-        .color(...L.rgb)
-        .hue(() => hueShift)
+        .color(() => inkNow[0], () => inkNow[1], () => inkNow[2])
+        .hue(() => hueNow)
         .out(s.o0);
     },
   },
@@ -206,16 +206,38 @@ let sounding = false;
 let rushing = false;
 let pulseTimer: ReturnType<typeof setTimeout> | null = null;
 let arrived = false; // the first reveal gets an entrance surge
-// LIVE hue — a dynamic uniform every piece samples PER FRAME (`.hue(() => …)`),
-// so turning it is truly real-time: no re-eval, no re-run, the colour just moves.
-let hueShift = 0;
+// LIVE COLOUR — dynamic uniforms every piece samples PER FRAME. Changing the
+// ink or turning the hue never re-runs the sketch: the geometry keeps its
+// exact position and only the LIGHT slides — ink glides toward its target a
+// little every frame, so a look change is a seamless colour crossfade.
+let hueNow = 0;
+let hueTarget = 0;
+const inkNow: [number, number, number] = [
+  INKS[0].rgb[0] * 1.12,
+  INKS[0].rgb[1] * 1.12,
+  INKS[0].rgb[2] * 1.12,
+];
+const inkTarget: [number, number, number] = [...inkNow];
 
 /** Turn the room's colour live (0..1 wraps the wheel). */
 export function setDoorHue(v: number): void {
-  hueShift = ((v % 1) + 1) % 1;
+  hueTarget = ((v % 1) + 1) % 1;
 }
 export function doorHue(): number {
-  return hueShift;
+  return hueTarget;
+}
+
+/** Re-ink the room — the geometry never moves, the colour glides over. */
+export function setDoorInk(rgb: [number, number, number]): void {
+  inkTarget[0] = Math.min(1.6, rgb[0] * 1.12);
+  inkTarget[1] = Math.min(1.6, rgb[1] * 1.12);
+  inkTarget[2] = Math.min(1.6, rgb[2] * 1.12);
+}
+
+/** One lerp step per frame — the colour crossfade. */
+function easeInk(): void {
+  for (let i = 0; i < 3; i++) inkNow[i] += (inkTarget[i] - inkNow[i]) * 0.045;
+  hueNow += (hueTarget - hueNow) * 0.06;
 }
 let current: { piece: number; look: number; bpm: number; seed: number } | null =
   null;
@@ -250,6 +272,7 @@ function frame(now: number): void {
   const dt = lastFrameAt ? Math.min(100, now - lastFrameAt) : 16;
   lastFrameAt = now;
   frames++;
+  easeInk(); // colour glides toward its targets — every change is a crossfade
   try {
     hydra?.tick?.(dt);
   } catch {
@@ -298,14 +321,9 @@ function apply(): void {
   if (!hydra || !current) return;
   const p = PIECES[current.piece] ?? PIECES[0];
   const L = p.looks[current.look] ?? p.looks[0];
-  // HOT INK: every look runs a shade past its stated grade — highlights lean
-  // harder toward white, the duotone burns rather than sits.
-  const hot: DoorLook = {
-    ...L,
-    rgb: L.rgb.map((c) => Math.min(1.6, c * 1.12)) as [number, number, number],
-  };
+  setDoorInk(L.rgb); // colour rides the per-frame uniforms, not the sketch
   try {
-    p.paint(hydra.synth, hot, current.bpm, current.seed);
+    p.paint(hydra.synth, L, current.bpm, current.seed);
   } catch (e) {
     console.error("[klappn] door piece failed; keeping previous light", e);
   }
@@ -325,29 +343,38 @@ function arrive(): void {
   }, 1100);
 }
 
-/** The one entry point: show a piece under a look. Idempotent, self-booting. */
+/** The one entry point: show a piece under a look. Idempotent, self-booting.
+ *  Re-calling with the SAME piece only retargets the colour uniforms — the
+ *  geometry keeps its exact position (seamless by construction). */
 export async function showDoorVisual(
   piece: number,
   opts: { bpm?: number; look?: number; seed?: number } = {},
 ): Promise<void> {
+  const samePiece = current?.piece === piece && hydra;
   current = {
     piece,
     look: opts.look ?? current?.look ?? 0,
     bpm: opts.bpm ?? current?.bpm ?? 120,
-    seed: opts.seed ?? 0,
+    seed: opts.seed ?? current?.seed ?? 0,
   };
   if (!hydra && !(await build())) return;
   sizeCanvas();
-  apply();
+  if (samePiece) {
+    const p = PIECES[current.piece] ?? PIECES[0];
+    setDoorInk((p.looks[current.look] ?? p.looks[0]).rgb);
+  } else {
+    apply();
+  }
   arrive();
   armWatchdog();
 }
 
-/** Reshape the current piece (a section boundary) without changing its look. */
+/** A section boundary: the geometry NEVER jumps — the light just breathes a
+ *  step around the wheel, a seamless drift you feel more than see. */
 export function reseedDoorVisual(seed: number): void {
   if (!current) return;
-  current.seed = seed;
-  apply();
+  current.seed = seed; // remembered for the next true rebuild only
+  hueTarget += 0.02;
 }
 
 /** Play = the light moves at full tilt; idle/pause = a slow, alive drift. */
