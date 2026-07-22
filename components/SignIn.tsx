@@ -144,7 +144,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
           <DoorGallery songs={door} onVisual={setVisualUp} />
 
           {/* THE DOOR ITSELF — a pink-lit doorway; the key is one email. */}
-          <div className="w-full max-w-xl">
+          <div className="mt-9 w-full max-w-xl">
           <div className="rounded-3xl border border-accent/20 bg-black/45 p-5 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl sm:p-4">
             {gateUp ? (
               <>
@@ -197,9 +197,8 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
             ) : (
               <>
                 <p className="select-none text-[13.5px] leading-relaxed text-muted">
-                  You type a sentence. Klappn writes everything you&rsquo;re
-                  hearing — the sound, the picture, the code.{" "}
-                  <span className="text-foreground/85">Yours to keep.</span>
+                  Type a sentence. Klappn writes all of this —{" "}
+                  <span className="text-foreground/85">yours to keep.</span>
                 </p>
                 <form onSubmit={send} className="mt-3.5 flex flex-col gap-2.5 sm:flex-row sm:gap-2">
                   <input
@@ -219,8 +218,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                   </button>
                 </form>
                 <p className="mt-2 select-none text-[12px] text-muted/60">
-                  New or returning — same door. A 6-digit code lands in your
-                  inbox. No password.
+                  No password — a 6-digit code lands in your inbox.
                 </p>
                 {state === "error" && (
                   <p className="mt-2 text-[13px] text-red-400">

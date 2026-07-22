@@ -708,7 +708,7 @@ export default function DoorGallery({
       onContextMenu={b.hold ? (e) => e.preventDefault() : undefined}
       aria-pressed={b.on}
       aria-label={b.label}
-      className={`flex aspect-square w-full select-none flex-col items-center justify-center rounded-[1.35rem] text-center text-[11.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.88] sm:text-[13px] ${
+      className={`flex h-[4.6rem] w-[4.6rem] select-none flex-col items-center justify-center rounded-[1.35rem] text-center text-[11.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.88] sm:h-24 sm:w-24 sm:text-[13px] ${
         b.leaving ? "box-leave" : "box-enter"
       } ${
         b.on
@@ -743,14 +743,14 @@ export default function DoorGallery({
       {/* THE SOUNDS — every layer of the sounding loop */}
       <div
         key={`sounds:${playingId ?? "idle"}`}
-        className="grid w-full grid-cols-4 gap-2.5 sm:grid-cols-5 sm:gap-3"
+        className="flex w-full flex-wrap justify-center gap-2.5 sm:gap-3"
       >
         {layerBoxes.map(box)}
       </div>
       {/* THE ROOM — colour, physics, the cut */}
       <div
         key={`room:${playingId ?? "idle"}`}
-        className="mt-5 grid w-full grid-cols-4 gap-2.5 sm:grid-cols-5 sm:gap-3"
+        className="mt-6 flex w-full flex-wrap justify-center gap-2.5 sm:gap-3"
       >
         {controlBoxes.map((b, i) => box(b, i + layerBoxes.length))}
       </div>
