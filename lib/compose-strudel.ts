@@ -147,10 +147,11 @@ export function saysDone(reply: string): boolean {
 
 /** With the parts placed, a CHEAP no-thinking call decides if the loop is complete — so the expensive
  *  HIGH compose call stays focused purely on WRITING the next layer. Run BETWEEN layers; the engine skips
- *  it below the thin-stack floor. */
+ *  it below the thin-stack floor. Runs on SONNET 5, thinking off (2026-07-22, the user — same rule as the
+ *  enrich naming calls: a thinking-off call needs no Fable). */
 async function loopComplete(brief: string, prior: PriorLayer[], cfg?: LlmConfig): Promise<boolean> {
   const user = `The loop so far (each layer's Strudel):\n${priorContext(prior)}\n\nIs this loop complete, or does it still need a part?`;
-  const reply = await complete(STRUDEL_DONE_SYSTEM, user, cfg, { ...ROUTE.pick, thinking: false, cacheStable: `Brief: ${brief}\n\n`, trace: { kind: 'done' } });
+  const reply = await complete(STRUDEL_DONE_SYSTEM, user, { ...cfg, model: 'sonnet' }, { ...ROUTE.pick, thinking: false, cacheStable: `Brief: ${brief}\n\n`, trace: { kind: 'done' } });
   return saysDone(reply);
 }
 

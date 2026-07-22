@@ -208,8 +208,9 @@ async function completeRoute(
   opts?: CompleteOpts,
 ): Promise<string> {
   // Every route lands on Fable 5. "sonnet" → Sonnet 5: legacy songs from the
-  // multi-model era edit on what wrote them, AND the cosmetic naming calls
-  // (enrich / fx-enrich) pin it deliberately — pure naming needs no Fable;
+  // multi-model era edit on what wrote them, AND the thinking-off cheap calls
+  // (enrich / fx-enrich naming + the done-check) pin it deliberately — a
+  // no-thinking call needs no Fable;
   // everything else — "fable", "anthropic", stale A/B ids, unset — is Fable.
   // HARD pin — no `cfg?.anthropicModel ??` fallback: both workers' cfg carries
   // the env default in anthropicModel, and a soft pin silently lost to it
