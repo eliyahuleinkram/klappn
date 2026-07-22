@@ -138,13 +138,13 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
           </span>
         </div>
 
-        {/* ONE column, one story: the instrument, then THE DOOR right under
-            your hands — never a footer, never below the fold. */}
-        <div className="relative z-10 flex flex-1 flex-col items-center justify-center py-8">
+        {/* The gallery scatters its boxes across the WHOLE page (fixed field);
+            the doorway holds the bottom centre — the sky's one clear landing. */}
+        <div className="relative z-10 flex flex-1 flex-col items-center justify-end py-6">
           <DoorGallery songs={door} onVisual={setVisualUp} />
 
           {/* THE DOOR ITSELF — a pink-lit doorway; the key is one email. */}
-          <div className="mt-4 w-full max-w-xl">
+          <div className="w-full max-w-xl">
           <div className="rounded-2xl border border-accent/20 bg-black/45 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
             {gateUp ? (
               <>

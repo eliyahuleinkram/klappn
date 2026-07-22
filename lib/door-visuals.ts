@@ -74,6 +74,7 @@ const PIECES: Piece[] = [
         .mult(s.shape(999, 0.5, 1))
         .contrast(1.6)
         .color(...L.rgb)
+        .hue(() => hueShift)
         .out(s.o0);
     },
   },
@@ -90,6 +91,7 @@ const PIECES: Piece[] = [
         .mult(s.shape(999, 0.6, 1))
         .contrast(1.8)
         .color(...L.rgb)
+        .hue(() => hueShift)
         .out(s.o0);
     },
   },
@@ -106,6 +108,7 @@ const PIECES: Piece[] = [
         .mult(s.shape(999, 0.55, 1))
         .contrast(1.7)
         .color(...L.rgb)
+        .hue(() => hueShift)
         .out(s.o0);
     },
   },
@@ -124,6 +127,7 @@ const PIECES: Piece[] = [
         .mult(s.shape(999, 0.55, 1))
         .contrast(1.6)
         .color(...L.rgb)
+        .hue(() => hueShift)
         .out(s.o0);
     },
   },
@@ -141,6 +145,7 @@ const PIECES: Piece[] = [
         .mult(s.shape(999, 0.55, 1))
         .contrast(1.5)
         .color(...L.rgb)
+        .hue(() => hueShift)
         .out(s.o0);
     },
   },
@@ -156,6 +161,7 @@ const PIECES: Piece[] = [
         .mult(s.shape(999, 0.6, 1))
         .contrast(1.45)
         .color(...L.rgb)
+        .hue(() => hueShift)
         .out(s.o0);
     },
   },
@@ -200,6 +206,17 @@ let sounding = false;
 let rushing = false;
 let pulseTimer: ReturnType<typeof setTimeout> | null = null;
 let arrived = false; // the first reveal gets an entrance surge
+// LIVE hue — a dynamic uniform every piece samples PER FRAME (`.hue(() => …)`),
+// so turning it is truly real-time: no re-eval, no re-run, the colour just moves.
+let hueShift = 0;
+
+/** Turn the room's colour live (0..1 wraps the wheel). */
+export function setDoorHue(v: number): void {
+  hueShift = ((v % 1) + 1) % 1;
+}
+export function doorHue(): number {
+  return hueShift;
+}
 let current: { piece: number; look: number; bpm: number; seed: number } | null =
   null;
 

@@ -449,6 +449,12 @@ export function buildArrangement(
      *  scheduler's untouched clock, so a jump to any bar is gapless.
      *  (scheduler.setCycle() is off the table — see schedulerCycleNow.) */
     lateCycles?: number;
+    /** The caller has ALREADY bussed every layer deliberately (the door's
+     *  per-layer kill gates assign one orbit per (layer, signature) across
+     *  the whole song — same crackle law, different grouping). Skip the
+     *  global signature re-bus, which would merge layers back onto shared
+     *  buses and make per-layer gating impossible. */
+    keepOrbits?: boolean;
   } = {},
 ): Arrangement | null {
   let usable = sections.filter((s) => s.code && s.code.trim());
@@ -458,7 +464,9 @@ export function buildArrangement(
   // loops, and superdough regenerates the bus mid-ring at every seam — the
   // "clicks in many loops". Re-bus globally here, the one chokepoint every
   // song playback, rebuild and render flows through. Idempotent.
-  const rebused = rebusArrangement(usable.map((s) => s.code));
+  const rebused = opts.keepOrbits
+    ? usable.map((s) => s.code)
+    : rebusArrangement(usable.map((s) => s.code));
   usable = usable.map((s, i) => (rebused[i] === s.code ? s : { ...s, code: rebused[i] }));
   const cpmArg = parseSetcpm(usable[0].code);
   if (!cpmArg) return null;
@@ -678,6 +686,8 @@ export function nextUnit(
     ending?: SongEnding | null;
     effects?: SongFx[] | null;
     overlays?: BreakOverlay[] | null;
+    /** See buildArrangement — the caller already bussed every layer. */
+    keepOrbits?: boolean;
   } = {},
 ): ArrangeUnit {
   const head = sections[startIdx];

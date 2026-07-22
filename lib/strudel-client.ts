@@ -2999,6 +2999,7 @@ async function rebuildArrangement(a: ActiveArrangement): Promise<void> {
         effects: songOpts.effectsFor?.() ?? null,
         overlays: songOpts.overlaysFor?.() ?? null,
         lateCycles: a.shift ?? 0,
+        keepOrbits: songOpts.keepOrbits,
       };
       let built = buildArrangement(arrangementInput(a), buildOpts);
       if (!built && a.overrides.size) {
@@ -4751,6 +4752,10 @@ export interface SongPlayOpts {
    *  itself — the UI's cue to publish the stopped state (the engine never
    *  touches the now-playing store). */
   onEnded?: () => void;
+  /** The caller has ALREADY bussed every layer deliberately (the door's
+   *  per-layer kill gates). The arrange build keeps those orbits instead of
+   *  re-busing the whole song by signature — see buildArrangement. */
+  keepOrbits?: boolean;
 }
 
 // The RUNNING mix's callbacks, module-scoped so a page that navigates away and
@@ -4763,6 +4768,14 @@ let songOpts: SongPlayOpts = {};
  *  section boundary consults the new owner. No-op when nothing is playing. */
 export function rebindSong(opts: SongPlayOpts): void {
   if (songActive) songOpts = opts;
+}
+
+/** Ask the running arrangement to rebuild NOW (coalesced, no hush) — the
+ *  seamless in-place swap. The door uses it to land a live KEY change through
+ *  `decorate` without restarting the transport (the restart was an audible
+ *  break). No-op on the stepper or when nothing is playing. */
+export function requestSongRebuild(): void {
+  if (arrangement && songActive) requestRebuild(arrangement);
 }
 
 /** The section (part / break:<id>) the engine is sounding right now. */
@@ -4954,6 +4967,7 @@ export async function playSong(
     const unit = nextUnit(rotated.map(decorated), 0, {
       ending: songOpts.ending,
       effects: songOpts.effectsFor?.() ?? null, overlays: songOpts.overlaysFor?.() ?? null,
+      keepOrbits: songOpts.keepOrbits,
     });
     if (!unit.sections.length) return;
 
@@ -5175,6 +5189,7 @@ export async function playSong(
                 attachVisual: false,
                 ending: songOpts.ending,
                 effects: songOpts.effectsFor?.() ?? null, overlays: songOpts.overlaysFor?.() ?? null,
+                keepOrbits: songOpts.keepOrbits,
               });
               const freshIds = fresh.sections.map((s) => s.id).join(" ");
               const baseIds = a.baseList.map((s) => s.id).join(" ");
