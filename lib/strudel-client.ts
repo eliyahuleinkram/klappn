@@ -508,14 +508,13 @@ function installSinkGuard(ac: AudioContext): void {
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") {
-      // PAUSE ON BACKGROUND (phones — the user's call, 2026-07-06d):
-      // backgrounded mobile playback was garbled anyway; hold the music the
-      // moment the page hides and pick it up on return. Desktop keeps playing.
-      if (isMobileDevice() && transportActive) {
-        autoPausedByHide = true;
-        pausePlayback();
-        autoPauseSink?.(true); // flip the UI + lock-screen icon to paused
-      }
+      // PHONES PLAY THROUGH THE BACKGROUND NOW (2026-07-22, reversing the
+      // 06-06d auto-pause): that call was made in the superdough era, when a
+      // starved main-thread scheduler garbled hidden playback. ZALTZ renders
+      // on the AUDIO THREAD and drives its scheduling off the worklet's
+      // MessagePort clock (never throttled), and the mobile <audio> sink —
+      // armed on every play — holds the OS audio session. Consistent with
+      // desktop: leaving the page keeps the music playing.
       return;
     }
     if (autoPausedByHide) {
@@ -525,15 +524,6 @@ function installSinkGuard(ac: AudioContext): void {
       return;
     }
     if (transportActive && (ac.state as string) !== "running") void resumeAudio();
-  });
-  // BELT: iOS fires pagehide more reliably than visibilitychange on some
-  // app-switch/lock transitions — same pause, whichever arrives first.
-  window.addEventListener("pagehide", () => {
-    if (isMobileDevice() && transportActive) {
-      autoPausedByHide = true;
-      pausePlayback();
-      autoPauseSink?.(true);
-    }
   });
   // BELT #2: a bfcache restore (iOS back-swipe, Safari tab restore) fires
   // pageshow — and iOS Safari can bring the page back with the context left
@@ -4288,14 +4278,39 @@ function isMobileDevice(): boolean {
   );
 }
 
+// A cold first play can spend its gesture on engine boot before the sink
+// elements call play() — autoplay policy then rejects them, and a phone would
+// lose background playback until the next playSong (the door has only one).
+// Borrow the very next tap ANYWHERE to start whatever didn't.
+let sinkRetryArmed = false;
+function armSinkGestureRetry(): void {
+  if (sinkRetryArmed || typeof document === "undefined") return;
+  sinkRetryArmed = true;
+  const retry = () => {
+    sinkRetryArmed = false;
+    for (const el of [bgAudioEl, bgAnchorEl]) {
+      if (el && el.paused) void el.play().catch(() => armSinkGestureRetry());
+    }
+  };
+  document.addEventListener("pointerdown", retry, { once: true, capture: true });
+}
+
 export async function enableBackgroundPlayback(_meta?: {
   title?: string;
   artist?: string;
 }): Promise<void> {
   try {
     await ensureStarted();
-    const master = masterNode();
-    const ac = audioContext();
+    // The master chain can land moments after boot on a cold start — wait for
+    // it instead of silently giving up (a phone without the sink loses
+    // background playback entirely).
+    let master = masterNode();
+    let ac = audioContext();
+    for (let i = 0; i < 12 && (!master || !ac); i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      master = masterNode();
+      ac = audioContext();
+    }
     if (!master || !ac) return;
     if (isMobileDevice() && !bgAudioEl) {
       const dest = ac.createMediaStreamDestination();
@@ -4305,8 +4320,12 @@ export async function enableBackgroundPlayback(_meta?: {
       el.setAttribute("playsinline", "");
       el.style.display = "none";
       document.body.appendChild(el);
-      await el.play(); // start INSIDE the gesture — it can't later
       bgAudioEl = el;
+      try {
+        await el.play(); // start INSIDE the gesture…
+      } catch {
+        armSinkGestureRetry(); // …or borrow the NEXT tap (cold first play)
+      }
       // FOREGROUND PLAYS DIRECT (2026-07-06): a MediaStream-fed element on
       // WebKit buffers on its own clock and randomly UNDERRUNS mid-play —
       // heard as the set going silent for stretches while the engine plays
@@ -4330,8 +4349,12 @@ export async function enableBackgroundPlayback(_meta?: {
       anchor.setAttribute("playsinline", "");
       anchor.style.display = "none";
       document.body.appendChild(anchor);
-      await anchor.play();
       bgAnchorEl = anchor;
+      try {
+        await anchor.play();
+      } catch {
+        armSinkGestureRetry();
+      }
     }
     // MediaSession metadata + the nice lock-screen card are owned centrally now:
     // now-playing.ts (songs/sets) and LiveListenClient (the stream) call
@@ -4868,6 +4891,12 @@ export async function playSong(
   if (songRunId !== myRun) return;
   await resumeAudio(); // in case a previous stop() suspended the context
   if (songRunId !== myRun) return;
+  // Arm the mobile background session on EVERY play (idempotent; desktop
+  // no-ops inside; must run AFTER the engine is up so the master exists):
+  // the hidden <audio> sink + silent anchor are what let a phone keep
+  // playing when the page hides — same as desktop. If the tap's activation
+  // is already spent, the sink borrows the next one (armSinkGestureRetry).
+  void enableBackgroundPlayback();
   if (sdTakeover) zaltzTakeoverNext = true; // the walker's first eval crossfades
   assertMaxPolyphony(); // cap voices AFTER the engine's NaN init (see the note)
 
