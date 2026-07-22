@@ -4,6 +4,11 @@
   "private": true,
   "license": "AGPL-3.0-only",
   "description": "Open-source AI music studio — describe a sound, get editable, playable loops.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eliyahuleinkram/klappn.git"
+  },
+  "homepage": "https://klappn.com",
   "type": "module",
   "engines": {
     "node": ">=22.15"

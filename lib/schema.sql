@@ -26,9 +26,10 @@ create index if not exists songs_user_id_idx on songs (user_id);
 -- screen filter by it. Idempotent for existing databases.
 alter table songs add column if not exists playlist text;
 
--- Which model composed this song: 'anthropic' (Claude Opus 4.8) or 'glm' (GLM-5.2 via
--- Together AI). Chosen at creation (UI toggle); read by the workflow + edit routes so every
--- part and later edit runs on the same model. Defaults to 'anthropic' for existing rows.
+-- Which model composed this song. One model runs today — Claude Fable 5 — and
+-- lib/llm.ts routes every id here (including legacy ids from the early
+-- multi-model bake-off, like the 'anthropic' default) to it. Kept per song so
+-- every part and later edit runs on the same model.
 alter table songs add column if not exists model text not null default 'anthropic';
 
 -- THE DOOR — when set, this song plays on the signed-out gallery (curated by

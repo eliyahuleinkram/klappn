@@ -84,6 +84,12 @@ returns a GC-mutable view (always copy). Beyond the gate, an 8-song / 70-loop
 corpus of real Klappn music was A/B'd by ear before the engine became the
 default.
 
+The superdough side of the comparison ran through the render service, which
+has since left the tree (it went with stem rendering). To re-run the
+reference side, restore `render-service/` from git history — it was removed
+in the commit "One engine, one model, doors open: ZALTZ ships standalone" —
+and `npm install` inside it. The ZALTZ side needs only this repo.
+
 ## Building
 
 ```sh

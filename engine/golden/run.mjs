@@ -1,6 +1,9 @@
 // GOLDEN GATE v0.1 — one synth note through BOTH engines, compared.
 // superdough side runs via render-service in a CHILD PROCESS (its caches bind
 // to one context per process); zaltz side runs in-process.
+// NOTE: render-service left the tree with stem rendering — restore it from
+// git history (see docs/wasm-engine.md, "The golden gate") to run the
+// superdough reference side.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

@@ -112,8 +112,7 @@ telemetry, no data back to us.
    wrangler secret put CLOUDFLARE_ACCOUNT_ID
    wrangler secret put CLOUDFLARE_API_TOKEN
    wrangler secret put EMAIL_FROM
-   # optional: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (token top-ups),
-   # TOGETHER_API_KEY (ASR for the voice studio)
+   # optional: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (token top-ups)
    ```
 
 ## Contributing

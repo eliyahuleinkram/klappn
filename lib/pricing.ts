@@ -37,13 +37,13 @@ export function tokensForUsdCents(usdCents: number): number {
 export const CREDIT_PACK_USD = [5, 10, 25, 50] as const;
 
 /**
- * CARD PROCESSING PASS-THROUGH — the other half of "you pay exactly what it
- * costs us". Stripe's standard rate (2.9% + 30¢) is charged on the TOTAL,
- * so the total grosses up: T = (cost + fixed) / (1 − pct), ceiled to the
- * next cent so rounding can never make a sale net negative. The fee line is
- * shown before checkout and itemized inside it — we add nothing, we keep
- * nothing. (Stripe charges more for some international cards; that sliver
- * is on us until it ever matters.)
+ * CARD PROCESSING PASS-THROUGH — the card fee is Stripe's, not ours.
+ * Stripe's standard rate (2.9% + 30¢) is charged on the TOTAL, so the total
+ * grosses up: T = (cost + fixed) / (1 − pct), ceiled to the next cent so
+ * rounding can never make a sale net negative. The fee line is shown before
+ * checkout and itemized inside it — no markup hides in the fee. (Stripe
+ * charges more for some international cards; that sliver is on us until it
+ * ever matters.)
  */
 export const CARD_FEE_PCT = 0.029;
 export const CARD_FEE_FIXED_CENTS = 30;
