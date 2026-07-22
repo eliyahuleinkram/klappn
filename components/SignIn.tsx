@@ -144,8 +144,8 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
           <DoorGallery songs={door} onVisual={setVisualUp} />
 
           {/* THE DOOR ITSELF — a pink-lit doorway; the key is one email. */}
-          <div className="mt-9 w-full max-w-xl">
-          <div className="rounded-3xl border border-accent/20 bg-black/45 p-5 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl sm:p-4">
+          <div className="mt-5 w-full max-w-xl sm:mt-9">
+          <div className="rounded-3xl border border-accent/20 bg-black/45 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
             {gateUp ? (
               <>
                 <p className="select-none text-[13.5px] leading-relaxed text-muted">
@@ -207,12 +207,12 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
-                    className="min-w-0 flex-1 rounded-xl border border-white/[0.07] bg-white/[0.04] px-4 py-3 text-[15px] text-foreground outline-none transition placeholder:text-muted/45 focus:border-accent/40 focus:bg-white/[0.07] focus:shadow-[0_0_40px_-14px_rgba(224,49,156,.55)]"
+                    className="min-w-0 flex-1 rounded-xl border border-white/[0.07] bg-white/[0.04] px-4 py-2.5 text-[15px] text-foreground outline-none transition placeholder:text-muted/45 focus:border-accent/40 focus:bg-white/[0.07] focus:shadow-[0_0_40px_-14px_rgba(224,49,156,.55)]"
                   />
                   <button
                     type="submit"
                     disabled={state === "sending"}
-                    className="btn-primary w-full shrink-0 rounded-xl px-5 py-3 text-[15px] font-medium transition active:scale-[.98] disabled:opacity-50 sm:w-auto"
+                    className="btn-primary w-full shrink-0 rounded-xl px-5 py-2.5 text-[15px] font-medium transition active:scale-[.98] disabled:opacity-50 sm:w-auto"
                   >
                     {state === "sending" ? "Sending…" : "Sign in"}
                   </button>

@@ -708,7 +708,7 @@ export default function DoorGallery({
       onContextMenu={b.hold ? (e) => e.preventDefault() : undefined}
       aria-pressed={b.on}
       aria-label={b.label}
-      className={`flex h-[4.6rem] w-[4.6rem] select-none flex-col items-center justify-center rounded-[1.35rem] text-center text-[11.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.88] sm:h-24 sm:w-24 sm:text-[13px] ${
+      className={`flex h-[3.75rem] w-[3.75rem] select-none flex-col items-center justify-center rounded-[1.15rem] text-center text-[10.5px] font-semibold leading-tight tracking-tight backdrop-blur-xl transition-all duration-150 active:scale-[.88] sm:h-24 sm:w-24 sm:rounded-[1.35rem] sm:text-[13px] ${
         b.leaving ? "box-leave" : "box-enter"
       } ${
         b.on
@@ -719,7 +719,7 @@ export default function DoorGallery({
     >
       <span className="px-1.5">{b.label}</span>
       {b.sub && (
-        <span className="mt-0.5 text-[9px] font-medium tabular-nums text-white/70 sm:text-[10px]">
+        <span className="mt-0.5 text-[8.5px] font-medium tabular-nums text-white/70 sm:text-[10px]">
           {b.sub}
         </span>
       )}
@@ -731,7 +731,7 @@ export default function DoorGallery({
   // the beat-throb, the bloom of an arriving layer, the fold of a leaving one.
   return (
     <div className="flex w-full max-w-xl flex-col items-center text-center">
-      <div className={`mb-5 flex h-7 select-none items-center ${shade}`}>
+      <div className={`mb-3 flex h-7 select-none items-center sm:mb-5 ${shade}`}>
         {loadingPlay ? (
           <p className="text-[17px] text-foreground/90">
             <span className="shimmer-text">Coming alive…</span>
@@ -743,14 +743,14 @@ export default function DoorGallery({
       {/* THE SOUNDS — every layer of the sounding loop */}
       <div
         key={`sounds:${playingId ?? "idle"}`}
-        className="flex w-full flex-wrap justify-center gap-2.5 sm:gap-3"
+        className="flex w-full flex-wrap justify-center gap-2 sm:gap-3"
       >
         {layerBoxes.map(box)}
       </div>
       {/* THE ROOM — colour, physics, the cut */}
       <div
         key={`room:${playingId ?? "idle"}`}
-        className="mt-6 flex w-full flex-wrap justify-center gap-2.5 sm:gap-3"
+        className="mt-4 flex w-full flex-wrap justify-center gap-2 sm:mt-6 sm:gap-3"
       >
         {controlBoxes.map((b, i) => box(b, i + layerBoxes.length))}
       </div>
