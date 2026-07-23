@@ -39,20 +39,6 @@ export function hasHydra(code: string | null | undefined): boolean {
   return extractHydra(code) !== null;
 }
 
-/** The mobile twin to PLAY: keep its low-CPU AUDIO but carry the ORIGINAL loop's
- *  VISUAL, so a phone still paints the full-quality Hydra. The twin lightens the
- *  audio thread only; the GPU visual is free of that budget, so there's no reason
- *  to lose it — and the audio-lightening prompt tends to drop/mangle the @hydra
- *  block, so we always re-stamp the original's. The picture is then identical to
- *  desktop; only the sound is the lighter twin. (No original visual → strip any.) */
-export function withOriginalVisual(
-  original: string | null | undefined,
-  mobile: string,
-): string {
-  if (!mobile) return mobile;
-  return attachHydraBlock(mobile, extractHydra(original) ?? "");
-}
-
 /** The song's ONE visual, stored canonically on the plan (`plan.visual`): the graded
  *  @hydra sketch plus its @vcontrols grade spec and @vlooks one-tap looks (JSON strings).
  *  Every part carries a rendered copy of these blocks in its strudel; this is the source

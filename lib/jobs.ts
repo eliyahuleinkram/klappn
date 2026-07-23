@@ -138,7 +138,7 @@ interface ComposedLoop {
  * The score → code CORE, shared by compose AND every edit path: pick the
  * instruments for a (possibly edited) score, translate EVERY layer track-by-track
  * (parallel, each its own step, gated with one guided repair), then merge +
- * deconflict. Kimi therefore only ever sees ONE track at a time, always downstream
+ * deconflict. The render call therefore only ever sees ONE track at a time, always downstream
  * of a score + instrument pick — the house invariant. `sounds` is reused when it
  * already covers every part (so a note/arrangement edit keeps its instruments);
  * otherwise the picker runs. Returns the merged, crackle-deconflicted Strudel
@@ -384,7 +384,7 @@ export async function composeLoopByLayers(
   const prior: PriorLayer[] = [];
   // The per-layer compose error is otherwise swallowed by the `.catch(() => null)` below
   // (null doubles as the legit "loop done" signal). Capture it so a TOTAL wipe surfaces the
-  // real cause in the thrown message — e.g. a GLM high-effort "returned no text".
+  // real cause in the thrown message — e.g. a high-effort "returned no text".
   let lastLayerErr: unknown;
   for (let i = 0; i < MAX_LAYERS; i++) {
     // While the stack is still thin, INSIST on more (don't accept an early "done");
@@ -396,7 +396,7 @@ export async function composeLoopByLayers(
       return null;
     });
     // null = the loop is genuinely done — UNLESS we're still insisting (below MIN_LAYERS), where
-    // it's almost always a model hiccup (a parse/transcribe slip, a timeout, or — on GLM/Kimi — a
+    // it's almost always a model hiccup (a parse/transcribe slip, a timeout, or a
     // budget-exhausted "returned no text"), NOT a real "done". One flaky call must not end the
     // loop below the floor, so re-roll up to 3× before giving up.
     for (let r = 0; !staged && insist && r < 3; r++)
@@ -1197,7 +1197,7 @@ async function composeFromScore(
       timeSignature: plan.timeSignature,
     });
   };
-  // STAGE 3 — RENDER THE WHOLE LOOP IN ONE CALL. Kimi turns the entire score (all parts'
+  // STAGE 3 — RENDER THE WHOLE LOOP IN ONE CALL: the entire score (all parts'
   // events + their assigned sounds + routing) into every "$:" line at once, so it writes
   // them as a coherent MIX. The explicit on-grid score makes the render mechanical, so the
   // FIRST render is clean by construction — NO model repair pass (we never pay for a second
@@ -1210,7 +1210,7 @@ async function composeFromScore(
       .map((l) => l.trim())
       .filter((l) => l.startsWith("$:"));
   await (narrate?.("refining") ?? Promise.resolve());
-  // Kimi FORCES thinking and can rarely burn its whole budget reasoning and emit nothing
+  // A thinking model can rarely burn its whole budget reasoning and emit nothing
   // ("returned no text") — so retry once if the render comes back empty/throws.
   let lines = await runStep(`render-${stepKey}`, () => renderOnce()).catch(() => null);
   if (!lines || !lines.length)
@@ -2562,8 +2562,8 @@ export async function applyPartEdit(
       return { ok: problems.length === 0, problems };
     };
 
-    // SCORE-FIRST: revise the music at the SCORE level (GLM), then re-render every
-    // affected track through the shared core (Kimi, one track at a time) — an edit
+    // SCORE-FIRST: revise the music at the SCORE level, then re-render every
+    // affected track through the shared core (one track at a time) — an edit
     // obeys the same plan→instruments→track-by-track invariant as a fresh compose.
     // Variants stay SIBLINGS of the original: we edit the part's ORIGINAL score
     // (never overwritten by a variant) and persist only the strudel. Parts with no
@@ -2905,8 +2905,8 @@ export async function convertOnePartMeter(
         return;
       }
     }
-    // SCORE-FIRST: re-bar the SCORE into the new meter (GLM), then re-render every
-    // track (Kimi, one at a time) — the same plan→instruments→track path as a
+    // SCORE-FIRST: re-bar the SCORE into the new meter, then re-render every
+    // track (one at a time) — the same plan→instruments→track path as a
     // fresh compose. If anything fails, fall through to the direct convert below.
     if (part?.score) {
       try {
@@ -3052,9 +3052,9 @@ async function finalizeSongEditPart(
 
 /**
  * Apply an edit across the whole song. SCORE-FIRST when every loop has a saved
- * score: each loop edits-or-returns-unchanged at the score level (GLM, parallel),
+ * score: each loop edits-or-returns-unchanged at the score level (in parallel),
  * and only the loops whose score actually changed are re-rendered track-by-track
- * (Kimi) + re-finalized. Older songs (any loop without a score) fall back to the
+ * + re-finalized. Older songs (any loop without a score) fall back to the
  * monolithic full-song edit, matched back to rows by id.
  */
 export async function runEdit(
@@ -3092,8 +3092,8 @@ export async function runEdit(
     }
 
     // SCORE-FIRST whole-song edit (every loop has a score): each loop edits-or-
-    // returns-unchanged at the SCORE level (GLM, in parallel); each loop whose
-    // score actually changed is re-rendered track-by-track (Kimi) + re-finalized.
+    // returns-unchanged at the SCORE level (in parallel); each loop whose
+    // score actually changed is re-rendered track-by-track + re-finalized.
     // Untouched loops are left exactly as they are. Obeys plan→instruments→track.
     const allScored =
       !!plan &&

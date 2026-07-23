@@ -185,9 +185,9 @@ export default function EventClient(p: Props) {
     }
     try {
       const t = openDeep(p.trail);
-      // Phones play the low-CPU twin when one exists — same music, kinder synth.
+      // Every device plays the original loop (the mobile twin was retired 07-20).
       const code =
-        t.strudel; // every device plays the original (twin retired)
+        t.strudel;
       const visual = hasHydra(code);
       if (visual) setVisuals(true);
       setTrailOn(true); // optimistic — the tap must feel instant

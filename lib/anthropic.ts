@@ -1615,7 +1615,7 @@ export async function scoreLoop(
     `\nTarget loop length: about 20 seconds — choose loopBars (a power of 2) so loopBars * ${beats} * (60 / ${plan.bpm}) ≈ 20.`,
     `Echo the given key, tempo and meter in your output and compose the score within them.`,
   ].filter(Boolean);
-  // GLM can occasionally return an unparseable or empty score (a transient hiccup,
+  // The model can occasionally return an unparseable or empty score (a transient hiccup,
   // or an answer that ran long). One such failure must NOT sink the whole
   // generation, so RETRY the score once before giving up (each attempt is ~70-85s
   // at minimal reasoning — well within the step wall even doubled).
@@ -1636,8 +1636,8 @@ export async function scoreLoop(
   return normalizeScore(raw, plan, beats);
 }
 
-/** STAGE 1b — REVISE an existing score per a change request (GLM, the idea tier).
- *  Every edit path edits the music HERE, at the score level; the translator (Kimi)
+/** STAGE 1b — REVISE an existing score per a change request (the idea tier).
+ *  Every edit path edits the music HERE, at the score level; the translator call
  *  then re-renders only the affected tracks. SAFE: returns the ORIGINAL score on
  *  any failure or in mock, so the caller simply keeps the current code. */
 export async function editLoopScore(
@@ -1933,7 +1933,7 @@ async function completeJson<T>(
     }
   }
   // Log WHY we fall back (this is what silently produces "Untitled" defaults), tagged
-  // with the model so a toggle-specific failure (e.g. GLM) is obvious in the logs: a
+  // with the model so a model-specific failure is obvious in the logs: a
   // thrown error (empty reply / HTTP), or a reply that came back but didn't parse/validate.
   const tag = `model=${cfg?.model ?? "default"}`;
   if (lastErr) console.error(`[klappn] completeJson exhausted ${tries} tries (${tag}):`, lastErr);

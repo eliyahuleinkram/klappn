@@ -162,6 +162,9 @@ export async function PATCH(
     if (!Number.isInteger(layer) || layer < 0) {
       return Response.json({ error: "layer (>=0) required" }, { status: 400 });
     }
+    const gate = await reserveQuota(owned.userId);
+    if (!gate.ok) return gate.response;
+    try {
     const sink = makeCallSink({ songId: id, partId });
     const track = await enrichPartLayer(id, partId, layer, {
       onUsage: (t) => void addTokenUsage(owned.userId, t),
@@ -179,6 +182,9 @@ export async function PATCH(
       layer,
       panel: { label, signature, controls, pills, swap, enriched: true },
     });
+    } finally {
+      await releaseReservation(gate.id);
+    }
   }
 
   // Per-track ops (knobs / mute / delete) — all layer-indexed,

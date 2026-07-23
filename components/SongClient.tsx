@@ -2255,7 +2255,7 @@ export default function SongClient({
           // Pick up anything edited while paused — the hot-swap lands at the next cycle
           // boundary, keeping the phase. Keep the solo if one is active on this loop.
           const solo = soloedRef.current;
-          const code = playbackCode(part); // twin on mobile, original on desktop
+          const code = playbackCode(part);
           const t = transformForPlayback(code, { transpose, bpm, timeSignature, sound });
           void liveUpdate(
             solo?.partId === part.id ? soloLiveCode(t, solo.layer) : t,
@@ -2361,7 +2361,7 @@ export default function SongClient({
       if (!playing) return;
       const p = parts.find((x) => x.id === playing);
       if (!p?.strudel) return;
-      const strudel = playbackCode(p); // twin on mobile, original on desktop
+      const strudel = playbackCode(p);
       const apply = () => {
         const lp = livePreviewRef.current;
         liveUpdate(
@@ -2375,7 +2375,7 @@ export default function SongClient({
       };
       // Mobile on-device: a tempo/transpose SLIDER DRAG fires this per step, each a
       // re-eval on the scheduler's thread. Debounce so a drag commits ONE re-eval on
-      // settle (the twin is light, so one re-eval is cheap). Desktop applies live.
+      // settle (one re-eval is cheap). Desktop applies live.
       if (isMobileDevice()) {
         if (liveReapplyTimer.current) clearTimeout(liveReapplyTimer.current);
         liveReapplyTimer.current = setTimeout(apply, 200);
@@ -2401,7 +2401,7 @@ export default function SongClient({
     if (!playing || paused || exporting || !playingCode || !playingGenerating) return;
     // Keep the solo applied as the loop grows, if one is active on this loop.
     const solo = soloedRef.current;
-    // Mobile re-evaluates the whole twin per swap, so debounce it; desktop
+    // Mobile re-evaluates the whole loop per swap, so debounce it; desktop
     // hot-swaps per layer cheaply.
     const onMobileLoop = isMobileDevice();
     const doSwap = () => {
@@ -2839,7 +2839,7 @@ export default function SongClient({
           // bake because setcpm is idempotent under re-transform; transpose adds.)
           // isBreak pins a short reverb so the break can't inherit an earlier section's
           // long per-orbit reverb tail (the confirmed bleed) — see sanitizeBreakReverb.
-          // breakCode = the low-CPU break twin on mobile, the original on desktop.
+          // breakCode = the break code for playback.
           code: transformForPlayback(breakCode(br), {
             bpm,
             timeSignature,

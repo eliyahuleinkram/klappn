@@ -93,12 +93,19 @@ export default function ZaltzPlayground() {
   }, []);
 
   async function play() {
+    if (busy) return; // a boot is already in flight — never race two playParts
     const id = ++runId.current;
     setBusy(true);
     setErr(null);
     try {
       await playPart("zaltz-playground", code);
-      if (runId.current === id) setPlaying(true);
+      if (runId.current !== id) {
+        // superseded mid-boot (halt or a newer run) — playPart has no
+        // cancellation, so the boot that just landed must be silenced here
+        try { stop(); } catch { /* already stopped */ }
+        return;
+      }
+      setPlaying(true);
     } catch (e) {
       if (runId.current === id)
         setErr(e instanceof Error ? e.message : String(e));
