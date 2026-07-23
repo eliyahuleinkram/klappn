@@ -538,6 +538,16 @@ Respond with ONLY JSON, no prose, no fences:
     rewritten to absorb that steer — at most 160 characters of purely musical terms,
     no quoted request, no artist names. Omit otherwise — when unsure, omit }`;
 
+// The one-tap extend has no words — so the model writes the words FIRST, in the
+// maker's own voice, and that text then rides the exact same path as a typed
+// direction (2026-07-23: the bare tap replicates the manual experience).
+const EXTEND_DIRECTION_SYSTEM = `You are the maker of an instrumental track, about to extend it by ONE new section.
+Write the direction you would type for that section — the way a maker jots a
+creative ask: concrete musical imagery, a clear want for THIS slot in THIS track,
+new material rather than a restatement of an existing section. One sentence, at
+most 160 characters, purely musical terms, no artist/band/song names.
+Respond with ONLY the direction text — no quotes, no fences, nothing else.`;
+
 /** Plan ONE new section to prepend ("before"), append ("after") or BRIDGE
  *  ("between", at index `at` — i.e. it will sit before the current parts[at]),
  *  given the whole current arrangement as context + the user's natural-language
@@ -614,8 +624,8 @@ export async function deriveAdjacentPart(
         )
         .join("\n")
     : "(no sections yet)";
-  const want = (prompt || "").trim();
-  const user = [
+  let want = (prompt || "").trim();
+  const header = [
     `TRACK: ${plan.genre || "—"} · ${plan.bpm} BPM · ${plan.key}`,
     plan.summary ? `OVERVIEW: ${plan.summary}` : "",
     plan.direction?.trim()
@@ -624,6 +634,36 @@ export async function deriveAdjacentPart(
     ``,
     `CURRENT SECTIONS (in order):`,
     arrangement,
+  ];
+  // ONE-TAP EXTEND: no words came with the tap — author the direction the maker
+  // would have typed for this slot, then feed it through the SAME derive path
+  // as a hand-written one. On any failure `want` stays empty and the derive
+  // falls back to choosing for itself.
+  if (!want && !forced) {
+    const slot =
+      side === "before"
+        ? `The new section goes BEFORE the first section — the track's new opening.`
+        : side === "between"
+          ? `The new section goes BETWEEN section ${at ?? 1} ("${parts[(at ?? 1) - 1]?.label || "?"}") and section ${(at ?? 1) + 1} ("${parts[at ?? 1]?.label || "?"}").`
+          : `The new section goes AFTER the last section — the track's new last word.`;
+    try {
+      want = stripFences(
+        await complete(
+          EXTEND_DIRECTION_SYSTEM,
+          [...header, ``, slot].filter(Boolean).join("\n"),
+          cfg,
+          { ...ROUTE.create, trace: { kind: "extend-direction" } },
+        ),
+      )
+        .trim()
+        .replace(/^["'“”]+|["'“”]+$/g, "")
+        .slice(0, 300);
+    } catch (e) {
+      console.error("[klappn] extend-direction author failed:", e);
+    }
+  }
+  const user = [
+    ...header,
     ``,
     want
       ? `THE USER'S DIRECTION FOR THIS NEW SECTION: ${want}`
