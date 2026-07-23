@@ -13,7 +13,7 @@ export const metadata: Metadata = {
  * disagree, fixing that outranks shipping anything. Like the price sheet,
  * any change to these terms is a commit with our name on it.
  */
-const UPDATED = "July 22, 2026";
+const UPDATED = "July 23, 2026";
 
 function Section({
   title,
@@ -154,7 +154,8 @@ export default function TermsPage() {
         <p>
           Event pages let an organizer take RSVPs and sell tickets. The
           organizer is selling to you; Klappn moves the money through Stripe
-          and keeps a 10% platform fee, shown to the organizer up front.
+          and keeps a 10% platform fee that includes payment processing,
+          shown to the organizer up front.
           Whether the night delivers is between you and the organizer —
           sort refunds out with them first, and pull us in if you get stuck.
         </p>

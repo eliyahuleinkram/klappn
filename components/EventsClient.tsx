@@ -435,7 +435,7 @@ export default function EventsClient({
           <p className="text-[13px] text-muted">
             {payouts.connected
               ? "Stripe is still checking your details — payouts switch on the moment it clears."
-              : "Ticket money, straight to your bank. Klappn keeps 10% — the rest lands on its own."}
+              : "Ticket money, straight to your bank. Klappn keeps 10%, card fees included — the rest lands on its own."}
           </p>
           <button
             onClick={() => void startConnect()}
@@ -620,8 +620,8 @@ export default function EventsClient({
             </div>
             {parseFloat(draft.price || "0") > 0 && (
               <p className="text-[12px] leading-relaxed text-muted/70">
-                Tickets settle through Stripe. Klappn keeps 10% — the rest is
-                yours.
+                Tickets settle through Stripe. Klappn keeps 10%, card fees
+                included — the rest is yours.
               </p>
             )}
             {error && <p className="text-[13px] text-red-400/90">{error}</p>}
