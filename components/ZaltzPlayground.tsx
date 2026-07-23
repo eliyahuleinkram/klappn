@@ -66,8 +66,21 @@ export default function ZaltzPlayground() {
   const [code, setCode] = useState(PRESETS[0].code);
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState(false);
+  // "Waking the engine…" only when the start is ACTUALLY slow (cold boot).
+  // A warm replay resolves in ~100-300ms — swapping the label for that blink
+  // made the button flash and jump width on every play/stop.
+  const [waking, setWaking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const runId = useRef(0);
+
+  useEffect(() => {
+    if (!busy) {
+      setWaking(false);
+      return;
+    }
+    const t = setTimeout(() => setWaking(true), 350);
+    return () => clearTimeout(t);
+  }, [busy]);
 
   useEffect(() => {
     return () => {
@@ -187,18 +200,23 @@ export default function ZaltzPlayground() {
         <button
           onClick={playing ? halt : play}
           disabled={busy}
-          className="rounded-full bg-gradient-to-r from-[#ff63c1] via-[#e0319c] to-[#b3126f] px-6 py-2.5 text-[14.5px] font-medium text-white transition active:scale-[.97] disabled:opacity-50"
+          className={`min-w-[6.5rem] rounded-full bg-gradient-to-r from-[#ff63c1] via-[#e0319c] to-[#b3126f] px-6 py-2.5 text-[14.5px] font-medium text-white transition active:scale-[.97] ${
+            waking ? "opacity-60" : ""
+          }`}
         >
-          {busy ? "Waking the engine…" : playing ? "Stop" : "Play"}
+          {waking ? "Waking the engine…" : playing ? "Stop" : "Play"}
         </button>
-        {playing && (
-          <button
-            onClick={() => void play()}
-            className="rounded-full bg-white/[0.05] px-4 py-2.5 text-[13.5px] text-muted transition hover:text-foreground active:scale-[.97]"
-          >
-            Re-run
-          </button>
-        )}
+        {/* mounted always — popping in/out shifted the row on every play/stop */}
+        <button
+          onClick={() => void play()}
+          tabIndex={playing ? 0 : -1}
+          aria-hidden={!playing}
+          className={`rounded-full bg-white/[0.05] px-4 py-2.5 text-[13.5px] text-muted transition hover:text-foreground active:scale-[.97] ${
+            playing ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        >
+          Re-run
+        </button>
       </div>
       {err && (
         <p className="mt-3 text-[13px] leading-snug text-red-300/80">{err}</p>
