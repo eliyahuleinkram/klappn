@@ -1,7 +1,7 @@
 /**
  * Cloudflare Worker entry point.
  *
- * vinext 0.0.54's `deploy` command (which would normally generate this file) is
+ * vinext's `deploy` command (which would normally generate this file) is
  * an unimplemented stub, so we provide the entry by hand. It delegates every
  * request to vinext's App Router handler, which serves static assets via the
  * ASSETS binding and renders SSR/RSC routes. The `@cloudflare/vite-plugin` build

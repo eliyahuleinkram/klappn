@@ -10,7 +10,7 @@ import {
 
 /**
  * Start a Stripe Checkout for a PREPAID TOKEN top-up (the open-source pivot:
- * tokens at exactly our model cost — see lib/billing.ts). Body
+ * tokens at the posted public rate — see lib/pricing.ts). Body
  * `{ usd: 5 | 10 | 25 | 50 }` → `{ url }` to redirect to (hosted Checkout —
  * no Stripe.js, no publishable key needed). One-time payment, mode "payment";
  * the webhook credits the ledger when it lands.
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       "line_items[0][price_data][unit_amount]": String(usdCents),
       "line_items[0][price_data][product_data][name]": `Klappn tokens — ${(tokens / 1_000_000).toLocaleString()}M`,
       "line_items[0][price_data][product_data][description]":
-        "Prepaid generation tokens at exactly our model cost. They never expire.",
+        "Prepaid generation tokens — a price you can read. They never expire.",
       // The card fee, passed through to the cent as its own visible line —
       // (tokens + this) minus Stripe's cut nets exactly the token cost.
       "line_items[1][quantity]": "1",

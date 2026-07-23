@@ -143,7 +143,7 @@ export default function OpenPage() {
             brain. That model stays inside this project.
           </p>
           <p>
-            Want out? Say the word — the Discord or GitHub once they’re
+            Want out? Say the word — on GitHub, on the Discord once it’s
             live, or reply to any mail Klappn has sent you — and your
             account never touches training. Past included, no questions.
           </p>

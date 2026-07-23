@@ -5,9 +5,10 @@ ZALTZ is the synthesizer under every Klappn song: one file of freestanding C
 WebAssembly, rendering inside an AudioWorklet. The UI thread can jank, GC, or
 sleep — the render physically cannot glitch, because it never runs there.
 
-It is a clean-room re-implementation of the parts of
+It is a from-scratch C port of the parts of
 [superdough](https://github.com/tidalcycles/strudel) (Strudel's sampler/synth
-layer) that Klappn songs actually use, measured against the real thing until
+layer) that Klappn songs actually use — a faithful derivative, formula by
+formula (see `NOTICE.md`) — measured against the real thing until
 the two were indistinguishable — then pushed past it wherever superdough's
 Web-Audio-graph architecture couldn't go. The pattern layer (@strudel/core,
 mini, tonal, transpiler) is untouched upstream code; ZALTZ replaces only the

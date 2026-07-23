@@ -52,7 +52,8 @@
 		"GENERATION_WORKFLOW_NAME": "klappn-generation",
 		"EDIT_WORKFLOW_NAME": "klappn-edit",
 		// Stripe PRICE ids (public identifiers, not secrets — the keys are secrets):
-		// the recurring monthly prices for the paid tiers (lib/billing.ts).
+		// legacy subscription prices for the retired monthly tiers (lib/billing.ts
+		// still honors live subscriptions; new money is prepaid tokens only).
 		"STRIPE_PRICE_CREATOR": "price_1TgqP5CLcLj9DKVx0zv4Ym2y",
 		"STRIPE_PRICE_STUDIO": "price_1TgqP7CLcLj9DKVxz9KlieBb",
 		"STRIPE_PRICE_LABEL": "price_1TpswuCLcLj9DKVxW6iz6MDV",

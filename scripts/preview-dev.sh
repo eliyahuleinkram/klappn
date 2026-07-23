@@ -1,7 +1,8 @@
 #!/bin/sh
-# Launch the vinext dev server with Node 22 (the system Node is too old) and the
-# local .env loaded into the process environment (Vite doesn't put server-side
-# vars on process.env by itself).
+# Launch the vinext dev server with the local .env loaded into the process
+# environment (Vite doesn't put server-side vars on process.env by itself).
+# Prefers a Homebrew Node when the system Node is older than the ≥22.15 floor;
+# harmless no-op when that path doesn't exist.
 export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
 cd "$(dirname "$0")/.." || exit 1
 if [ -f .env ]; then

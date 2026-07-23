@@ -39,8 +39,10 @@ Examples of unacceptable behavior:
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the maintainers via the Discord or GitHub channels listed in the
-README. All complaints will be reviewed and investigated promptly and
+reported to the maintainers — privately, by replying to any email Klappn has
+sent you (the sign-in mail counts), or through the GitHub and Discord
+channels listed in the README for anything you're comfortable raising in
+the open. All complaints will be reviewed and investigated promptly and
 fairly. Maintainers are obligated to respect the privacy and security of the
 reporter of any incident.
 

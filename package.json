@@ -23,7 +23,7 @@
     "test": "tsx --test lib/*.test.ts",
     "auth:generate": "better-auth generate --config lib/auth.ts -y",
     "auth:migrate": "better-auth migrate --config lib/auth.ts -y",
-    "db:schema": "psql \"$DATABASE_URL\" -f lib/schema.sql"
+    "db:schema": "psql \"${DATABASE_URL:?export DATABASE_URL first — npm scripts do not read .env}\" -f lib/schema.sql"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

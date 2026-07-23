@@ -252,8 +252,9 @@ export default function BillingClient({
           </div>
           <p className="mt-4 text-[13px] leading-relaxed text-muted">
             Tokens never expire. The card fee is Stripe’s, passed through to
-            the cent — we add nothing and keep nothing. When our costs
-            change, these prices change with them — both directions.
+            the cent — we add nothing and keep nothing. The price is one you
+            can read — the whole sheet is open code, and if it ever moves,
+            it moves in the open.
           </p>
         </section>
       )}

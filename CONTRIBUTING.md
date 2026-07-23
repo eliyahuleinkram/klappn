@@ -30,7 +30,7 @@ runs at your own cost, on your own account.
 Klappn is AGPL-3.0 (same license family as Strudel). By contributing you agree your
 contribution is licensed under the repository license. We use the
 [Developer Certificate of Origin](https://developercertificate.org/) —
-sign off your commits (`git commit -s`). There is no CLA and no copyright
+sign off the commits in your PRs (`git commit -s`). There is no CLA and no copyright
 assignment: your work stays yours, licensed to everyone under the same terms
 ours is.
 

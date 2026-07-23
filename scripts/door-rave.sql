@@ -23,9 +23,7 @@ create temporary table door_owner on commit drop as
     select u.id, 0 as pri
       from "user" u join user_billing b on b.user_id = u.id and b.plan = 'owner'
     union all
-    select id, 1 from "user" where email = 'eli@veiter.ai'
-    union all
-    select id, 2 from "user" where email = 'demo@klappn.test'
+    select id, 1 from "user" where email = 'demo@klappn.test'
   ) c
   order by pri
   limit 1;

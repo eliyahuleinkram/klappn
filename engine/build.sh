@@ -29,4 +29,6 @@ $ZIG cc \
 echo -n "zaltz.wasm: " && wc -c < zaltz.wasm
 # ship: the served asset is extensionless — the engine is /zaltz, not a file format
 cp zaltz.wasm ../public/zaltz
-echo "copied → public/zaltz"
+# the served worklet is the public/ copy — keep the twin in sync
+cp zaltz.worklet.js ../public/zaltz.worklet.js
+echo "copied → public/zaltz + public/zaltz.worklet.js"

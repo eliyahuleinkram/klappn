@@ -79,8 +79,10 @@ in-process, so the whole flow works without deploying.
 3. Copy env: `cp .env.example .env` and fill in at least `DATABASE_URL` and
    `BETTER_AUTH_SECRET`; add `ANTHROPIC_API_KEY` to enable generation (your
    key, your cost, your account).
-4. Migrate Better Auth's tables, then apply our schema:
+4. Migrate Better Auth's tables, then apply our schema. npm scripts don't
+   read `.env`, so load it into the shell first:
    ```
+   set -a; . ./.env; set +a
    npm run auth:migrate
    npm run db:schema
    ```

@@ -8,7 +8,7 @@
 -- room moves like the music, not like a screensaver.
 --
 -- Idempotent: re-running updates the same rows (fixed UUIDs). Owner = the
--- house account (plan 'owner'), falling back to known emails.
+-- house account (plan 'owner'), falling back to the dev seed account.
 --
 --   psql "$DATABASE_URL" -f scripts/door-seed.sql
 
@@ -16,13 +16,11 @@ begin;
 
 create temporary table door_owner on commit drop as
   select id from (
-    -- the house account first (plan = 'owner'), then known emails as fallback
+    -- the house account first (plan = 'owner'), then the dev seed as fallback
     select u.id, 0 as pri
       from "user" u join user_billing b on b.user_id = u.id and b.plan = 'owner'
     union all
-    select id, 1 from "user" where email = 'eli@veiter.ai'
-    union all
-    select id, 2 from "user" where email = 'demo@klappn.test'
+    select id, 1 from "user" where email = 'demo@klappn.test'
   ) c
   order by pri
   limit 1;

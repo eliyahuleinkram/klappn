@@ -1,5 +1,6 @@
 import { claimFreeTicket, getEventByToken, salesClosed } from "@/lib/events";
 import { emailConfigured, eventTicketEmail, sendEmail } from "@/lib/email";
+import { clientIp, rateLimit, tooMany } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,12 @@ export async function POST(
   if (!email || !email.includes("@") || email.length > 320) {
     return Response.json({ error: "enter a real email" }, { status: 400 });
   }
+
+  // Each fresh claim sends a confirmation mail, which makes this public
+  // endpoint an email-send surface — gate it per-IP and per-event before
+  // any row lands.
+  if (!(await rateLimit(`rsvp:ip:${clientIp(req)}`, 8, 600))) return tooMany();
+  if (!(await rateLimit(`rsvp:event:${event.id}`, 40, 3600))) return tooMany();
 
   const ticket = await claimFreeTicket(
     event.id,

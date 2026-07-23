@@ -407,3 +407,14 @@ create table if not exists issues (
   created_at timestamptz not null default now()
 );
 create index if not exists issues_kind_idx on issues (kind, created_at desc);
+
+-- Fixed-window rate limiting (lib/rate-limit.ts) — Postgres because Workers
+-- isolates make in-memory counters decorative. Rows expire by opportunistic
+-- sweep (day-old buckets) on the first hit of each fresh window.
+create table if not exists rate_limits (
+  key        text        not null,
+  bucket     bigint      not null,
+  count      int         not null default 1,
+  created_at timestamptz not null default now(),
+  primary key (key, bucket)
+);
