@@ -287,6 +287,10 @@ async function ensureNode(ac: AudioContext, out?: AudioNode | null): Promise<voi
     node.port.onmessage = (e) => {
       if (e.data?.error) console.error("[zaltz] worklet:", e.data.error);
       else if (e.data?.eventError) console.warn("[zaltz] event rc", e.data.eventError);
+      else if (e.data?.scrubbed != null)
+        // the worklet zeroed non-finite output samples (lifetime count) —
+        // audible as at worst a click, but real engine corruption upstream
+        console.warn("[zaltz] scrubbed non-finite samples:", e.data.scrubbed);
       else if (e.data?.clock != null) {
         if (timer) tick(); // timer doubles as the "playing" flag — paused stays paused
       }

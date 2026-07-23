@@ -165,23 +165,23 @@ export async function PATCH(
     const gate = await reserveQuota(owned.userId);
     if (!gate.ok) return gate.response;
     try {
-    const sink = makeCallSink({ songId: id, partId });
-    const track = await enrichPartLayer(id, partId, layer, {
-      onUsage: (t) => void addTokenUsage(owned.userId, t),
-      onCall: sink.onCall,
-      model: owned.song.model,
-    }).catch((e) => {
-      console.error(`[klappn] track-enrich failed for part ${partId} layer ${layer}:`, e);
-      return null;
-    });
-    await sink.flush();
-    if (!track) return Response.json({ ok: false });
-    const { label, signature, controls, pills, swap } = track;
-    return Response.json({
-      ok: true,
-      layer,
-      panel: { label, signature, controls, pills, swap, enriched: true },
-    });
+      const sink = makeCallSink({ songId: id, partId });
+      const track = await enrichPartLayer(id, partId, layer, {
+        onUsage: (t) => void addTokenUsage(owned.userId, t),
+        onCall: sink.onCall,
+        model: owned.song.model,
+      }).catch((e) => {
+        console.error(`[klappn] track-enrich failed for part ${partId} layer ${layer}:`, e);
+        return null;
+      });
+      await sink.flush();
+      if (!track) return Response.json({ ok: false });
+      const { label, signature, controls, pills, swap } = track;
+      return Response.json({
+        ok: true,
+        layer,
+        panel: { label, signature, controls, pills, swap, enriched: true },
+      });
     } finally {
       await releaseReservation(gate.id);
     }

@@ -46,6 +46,14 @@ async function createInstance(
   // single hiccup here used to strand the just-inserted part — the kick-off
   // failed, nothing composed, and the card sat "loading" forever (seen live
   // 2026-07-22). A hard 4xx (bad token, bad params) still fails immediately.
+  //
+  // The retry is IDEMPOTENT via a caller-chosen instance id: a timed-out
+  // create may have landed server-side, and a second blind POST would run the
+  // same generation twice — two instances interleaving track writes into one
+  // part, only the second one findable for terminate. With our id the API can
+  // never mint a duplicate; a retry that finds the instance already alive
+  // just returns it.
+  const instanceId = crypto.randomUUID();
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt) await new Promise((r) => setTimeout(r, 800));
@@ -58,7 +66,7 @@ async function createInstance(
             Authorization: `Bearer ${cf.apiToken}`,
             "content-type": "application/json",
           },
-          body: JSON.stringify({ params }),
+          body: JSON.stringify({ instance_id: instanceId, params }),
           // A hung control-plane call must FAIL (the routes walk their status flip
           // back and tell the user) rather than hold the request open.
           signal: AbortSignal.timeout(15_000),
@@ -70,6 +78,11 @@ async function createInstance(
         errors?: unknown;
       };
       if (!res.ok || !json.success || !json.result?.id) {
+        // A hard 4xx on the RETRY can be "id already exists" — the timed-out
+        // first attempt actually landed. Confirm and hand back the live run.
+        if (attempt && res.status < 500 && res.status !== 429) {
+          if (await instanceExists(workflowName, instanceId, cf)) return instanceId;
+        }
         const err = new Error(
           `Workflows API error (${res.status}): ${JSON.stringify(json.errors ?? json)}`,
         );
@@ -85,7 +98,31 @@ async function createInstance(
       lastErr = e; // timeout / network — retry once
     }
   }
+  // Both attempts timed out — the create may still have landed. Last look
+  // before reporting failure, so a live run is never orphaned unfindable.
+  if (await instanceExists(workflowName, instanceId, cf)) return instanceId;
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+async function instanceExists(
+  workflowName: string,
+  instanceId: string,
+  cf: CfConfig,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${cf.accountId}/workflows/${workflowName}/instances/${instanceId}`,
+      {
+        headers: { Authorization: `Bearer ${cf.apiToken}` },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!res.ok) return false;
+    const json = (await res.json()) as { success: boolean };
+    return json.success === true;
+  } catch {
+    return false;
+  }
 }
 
 const GENERATION_WORKFLOW =
