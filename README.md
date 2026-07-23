@@ -20,7 +20,7 @@ the app's `/open` page:
    through Stripe to the cent, and tokens never expire. A price here is a
    line of open code — any change to it is a commit with our name on it,
    never a surprise on a bill. Self-hosting? Your key, your bill, our code.
-3. **The data deal is in the open.** Hosted generations and edits may raise
+3. **The data deal is in the open.** Hosted generations and edits will raise
    Klappn's own future music model — a model that stays inside this
    project, so the tool stops renting anyone else's brain. Consented in
    plain language, opt-out is one message, past included; self-hosted

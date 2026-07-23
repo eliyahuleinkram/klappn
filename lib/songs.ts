@@ -816,8 +816,8 @@ export async function restoreMeterFromCache(
 // deterministic. chosen=null → no break (hard seam, with the DJ-sweep fallback).
 
 export interface BreakSet {
-  /** `strudelMobile` = the low-CPU twin of this break option (mobile plays it,
-   *  desktop plays `strudel`). Absent = not generated → mobile uses `strudel`. */
+  /** `strudelMobile` = legacy low-CPU twin of this break option, kept only so
+   *  old rows still parse — playback reads `strudel` everywhere. */
   options: { label: string; strudel: string; strudelMobile?: string | null }[];
   chosen: number | null;
 }

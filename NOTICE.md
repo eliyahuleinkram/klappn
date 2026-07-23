@@ -20,6 +20,10 @@ Klappn is licensed under the GNU Affero General Public License v3.0 (see
 - **General MIDI soundfonts** via `@strudel/soundfonts` — a modified copy is
   vendored at `lib/vendor/soundfonts/` (AGPL-3.0-or-later; its README lists
   the changes).
+- **Reference bundles at `engine/golden/`** (`sd-gm.mjs`, `gm-zones.mjs`,
+  `hap-dump.mjs`) — esbuild bundles of Strudel/superdough code, committed so
+  the engine's golden tests can compare zaltz against the reference
+  implementation byte-for-byte. AGPL-3.0, by the Strudel contributors.
 - **zaltz** (`engine/zaltz.c`) — Klappn's WebAssembly audio engine. Written
   in C for this project, but its DSP semantics are a faithful PORT of
   superdough's

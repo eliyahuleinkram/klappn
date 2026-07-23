@@ -2892,9 +2892,9 @@ export async function convertOnePartMeter(
     sql,
   );
   try {
-    // TIDAL-FIRST: a loop built by the current engine carries each layer's Tidal in `notation`, so
-    // re-bar it the SAME way it was made — rewrite the Tidal into the new meter + compile 1:1. Older
-    // (score / non-Tidal) parts fall through to the legacy converts below.
+    // ENGINE-NATIVE FIRST: a loop built by the current engine carries each layer's Strudel in
+    // `notation`, so re-bar it the SAME way it was made — rewrite each layer into the new meter.
+    // Older (score / legacy) parts fall through to the converts below.
     const tnative = engineNativeTracks(part);
     if (tnative) {
       const code = await convertNativePartMeter(plan, part, tnative, fromTs, toTs, cfg, sql).catch(
@@ -3071,8 +3071,8 @@ export async function runEdit(
     const plan = song ? planOf(song) : undefined;
     const parts: PartRow[] = await getPartsOrdered(songId, sql);
 
-    // TIDAL-FIRST whole-song edit: if every loop was built by the current engine (each track carries its
-    // TidalCycles in `notation`), edit each loop through the SAME Tidal path — rewrite + compile 1:1 — in
+    // ENGINE-NATIVE whole-song edit: if every loop was built by the current engine (each track carries
+    // its Strudel in `notation`), edit each loop the SAME way it was made — rewrite its layers — in
     // parallel. A loop the model fails on (or changes the shape of) is left exactly as it was; visuals are
     // kept (mergeTracksKeepVisual), the existing @edits pill history is preserved.
     if (plan && parts.length && parts.every((p) => engineNativeTracks(p))) {
@@ -3083,7 +3083,7 @@ export async function runEdit(
           try {
             await editNativePart(plan, part, tr, changeRequest, parseEdits(part.strudel ?? ""), cfg, sql);
           } catch (e) {
-            console.error(`[klappn] tidal whole-song edit of part ${part.id} failed — keeping it:`, e);
+            console.error(`[klappn] whole-song edit of part ${part.id} failed — keeping it:`, e);
           }
         }),
       );

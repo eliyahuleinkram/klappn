@@ -1990,7 +1990,6 @@ export default function SongClient({
         const p = partsRef.current.find((x) => x.id === id);
         const lp = livePreviewRef.current;
         const solo = soloedRef.current;
-        // On a phone this reads the low-CPU TWIN (playbackCode); desktop the original.
         const code = p ? playbackCode(p) : "";
         const t = transformForPlayback(code.trim() ? code : c, {
           transpose: lp?.transpose ?? transposeRef.current,

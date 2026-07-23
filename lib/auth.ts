@@ -60,9 +60,9 @@ function createAuth() {
             const { subject, html, text } = magicLinkEmail(url);
             const { sent, error } = await sendEmail({ to: email, subject, html, text });
             if (sent) return;
-            console.error(
-              `[klappn] magic-link email failed (${error}); falling back to log`,
-            );
+            // No log fallback here: the URL is a live sign-in credential and prod
+            // logs are not a mailbox. Fail the request so the user retries.
+            throw new Error(`magic-link email failed: ${error}`);
           }
           console.log(`[klappn] magic link for ${email}: ${url}`);
         },
@@ -81,9 +81,9 @@ function createAuth() {
             const { subject, html, text } = otpCodeEmail(otp);
             const { sent, error } = await sendEmail({ to: email, subject, html, text });
             if (sent) return;
-            console.error(
-              `[klappn] otp email failed (${error}); falling back to log`,
-            );
+            // No log fallback here: the code is a live sign-in credential and prod
+            // logs are not a mailbox. Fail the request so the user retries.
+            throw new Error(`otp email failed: ${error}`);
           }
           console.log(`[klappn] sign-in code for ${email}: ${otp}`);
         },
