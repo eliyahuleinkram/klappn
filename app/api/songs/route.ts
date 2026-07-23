@@ -10,6 +10,7 @@ import {
   setSongStatus,
 } from "@/lib/songs";
 import { getUserId, unauthorized } from "@/lib/session";
+import { sealDeep } from "@/lib/seal";
 import {
   deriveWorkspaceFromLoop,
   type MixInspiration,
@@ -34,7 +35,9 @@ export async function GET(req: Request) {
     );
     if (changed.some(Boolean)) songs = await listSongsRich(userId);
   }
-  return Response.json({ songs });
+  // The rich rows carry plan (meterCache, arrangement, breaks, visual) — code
+  // lives in there, so the list seals like every other song payload.
+  return Response.json(sealDeep({ songs }));
 }
 
 /**

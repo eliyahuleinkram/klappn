@@ -21,14 +21,23 @@ const RTC_CONFIG: RTCConfiguration = {
   bundlePolicy: "max-bundle",
 };
 
-async function sfu(path: string, method: string, body?: unknown): Promise<any> {
+async function sfu(
+  path: string,
+  method: string,
+  body?: unknown,
+  liveToken?: string,
+): Promise<any> {
   // sessions/new takes NO body — sending "{}" trips the SFU's validator. Only
   // attach a body (and its content-type) when the caller actually gives one.
+  // Anonymous listeners authenticate to the proxy with their live-link token.
+  const headers: Record<string, string> = {
+    ...(body !== undefined ? { "content-type": "application/json" } : {}),
+    ...(liveToken ? { "x-live-token": liveToken } : {}),
+  };
   const r = await fetch(`/api/rtc/${path}`, {
     method,
-    ...(body !== undefined
-      ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
-      : {}),
+    ...(Object.keys(headers).length ? { headers } : {}),
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   if (!r.ok) throw new Error(`rtc ${path} → ${r.status}`);
   return r.json();
@@ -171,6 +180,7 @@ export async function subscribe(
   djSessionId: string,
   trackNames: string[],
   targetStream?: MediaStream,
+  liveToken?: string,
 ): Promise<{ pc: RTCPeerConnection; stream: MediaStream }> {
   const pc = new RTCPeerConnection(RTC_CONFIG);
   // Reuse a caller-supplied stream when given: on iOS the <audio> element must
@@ -185,21 +195,29 @@ export async function subscribe(
   // Close the PC on any handshake failure — the listener poll re-subscribes on a
   // fresh PC every ~1.5s during an SFU outage, so a leak here is unbounded.
   try {
-    const { sessionId } = await sfu("sessions/new", "POST");
-    const res = await sfu(`sessions/${sessionId}/tracks/new`, "POST", {
-      tracks: trackNames.map((trackName) => ({
-        location: "remote",
-        sessionId: djSessionId,
-        trackName,
-      })),
-    });
+    const { sessionId } = await sfu("sessions/new", "POST", undefined, liveToken);
+    const res = await sfu(
+      `sessions/${sessionId}/tracks/new`,
+      "POST",
+      {
+        tracks: trackNames.map((trackName) => ({
+          location: "remote",
+          sessionId: djSessionId,
+          trackName,
+        })),
+      },
+      liveToken,
+    );
     // Pulling remote tracks makes the SFU send US an offer.
     await pc.setRemoteDescription(res.sessionDescription);
     await pc.setLocalDescription(await pc.createAnswer());
     await waitIce(pc);
-    await sfu(`sessions/${sessionId}/renegotiate`, "PUT", {
-      sessionDescription: { type: "answer", sdp: pc.localDescription!.sdp },
-    });
+    await sfu(
+      `sessions/${sessionId}/renegotiate`,
+      "PUT",
+      { sessionDescription: { type: "answer", sdp: pc.localDescription!.sdp } },
+      liveToken,
+    );
     return { pc, stream };
   } catch (e) {
     try {

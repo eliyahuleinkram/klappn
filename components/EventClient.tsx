@@ -185,9 +185,7 @@ export default function EventClient(p: Props) {
     }
     try {
       const t = openDeep(p.trail);
-      // Every device plays the original loop (the mobile twin was retired 07-20).
-      const code =
-        t.strudel;
+      const code = t.strudel;
       const visual = hasHydra(code);
       if (visual) setVisuals(true);
       setTrailOn(true); // optimistic — the tap must feel instant

@@ -377,10 +377,12 @@ export default function HomeClient({
 
   // Live song list — seeded from the server, then refreshed while anything is
   // still composing so a finished loop/mix flips to playable here without a reload.
-  const [songs, setSongs] = useState<SongRowRich[]>(initialSongs);
+  // The list arrives SEALED (lib/seal.ts) — server props and API alike; open
+  // it here (pass-through if unsealed).
+  const [songs, setSongs] = useState<SongRowRich[]>(() => openDeep(initialSongs));
   const anyGenerating = songs.some((s) => s.status === "generating");
   useEffect(() => {
-    setSongs(initialSongs);
+    setSongs(openDeep(initialSongs));
   }, [initialSongs]);
   // FRESHNESS: the server render can be STALE after navigating back here (and a
   // back/forward-cache restore skips mounting entirely) — so a loop that
@@ -391,7 +393,7 @@ export default function HomeClient({
       try {
         const res = await fetch("/api/songs", { cache: "no-store" });
         if (!res.ok) return;
-        const data = (await res.json()) as { songs?: SongRowRich[] };
+        const data = openDeep((await res.json()) as { songs?: SongRowRich[] });
         if (Array.isArray(data.songs)) setSongs(data.songs);
       } catch {
         /* transient — the regular poll or next visit catches up */
@@ -411,7 +413,7 @@ export default function HomeClient({
       try {
         const res = await fetch("/api/songs");
         if (!res.ok) return;
-        const data = (await res.json()) as { songs?: SongRowRich[] };
+        const data = openDeep((await res.json()) as { songs?: SongRowRich[] });
         if (alive && Array.isArray(data.songs)) setSongs(data.songs);
       } catch {
         /* transient — try again next tick */

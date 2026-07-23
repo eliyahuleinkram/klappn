@@ -14,6 +14,9 @@
  *   PUT  sessions/{id}/renegotiate        → finish a pull's SDP exchange
  */
 
+import { getUserId } from "@/lib/session";
+import { getLiveLink } from "@/lib/live";
+
 const SFU_BASE = "https://rtc.live.cloudflare.com/v1/apps";
 
 // Only the SFU signaling endpoints — not the whole API surface.
@@ -33,6 +36,16 @@ async function proxy(
   const sub = (path ?? []).join("/");
   if (!ALLOW.some((re) => re.test(sub))) {
     return Response.json({ error: "not found" }, { status: 404 });
+  }
+  // WHO may signal: a signed-in user (the DJ publishing a set) or a holder of
+  // an unexpired live-link token (a listener — the /live page is public and
+  // the token IS its credential, sent as a header). Without this gate anyone
+  // could mint SFU sessions on the app's account.
+  const userId = await getUserId(req);
+  if (!userId) {
+    const lt = req.headers.get("x-live-token") || "";
+    const link = lt ? await getLiveLink(lt) : null;
+    if (!link) return Response.json({ error: "unauthorized" }, { status: 401 });
   }
   const appId = process.env.REALTIME_APP_ID;
   const token = process.env.REALTIME_APP_TOKEN;

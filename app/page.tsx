@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { getAuth } from "@/lib/auth";
 import { warmPool } from "@/lib/db";
 import { listDoorSongs, listSongsRich, type SongRowRich } from "@/lib/songs";
+import { sealDeep } from "@/lib/seal";
 import SignIn from "@/components/SignIn";
 import HomeClient from "@/components/HomeClient";
 import type { DoorSong } from "@/components/DoorGallery";
@@ -42,5 +43,5 @@ export default async function Home() {
     songs = [];
   }
 
-  return <HomeClient initialSongs={songs} userEmail={email} />;
+  return <HomeClient initialSongs={sealDeep(songs)} userEmail={email} />;
 }

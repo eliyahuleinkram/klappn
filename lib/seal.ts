@@ -51,12 +51,21 @@ export function open(value: string): string {
 
 // The keys whose STRING values carry loop code anywhere in our payloads
 // (parts.strudel / original_strudel, tracks[].code / outro.code / sections'
-// code, break + transition options[].strudel). `variants` is a { pill: code }
-// map, so ALL of its string values are code regardless of key name.
-// Library-fingerprint key names are also RENAMED on the wire (and restored on
-// open) — an opaque value under a key literally called "strudel" would defeat
-// the point.
-const CODE_KEYS = new Set(["strudel", "original_strudel", "code", "repaired"]);
+// code, break + transition options[].strudel, and the song's canonical visual
+// — plan.visual's hydra sketch + its vcontrols/vlooks specs). `variants` is a
+// { pill: code } map, so ALL of its string values are code regardless of key
+// name. Library-fingerprint key names are also RENAMED on the wire (and
+// restored on open) — an opaque value under a key literally called "strudel"
+// would defeat the point.
+const CODE_KEYS = new Set([
+  "strudel",
+  "original_strudel",
+  "code",
+  "repaired",
+  "hydra",
+  "vcontrols",
+  "vlooks",
+]);
 const CODE_MAP_KEYS = new Set(["variants"]);
 const SEAL_KEY_RENAMES: Record<string, string> = {
   strudel: "z1",

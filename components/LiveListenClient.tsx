@@ -249,7 +249,12 @@ export default function LiveListenClient({
         t.stop();
       }
       // AUDIO ONLY — the visuals render locally (lib/hydra-live), not over the wire.
-      const { pc: next } = await subscribe(broadcast.session, [broadcast.audio], stream);
+      const { pc: next } = await subscribe(
+        broadcast.session,
+        [broadcast.audio],
+        stream,
+        token,
+      );
       pcRef.current = next;
       subSessionRef.current = broadcast.session;
       resetLiveTransport(); // fresh broadcast → re-seed the visual phase once

@@ -1,4 +1,4 @@
-import { getSong, setSongStatus } from "@/lib/songs";
+import { getSongWithParts, setSongStatus } from "@/lib/songs";
 import { getUserId, unauthorized } from "@/lib/session";
 import { releaseReservation, reserveQuota } from "@/lib/billing";
 import { triggerLoopEdit } from "@/lib/workflows";
@@ -19,8 +19,13 @@ export async function POST(
   const { id, partId } = await params;
   const userId = await getUserId(req);
   if (!userId) return unauthorized();
-  const song = await getSong(id, userId);
-  if (!song) return Response.json({ error: "not found" }, { status: 404 });
+  // The part must belong to THIS song — checked before the status flip, so a
+  // bogus partId can't strand the song in "generating" on a doomed workflow.
+  const sp = await getSongWithParts(id, userId);
+  if (!sp || !sp.parts.some((p) => p.id === partId)) {
+    return Response.json({ error: "not found" }, { status: 404 });
+  }
+  const song = sp.song;
 
   const body = (await req.json().catch(() => null)) as { request?: string } | null;
   const request = body?.request?.trim();
