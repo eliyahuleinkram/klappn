@@ -4333,6 +4333,30 @@ function armSinkGestureRetry(): void {
   document.addEventListener("pointerdown", retry, { once: true, capture: true });
 }
 
+/** Start the silent session ANCHOR synchronously inside the tap (phones only).
+ *  The anchor <audio> needs no AudioContext — starting it here, BEFORE the
+ *  engine-boot awaits, survives cold starts where boot outlives the tap's
+ *  activation window (iOS ~5s): a one-tap surface (the zaltz playground)
+ *  never gets the second tap armSinkGestureRetry waits for, so the session
+ *  stayed in the ringer category and the mute switch silenced everything.
+ *  Idempotent; enableBackgroundPlayback's anchor branch no-ops once this ran. */
+function armSessionAnchorInGesture(): void {
+  if (!isMobileDevice() || bgAnchorEl || typeof document === "undefined") return;
+  try {
+    const anchor = document.createElement("audio");
+    bgAnchorUrl = silentWavUrl();
+    anchor.src = bgAnchorUrl;
+    anchor.loop = true;
+    anchor.setAttribute("playsinline", "");
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    bgAnchorEl = anchor;
+    void anchor.play().catch(() => armSinkGestureRetry());
+  } catch {
+    /* best-effort — enableBackgroundPlayback retries on the async path */
+  }
+}
+
 export async function enableBackgroundPlayback(_meta?: {
   title?: string;
   artist?: string;
@@ -4712,6 +4736,7 @@ export async function playPart(partId: string, code: string, owner?: string): Pr
     swallowTails(); // master to ~0 first, so the kill below can't click
     hardKillTails(); // then DROP the previous loop's reverb/delay energy for real
   }
+  armSessionAnchorInGesture(); // mute-switch cure must not wait for engine boot
   kickResumeInGesture(); // unlock BEFORE the awaits below spend the tap's activation (iOS)
   const web = await ensureStarted();
   await resumeAudio(); // in case a previous stop() suspended the context
@@ -4928,6 +4953,7 @@ export async function playSong(
     hardKillTails();
     swallowTails(); // fresh start: don't carry the previous loop's tail into this one
   }
+  armSessionAnchorInGesture(); // mute-switch cure must not wait for engine boot
   kickResumeInGesture(); // unlock BEFORE the awaits below spend the tap's activation (iOS)
   const web = await ensureStarted();
   // A newer playSong() started while we awaited the engine — it owns the
