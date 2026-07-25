@@ -1063,8 +1063,16 @@ function armPlayDiagnostic(label: string): void {
   if (!debugConsoleWanted()) return;
   void (async () => {
     try {
-      const ac = audioContext();
-      const tap = finalTap();
+      // A fresh page's FIRST play arms this before the engine boots — wait for
+      // the context + master tap instead of silently skipping (the skip meant
+      // the diag never covered cold starts, the case it exists for).
+      let ac = audioContext();
+      let tap = finalTap();
+      for (let i = 0; i < 40 && (!ac || !tap); i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        ac = audioContext();
+        tap = finalTap();
+      }
       if (!ac || !tap) return;
       await ensureDiagWorklet(ac);
       const node = new AudioWorkletNode(ac, "klappn-diag", {
