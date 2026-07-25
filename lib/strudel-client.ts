@@ -17,7 +17,7 @@
  * So we mirror strudel.cc's prebake exactly.
  */
 
-import { isZaltz, zaltzActive, zaltzApplyOrbitGains, zaltzBootFailed, zaltzCycleNow, zaltzEvaluate, zaltzHush, zaltzLiveNote, zaltzOrbitGains, zaltzPause, zaltzResume, zaltzSetCps, zaltzStop } from "./zaltz";
+import { isZaltz, zaltzActive, zaltzApplyOrbitGains, zaltzBootError, zaltzBootFailed, zaltzCycleNow, zaltzEvaluate, zaltzHush, zaltzLiveNote, zaltzOrbitGains, zaltzPause, zaltzResume, zaltzSetCps, zaltzStop } from "./zaltz";
 import { extractHydra, stripHydraBlock } from "./hydra-embed";
 import { capReverbs } from "./reverb-cap";
 import {
@@ -1114,8 +1114,15 @@ function armPlayDiagnostic(label: string): void {
         for (let i = firstWin + 1; i < env.length; i++)
           if (env[i] < 1e-4 && env[i - 1] >= 1e-4 && gaps.length < 8) gaps.push(`${i * 50}ms`);
         const envDb = env.map((x) => Math.round(20 * Math.log10(x + 1e-6)));
+        // which engine actually took this play — the first question every
+        // silent-playback report needs answered
+        const engine = zaltzBootFailed()
+          ? `superdough (zaltz BOOT FAILED: ${zaltzBootError() ?? "?"})`
+          : isZaltz()
+            ? "zaltz"
+            : "superdough (flag)";
         console.log(
-          `[klappn/diag] ${label} @${t0.toFixed(2)}s | first-sound ${first < 0 ? "NONE" : `${((first / sr) * 1000) | 0}ms`} | clicks>${0.3}: ${clicks.length ? clicks.join(",") : "none"} (maxΔ=${maxD.toFixed(3)}@${((maxAt / sr) * 1000) | 0}ms) | gaps: ${gaps.length ? gaps.join(",") : "none"} | env(dB/50ms): ${envDb.join(" ")}`,
+          `[klappn/diag] ${label} @${t0.toFixed(2)}s | engine: ${engine} | first-sound ${first < 0 ? "NONE" : `${((first / sr) * 1000) | 0}ms`} | clicks>${0.3}: ${clicks.length ? clicks.join(",") : "none"} (maxΔ=${maxD.toFixed(3)}@${((maxAt / sr) * 1000) | 0}ms) | gaps: ${gaps.length ? gaps.join(",") : "none"} | env(dB/50ms): ${envDb.join(" ")}`,
         );
       };
       node.port.postMessage({ frames: Math.floor(4 * sr) });

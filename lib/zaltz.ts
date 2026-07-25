@@ -52,8 +52,13 @@ import { pinWorkletConstructors } from "./worklet-pin";
 // no AudioWorklet at all). isZaltz() then reports false for the session and
 // every play path lands on superdough — old browsers get music, not silence.
 let bootFailed = false;
+let bootError: string | null = null;
 export function zaltzBootFailed(): boolean {
   return bootFailed;
+}
+/** The boot failure's message (diagnostics — shown in the klappnDebug diag line). */
+export function zaltzBootError(): string | null {
+  return bootError;
 }
 
 let scopeReady: Promise<void> | null = null;
@@ -253,38 +258,67 @@ async function ensureNode(ac: AudioContext, out?: AudioNode | null): Promise<voi
     // stale etag 304 returning browsers onto an OLD engine forever — days of
     // fixes never reached the user's machine. A new hash = a new URL = the
     // fresh engine, unconditionally.
-    await ac.audioWorklet.addModule(`/zaltz.worklet.js?v=${ENGINE_V}`);
-    const [wasm] = await Promise.all([
-      fetch(`/zaltz?v=${ENGINE_V}`).then((r) => r.arrayBuffer()),
-    ]);
-    node = new AudioWorkletNode(ac, "zaltz", { outputChannelCount: [2] });
-    // pour through the app's MASTER (limiter chain + swallow/release gain +
-    // the mobile background <audio> sink), NEVER straight into the DAC — a
-    // dense wash past 1.0 hard-clips the destination: the "muddy, block your
-    // ears" build-up. Fallback to destination only if no master exists.
-    node.connect(outRef ?? ac.destination);
-    await new Promise<void>((resolve, reject) => {
-      const to = setTimeout(
-        () => reject(new Error("zaltz worklet never became ready")),
-        8000,
+    //
+    // POISON-PROOF BOOT: a bad cached copy of either asset (browser cache or
+    // one CDN edge holding a stale/garbage body) used to fail this boot ONCE
+    // and latch bootFailed — superdough took the whole session, silently, on
+    // every device behind that cache. Now the wasm bytes are VALIDATED and
+    // any failure retries once with cache-busted URLs (a fresh query string
+    // bypasses the browser cache AND the edge cache key) before giving up.
+    let workletLoaded = false;
+    const boot = async (bust: boolean): Promise<void> => {
+      const q = `?v=${ENGINE_V}` + (bust ? `&r=${Date.now()}` : "");
+      if (!workletLoaded) {
+        await ac.audioWorklet.addModule(`/zaltz.worklet.js${q}`);
+        workletLoaded = true; // registered — never re-addModule (duplicate-name throw)
+      }
+      const wasm = await fetch(`/zaltz${q}`, bust ? { cache: "reload" } : undefined).then(
+        (r) => r.arrayBuffer(),
       );
-      node!.port.onmessage = (e) => {
-        if (e.data?.ready) {
-          clearTimeout(to);
-          resolve();
-        } else if (e.data?.error) {
-          clearTimeout(to);
-          console.error("[zaltz] worklet:", e.data.error);
-          reject(new Error(e.data.error));
-        }
-      };
-      node!.port.postMessage({ wasm });
-    });
+      const b = new Uint8Array(wasm);
+      if (b.length < 8 || b[0] !== 0x00 || b[1] !== 0x61 || b[2] !== 0x73 || b[3] !== 0x6d)
+        throw new Error(`engine asset is not wasm (${wasm.byteLength} bytes) — cached garbage?`);
+      node = new AudioWorkletNode(ac, "zaltz", { outputChannelCount: [2] });
+      // pour through the app's MASTER (limiter chain + swallow/release gain +
+      // the mobile background <audio> sink), NEVER straight into the DAC — a
+      // dense wash past 1.0 hard-clips the destination: the "muddy, block your
+      // ears" build-up. Fallback to destination only if no master exists.
+      node.connect(outRef ?? ac.destination);
+      await new Promise<void>((resolve, reject) => {
+        const to = setTimeout(
+          () => reject(new Error("zaltz worklet never became ready")),
+          8000,
+        );
+        node!.port.onmessage = (e) => {
+          if (e.data?.ready) {
+            clearTimeout(to);
+            resolve();
+          } else if (e.data?.error) {
+            clearTimeout(to);
+            console.error("[zaltz] worklet:", e.data.error);
+            reject(new Error(e.data.error));
+          }
+        };
+        node!.port.postMessage({ wasm });
+      });
+    };
+    try {
+      await boot(false);
+    } catch (e) {
+      console.warn("[zaltz] boot failed — retrying with fresh assets", e);
+      try {
+        node?.disconnect();
+      } catch {
+        /* never connected */
+      }
+      node = null;
+      await boot(true);
+    }
     // steady-state messages: errors + the AUDIO-THREAD CLOCK. The clock is
     // what keeps background playback alive — hidden tabs clamp setInterval
     // to ≥1s (Safari especially), starving the lookahead into silence, but
     // MessagePort delivery from the running worklet is never throttled.
-    node.port.onmessage = (e) => {
+    node!.port.onmessage = (e) => {
       if (e.data?.error) console.error("[zaltz] worklet:", e.data.error);
       else if (e.data?.eventError) console.warn("[zaltz] event rc", e.data.eventError);
       else if (e.data?.scrubbed != null)
@@ -301,6 +335,7 @@ async function ensureNode(ac: AudioContext, out?: AudioNode | null): Promise<voi
     // wasm features it doesn't support) — or the assets didn't load. Flip
     // the session to superdough (isZaltz() → false) instead of dying mute.
     bootFailed = true;
+    bootError = e instanceof Error ? e.message : String(e);
     try {
       node?.disconnect();
     } catch {
