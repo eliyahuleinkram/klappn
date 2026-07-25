@@ -5,11 +5,13 @@
  */
 
 /**
- * THE RATE: dollars per 1M weighted units — anchored today to Fable 5's
- * $10/1M input rate; the usage weights (output ×5, cache ×0.1/×1.25 —
+ * THE RATE: dollars per 1M weighted units — set when Fable 5 ($10/1M input)
+ * was the composer; the usage weights (output ×5, cache ×0.1/×1.25 —
  * lib/llm.ts) normalize every other token kind to it. $1 = 100k units.
- * If the model or the pricing changes, change THIS constant and the /open
- * page together — the promise is a price you can READ, right here.
+ * The composer is now Opus 5 (2026-07-25; $5/1M input) — the rate is
+ * unchanged for the moment. If the model or the pricing changes, change THIS
+ * constant and the /open page together — the promise is a price you can
+ * READ, right here.
  */
 export const USD_CENTS_PER_MILLION = 1_000;
 

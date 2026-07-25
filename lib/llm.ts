@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 /**
- * LLM layer — Claude Fable 5, full stop. Every composition, edit, label and
+ * LLM layer — Claude Opus 5, full stop. Every composition, edit, label and
  * critique call goes through `complete()` to the native Anthropic API; the
  * per-call ROUTE table sets effort, and the deterministic gates run for free
  * with at most ONE repair pass if a loop would crash. Callers (lib/anthropic.ts)
@@ -9,8 +9,10 @@ import Anthropic from "@anthropic-ai/sdk";
  *
  * (Klappn spent its first month as a multi-provider bake-off — Kimi, GLM,
  * Gemini, Grok, an OpenRouter roster. Fable won on the ear, repeatedly, and the
- * zoo was removed 2026-07-20. `songs.model` history is preserved in the
- * training capture; the column now always reads "fable".)
+ * zoo was removed 2026-07-20. Opus 5 — launched 2026-07-24, near-Fable quality
+ * at half the price ($5/$25 vs $10/$50 per MTok) — took over 2026-07-25.
+ * `songs.model` history is preserved in the training capture; new songs read
+ * "opus", legacy rows read "fable".)
  *
  * Hard rules (so they can't drift): adaptive thinking + per-call effort; NEVER
  * temperature/top_p/top_k/budget_tokens (they 400 on this model); the system
@@ -24,8 +26,8 @@ import Anthropic from "@anthropic-ai/sdk";
 export interface LlmConfig {
   anthropicApiKey?: string;
   anthropicModel?: string;
-  /** The song's stored model id. Always "fable" for new work; legacy values
-   *  ("anthropic"/"sonnet"/…) from the bake-off era route to Fable too. */
+  /** The song's stored model id. "opus" for new work; legacy values
+   *  ("fable"/"anthropic"/… from earlier eras) route to Opus 5 too. */
   model?: string;
   /** Opt into Anthropic FAST MODE (`speed:"fast"`, 2.5× output tok/s, premium pricing). Only
    *  works once the org has a non-zero fast-mode rate limit. Threaded from env.FAST_MODE for the
@@ -85,7 +87,7 @@ export interface ModelCallRecord {
   latencyMs?: number;
 }
 
-const ANTHROPIC_DEFAULT_MODEL = "claude-opus-4-8";
+const ANTHROPIC_DEFAULT_MODEL = "claude-opus-5";
 
 // ── PROVIDER ─────────────────────────────────────────────────────────────────
 // One wire: the native Anthropic Messages API. Output tokens are metered at 5×
@@ -207,21 +209,22 @@ async function completeRoute(
   cfg?: LlmConfig,
   opts?: CompleteOpts,
 ): Promise<string> {
-  // Every route lands on Fable 5. "sonnet" → Sonnet 5: legacy songs from the
+  // Every route lands on Opus 5. "sonnet" → Sonnet 5: legacy songs from the
   // multi-model era edit on what wrote them, AND the thinking-off cheap calls
   // (enrich / fx-enrich naming + the done-check) pin it deliberately — a
-  // no-thinking call needs no Fable;
-  // everything else — "fable", "anthropic", stale A/B ids, unset — is Fable.
+  // no-thinking call needs no composing-tier model;
+  // everything else — "opus", legacy "fable"/"anthropic", stale A/B ids, unset —
+  // is Opus 5 (2026-07-25 switch: Fable-adjacent quality at half the price).
   // HARD pin — no `cfg?.anthropicModel ??` fallback: both workers' cfg carries
   // the env default in anthropicModel, and a soft pin silently lost to it
   // (2026-07-02: every "fable" song was actually composed by Opus 4.8).
   const model = cfg?.model ?? process.env.MODEL_PROVIDER;
   if (model === "sonnet")
     return completeAnthropic(system, userText, { ...cfg, anthropicModel: "claude-sonnet-5" }, opts);
-  return completeAnthropic(system, userText, { ...cfg, anthropicModel: "claude-fable-5" }, opts);
+  return completeAnthropic(system, userText, { ...cfg, anthropicModel: "claude-opus-5" }, opts);
 }
 
-// --- Anthropic (Opus 4.8 / claude-opus-4-8) ---------------------------------
+// --- Anthropic (Opus 5 / claude-opus-5) --------------------------------------
 
 function anthropicClient(cfg?: LlmConfig): Anthropic {
   const apiKey = cfg?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
@@ -268,24 +271,26 @@ async function completeAnthropic(
   const anthropic = anthropicClient(cfg);
   const model =
     cfg?.anthropicModel || process.env.CLAUDE_MODEL || ANTHROPIC_DEFAULT_MODEL;
-  // Fable 5 has a different request surface than the Opus/Sonnet family:
-  //  - thinking is ALWAYS ON — an explicit {type:"disabled"} 400s; the param must be OMITTED
-  //    (adaptive is the only mode). noThink calls instead ride output_config effort "low".
-  //  - fast mode (speed:"fast") is Opus 4.8/4.7 only — never send it on Fable.
+  // Opus 5 request surface (launch day 2026-07-24, verified against the live migration guide):
+  //  - thinking is ON BY DEFAULT (adaptive when the param is omitted). Explicit
+  //    {type:"adaptive"} and {type:"disabled"} are both accepted — disabled only at
+  //    effort ≤ high (disabled + xhigh/max 400s; our noThink calls never set those).
   //  - safety classifiers can decline a request (HTTP 200, stop_reason "refusal") — we opt into
-  //    the server-side fallback so a declined call is transparently re-served by Opus 4.8 in the
-  //    same request (beta server-side-fallback-2026-06-01) instead of shipping an empty layer.
-  const isFable = model.startsWith("claude-fable");
+  //    the server-side fallback (beta server-side-fallback-2026-07-01, fallbacks:"default":
+  //    the API re-runs the declined call on its recommended fallback for the refusal category)
+  //    instead of shipping an empty layer.
+  const isOpus5 = model.startsWith("claude-opus-5");
   // Default "high" (Opus's default thinking) everywhere now — composition,
   // critique, edits all run at high; the post-hoc validate + critique + refine
   // loop is the quality net (not deeper single-shot thinking). High is far
   // cheaper and far less likely to overthink/overrun the per-step wall than max.
   // Anthropic is one always-adaptive model, so tier is a no-op; only effort bites.
-  // thinking:false (a pure SELECTION/copy call — e.g. the instrument pick) → thinking DISABLED
-  // on Opus/Sonnet, not just low effort ({type:"disabled"} is faster/cheaper — no reasoning
-  // tokens). On FABLE thinking can't be turned off, so the same flag maps to effort "low"
-  // (adaptive barely thinks there). The prompt must be answer-only — our pick/copy prompts
-  // already say "Output ONLY …", and the callers regex-extract the fields.
+  // thinking:false (a pure SELECTION/copy call — e.g. the instrument pick) → thinking DISABLED,
+  // not just low effort ({type:"disabled"} is faster/cheaper — no reasoning tokens). Legal on
+  // Opus 5 only at effort ≤ high; noThink omits output_config, so the default (high) applies.
+  // The prompt must be answer-only — our pick/copy prompts already say "Output ONLY …", and
+  // the callers regex-extract the fields. (effort still maps to "low" below purely to pick
+  // the smallest max_tokens tier for these calls.)
   const noThink = opts?.thinking === false;
   const effort = noThink ? "low" : (opts?.effort ?? "high");
   // Output budget TIERED BY EFFORT — thinking bills as output ($50/M on the top
@@ -310,7 +315,10 @@ async function completeAnthropic(
   // worker (empty process.env); process.env.FAST_MODE covers the app worker. When on, a 429/529
   // (fast has no auto-fallback) is caught in the retry loop below and re-tried at STANDARD speed.
   const fast =
-    model.startsWith("claude-opus") && // fast mode is Opus 4.8/4.7 ONLY — 400s on Fable/Sonnet
+    // Fast mode gate: Opus 4.8/4.7 only for now. Opus 5 DOES ship a fast mode (2.5×
+    // output speed at 2× price per the launch notes), but its beta header/surface is
+    // unverified here — widen this gate only after a live test, or every call could 400.
+    model.startsWith("claude-opus-4") &&
     (cfg?.fastMode === true ||
       process.env.FAST_MODE === "1" ||
       process.env.FAST_MODE === "true");
@@ -322,14 +330,11 @@ async function completeAnthropic(
     // ⚠ "max" can overthink a single short part (one test ran ~7.5 min, no code) and,
     // with the ~5-min step wall + no refine loop, that part ERRORs — "xhigh" is the
     // proven fallback for generation. NEVER temperature/top_p/top_k/budget_tokens (400s).
-    // Fable: OMIT thinking entirely (always-on adaptive; explicit disabled 400s) and always
-    // send effort — "low" is the no-think substitute there.
-    ...(isFable ? {} : { thinking: noThink ? { type: "disabled" } : { type: "adaptive" } }),
-    ...(noThink && !isFable ? {} : { output_config: { effort } }),
-    // PROMPT CACHING, two breakpoints. The system block alone is usually BELOW
-    // Fable 5's 2048-token cacheable minimum (lean prompts!) — a marker there
-    // never caches, which is why the console flagged a low hit rate. The
-    // workhorse is the marker on the USER text: the layer-by-layer composer's
+    thinking: noThink ? { type: "disabled" } : { type: "adaptive" },
+    ...(noThink ? {} : { output_config: { effort } }),
+    // PROMPT CACHING, two breakpoints. Opus 5's cacheable minimum is 512 tokens
+    // (down from Fable's 2048), so the lean system block now caches too — but the
+    // workhorse is still the marker on the USER text: the layer-by-layer composer's
     // prompt is APPEND-ONLY across a loop's calls (system + brief + layers so
     // far), so caching system+user gives an incremental hit on every layer,
     // retry, and gate re-ask (reads ~0.1×, writes 1.25× — sub-minimum spans
@@ -382,16 +387,18 @@ async function completeAnthropic(
   let firstEventMs = -1;
   let maxGapMs = 0;
   for (let attempt = 1; ; attempt++) {
-    // Fable rides the BETA stream so we can attach the server-side refusal fallback: a policy
-    // decline is re-served by Opus 4.8 inside the same call (declined-before-output attempts
-    // aren't billed; the rescue bills at Opus rates). Everything else uses the plain stream.
+    // Opus 5 rides the BETA stream so we can attach the server-side refusal fallback: a policy
+    // decline is re-served by the API's recommended fallback model inside the same call
+    // (declined-before-output attempts aren't billed; the rescue bills at the fallback model's
+    // rates). fallbacks:"default" — Opus 5's launch surface — lets the API pick the fallback
+    // per refusal category rather than us pinning one. Everything else uses the plain stream.
     // The Beta stream class is runtime-identical for everything we touch (.on("streamEvent"),
     // .controller, .finalMessage()) — collapse the union so the handlers below typecheck once.
-    const stream: ReturnType<typeof anthropic.messages.stream> = isFable
+    const stream: ReturnType<typeof anthropic.messages.stream> = isOpus5
       ? (anthropic.beta.messages.stream({
           ...params,
-          betas: ["server-side-fallback-2026-06-01"],
-          fallbacks: [{ model: "claude-opus-4-8" }],
+          betas: ["server-side-fallback-2026-07-01"],
+          fallbacks: "default",
         } as unknown as Parameters<typeof anthropic.beta.messages.stream>[0]) as unknown as ReturnType<
           typeof anthropic.messages.stream
         >)
@@ -437,7 +444,7 @@ async function completeAnthropic(
     }, 10_000);
 
     try {
-      // Beta (Fable) and plain streams return Message/BetaMessage — identical in every field we
+      // Beta (Opus 5) and plain streams return Message/BetaMessage — identical in every field we
       // read (content/usage/stop_reason), so collapse to the plain type.
       res = (await stream.finalMessage()) as Anthropic.Message;
       clearInterval(watchdog);
@@ -475,10 +482,11 @@ async function completeAnthropic(
       `[klappn] anthropic(${model}) cache: read=${u.cache_read_input_tokens ?? 0} write=${u.cache_creation_input_tokens ?? 0} out=${u.output_tokens} stop=${res.stop_reason} first-event=${firstEventMs}ms maxgap=${maxGapMs}ms total=${Date.now() - startedAt}ms`,
     );
   }
-  // Fable classifier-fallback visibility: when the safety classifier declines and the server-side
-  // fallback re-serves the call on Opus 4.8, the only trace is otherwise Opus rows in the billing
-  // console. Detect via the fallback content block or the fallback_message usage iteration.
-  if (isFable) {
+  // Classifier-fallback visibility: when the safety classifier declines and the server-side
+  // fallback re-serves the call on another model, the only trace is otherwise foreign rows in
+  // the billing console. Detect via the fallback content block or the fallback_message usage
+  // iteration; res.model names who actually served it.
+  if (isOpus5) {
     const iters = (u as { iterations?: Array<{ type?: string }> }).iterations;
     const fellBack =
       iters?.some((i) => i?.type === "fallback_message") ||
@@ -509,14 +517,13 @@ async function completeAnthropic(
   } catch {
     /* metering must never break a model call */
   }
-  // Fable safety classifiers: stop_reason "refusal" arrives as a SUCCESSFUL response with empty
-  // (or partial, discardable) content. With the server-side fallback attached it means the WHOLE
-  // chain (Fable → Opus 4.8) declined. Last resort: ONE client-side replay on Sonnet 5 — it can't
-  // ride the server-side chain (Fable's allowed_fallback_models is ["claude-opus-4-8"] only,
-  // verified live 2026-07-02), so it gets its own fresh call. Sonnet's own refusal (isFable
-  // false on the recursive call) still throws, so the caller's error path remains the floor.
+  // Safety classifiers: stop_reason "refusal" arrives as a SUCCESSFUL response with empty
+  // (or partial, discardable) content. With the server-side fallback attached it means the
+  // WHOLE chain (Opus 5 → its recommended fallback) declined. Last resort: ONE client-side
+  // replay on Sonnet 5 as its own fresh call. Sonnet's own refusal (isOpus5 false on the
+  // recursive call) still throws, so the caller's error path remains the floor.
   if (res.stop_reason === ("refusal" as typeof res.stop_reason)) {
-    if (isFable) {
+    if (isOpus5) {
       console.error(
         `[klappn] anthropic(${model}) whole fallback chain declined — replaying once on claude-sonnet-5`,
       );

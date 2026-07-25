@@ -26,7 +26,7 @@ create index if not exists songs_user_id_idx on songs (user_id);
 -- screen filter by it. Idempotent for existing databases.
 alter table songs add column if not exists playlist text;
 
--- Which model composed this song. One model runs today — Claude Fable 5 — and
+-- Which model composed this song. One model runs today — Claude Opus 5 (since 2026-07-25; earlier songs read 'fable') — and
 -- lib/llm.ts routes every id here (including legacy ids from the early
 -- multi-model bake-off, like the 'anthropic' default) to it. Kept per song so
 -- every part and later edit runs on the same model.

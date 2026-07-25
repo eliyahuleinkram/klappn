@@ -44,7 +44,7 @@ import type { ClaudeConfig } from "../../lib/anthropic";
 
 interface Env {
   HYPERDRIVE: { connectionString: string };
-  // One model: Fable 5 via the native Anthropic API (lib/llm.ts).
+  // One model: Opus 5 via the native Anthropic API (lib/llm.ts).
   ANTHROPIC_API_KEY: string;
   CLAUDE_MODEL?: string;
   // Anthropic fast mode opt-in (set "1" once the org has a non-zero fast-mode rate limit).
@@ -248,7 +248,7 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
     // CRITICAL: each model call is its own durable step. A single step is killed
     // at ~5 min wall-time, and the whole refine loop (several slow pro-model
     // calls) blows past that — so we never cram the loop into one step.
-    // NO RETRIES on model steps. Every step here wraps a Fable-5 call, which is
+    // NO RETRIES on model steps. Every step here wraps an Opus-5 call, which is
     // expensive — a retried compose can re-burn an entire (max-thinking) call's
     // tokens. The 90s stall watchdog + 8-min wall in lib/llm.ts already abort a
     // hung stream cleanly; on failure we'd rather flag the part as error (the
@@ -494,7 +494,7 @@ export class EditWorkflow extends WorkflowEntrypoint<
           select user_id, model from songs where id = ${songId}`;
         return {
           // model is a stored routing id — pass it through verbatim;
-          // complete() maps legacy ids and routes everything to Fable.
+          // complete() maps legacy ids and routes everything to Opus 5.
           userId: s?.user_id ?? "",
           model: s?.model ?? "anthropic",
         };
@@ -514,7 +514,7 @@ export class EditWorkflow extends WorkflowEntrypoint<
     // says to keep. Early returns flush the same way (empty flush is a no-op).
     try {
       // METER CHANGE: every loop rewritten IN SEQUENCE (1st, then 2nd, …), each
-      // a high-effort Fable-5 rewrite in ITS OWN durable step — a whole-song
+      // a high-effort Opus-5 rewrite in ITS OWN durable step — a whole-song
       // sequence in one step gets killed by the ~5-min per-step wall on any song
       // with 3+ loops. Per-loop failures are absorbed inside convertOnePartMeter
       // (that loop keeps its old code). No retries — a retry re-burns tokens.
@@ -550,7 +550,7 @@ export class EditWorkflow extends WorkflowEntrypoint<
         return;
       }
       // VARIANT (edit pill): one loop, one tapped change. No retries — it's a
-      // Fable-5 call; a failure surfaces and the user re-taps if they want it.
+      // Opus-5 call; a failure surfaces and the user re-taps if they want it.
       if (partId && pill) {
         trace.setPart(partId);
         await step.do(
@@ -560,7 +560,7 @@ export class EditWorkflow extends WorkflowEntrypoint<
         );
         return;
       }
-      // NATURAL-LANGUAGE loop edit, DIRECT (2026-07-03, the user): ONE Fable-5 HIGH call — the loop's
+      // NATURAL-LANGUAGE loop edit, DIRECT (2026-07-03, the user): ONE Opus-5 HIGH call — the loop's
       // code + the song-aware brief (neighbours) + the request in, the complete revised loop out. No
       // router, no ops. Changed lines are gated (one retry with the real errors); a failure leaves the
       // loop untouched and surfaces.
@@ -574,7 +574,7 @@ export class EditWorkflow extends WorkflowEntrypoint<
         return;
       }
       if (!changeRequest) return;
-      // The edit call sends the whole song and rewrites parts — also a Fable-5
+      // The edit call sends the whole song and rewrites parts — also an Opus-5
       // call, also one-shot (no token-burning retries).
       await step.do(
         "edit",

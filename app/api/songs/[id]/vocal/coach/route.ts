@@ -7,7 +7,7 @@ import { makeCallSink } from "@/lib/call-trace";
 export const dynamic = "force-dynamic";
 
 /**
- * THE VOCAL COACH — one Fable call that listens to the song's identity (genre,
+ * THE VOCAL COACH — one Opus-5 call that listens to the song's identity (genre,
  * mode, groove, sections) plus the take's measured pitch behaviour, and returns
  * the correction chart (true scale incl. mode, grid, tune/timing/clean
  * strengths) + the FX seat + three named one-tap looks. The browser's DSP does

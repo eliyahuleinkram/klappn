@@ -36,7 +36,8 @@ export interface SongRow {
   /** Playlist this loop belongs to (null = none). Optional: absent on databases
    *  that haven't applied the playlist migration. */
   playlist?: string | null;
-  /** Composition model — always "fable" (legacy ids were migrated 2026-07-20). */
+  /** Composition model — "opus" for new songs (2026-07-25); legacy rows read
+   *  "fable", which lib/llm.ts routes to Opus 5 as well. */
   model?: ModelId;
   /** Set = this song plays on the signed-out DOOR gallery (owner-curated;
    *  newest first). Optional pre-migration. */
@@ -273,7 +274,7 @@ export async function setSongStatus(
 
 /** ATOMICALLY claim a song for generation: flip to 'generating' only if it isn't
  *  already. Closes the check-then-act race where two concurrent POSTs both started
- *  a workflow over the same pending parts (duplicate Fable spend + interleaved
+ *  a workflow over the same pending parts (duplicate Opus spend + interleaved
  *  writes). Returns null when the song isn't the user's; otherwise `{ won, prev }`
  *  — won=false means another request already holds it, `prev` is the status before
  *  the flip (so a failed trigger can walk it back exactly). All CTEs share one

@@ -187,7 +187,7 @@ function parseEnrichArray(out: string): Record<string, unknown>[] | null {
 }
 
 // Cosmetic panels run on SONNET 5 with thinking OFF (2026-07-22, the user): pure naming
-// needs no Fable — the composing model stays out of it. LAYER BY LAYER (not one big
+// needs no Opus — the composing model stays out of it. LAYER BY LAYER (not one big
 // N-object array) — so a single bad reply can't wipe every layer's panel. The first arg
 // is the layer's stored notation (its
 // Strudel body); the panel is then validated against the playable Strudel: each control
@@ -742,7 +742,7 @@ export interface VocalCoachPlan extends VocalCoachLook {
   note: string;
 }
 
-/** ONE Fable call that turns the track's context + the take's measured pitch
+/** ONE Opus-5 call that turns the track's context + the take's measured pitch
  *  behaviour into the studio's correction chart + three named looks. This is
  *  where the AI "hears" the song the singer sang over — mode included (the
  *  thing plan.key cannot express). Null on failure — the studio's own defaults

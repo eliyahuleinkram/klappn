@@ -843,7 +843,7 @@ function planBreaksOf(song: SongRow): Record<string, BreakSet> | undefined {
 // ── THE DIRECT EDIT (2026-07-03, the user): one call, code in → code out — no router, no ops ──
 
 /**
- * NATURAL-LANGUAGE EDIT of one loop, DIRECT: ONE Fable-5 HIGH call sees the loop's code, the song-aware
+ * NATURAL-LANGUAGE EDIT of one loop, DIRECT: ONE Opus-5 HIGH call sees the loop's code, the song-aware
  * brief (neighbouring loops included) and the request, and returns the complete revised loop — free
  * shape (it may rewrite, add or remove layers). We then reconcile the returned lines against the
  * existing tracks (byte-identical line → that track survives untouched, knobs/labels/mutes and all),
@@ -2677,7 +2677,7 @@ export async function applyPartEdit(
 /**
  * Change the song's TIME SIGNATURE — rewrites EVERY loop, strictly IN
  * SEQUENCE (loop 1 from x→y, then loop 2, then 3…), each via a high-effort
- * Fable-5 rewrite exactly like an edit pill. The plan flips first (so section
+ * Opus-5 rewrite exactly like an edit pill. The plan flips first (so section
  * math and every converted loop agree on the new meter), then the loops
  * convert one by one with live per-loop progress. A loop that fails its
  * checks twice keeps its old code (flagged in the log) rather than killing

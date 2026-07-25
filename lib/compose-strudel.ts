@@ -1,5 +1,5 @@
 /**
- * compose-strudel.ts — the DIRECT-STRUDEL generation core (2026-07-01, the user; born on Sonnet 5, now Fable 5).
+ * compose-strudel.ts — the DIRECT-STRUDEL generation core (2026-07-01, the user; born on Sonnet 5, now Opus 5).
  *
  * The model writes Strudel DIRECTLY, one playable `$:` line at a time — no intermediate notation, no
  * compile step. `notation` holds the layer's STRUDEL body — what the model wrote IS what plays, so the
@@ -148,7 +148,7 @@ export function saysDone(reply: string): boolean {
 /** With the parts placed, a CHEAP no-thinking call decides if the loop is complete — so the expensive
  *  HIGH compose call stays focused purely on WRITING the next layer. Run BETWEEN layers; the engine skips
  *  it below the thin-stack floor. Runs on SONNET 5, thinking off (2026-07-22, the user — same rule as the
- *  enrich naming calls: a thinking-off call needs no Fable). */
+ *  enrich naming calls: a thinking-off call needs no Opus). */
 async function loopComplete(brief: string, prior: PriorLayer[], cfg?: LlmConfig): Promise<boolean> {
   const user = `The loop so far (each layer's Strudel):\n${priorContext(prior)}\n\nIs this loop complete, or does it still need a part?`;
   const reply = await complete(STRUDEL_DONE_SYSTEM, user, { ...cfg, model: 'sonnet' }, { ...ROUTE.pick, thinking: false, cacheStable: `Brief: ${brief}\n\n`, trace: { kind: 'done' } });
@@ -226,7 +226,7 @@ export async function editStrudelLoop(
  * point, not a failure). Untouched layers come back byte-identical (the caller reconciles by exact
  * match). When `sectionBrief` (the card's description) is given, the SAME call also returns it revised
  * to match the new music — word-for-word when the edit didn't invalidate it, so unchanged briefs stay
- * byte-identical and the caller can skip the write. Fable 5, effort HIGH.
+ * byte-identical and the caller can skip the write. Opus 5, effort HIGH.
  */
 export async function editStrudelWholeLoop(
   layers: { label: string; body: string }[],

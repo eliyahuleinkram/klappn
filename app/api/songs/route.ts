@@ -74,7 +74,7 @@ export async function POST(req: Request) {
   const loopIds = Array.isArray(body.loopIds)
     ? body.loopIds.filter((x): x is string => typeof x === "string").slice(0, 8)
     : [];
-  // One model: Fable 5 (isModelId admits nothing else). Persisted per song.
+  // One model: Opus 5 (isModelId admits nothing else). Persisted per song.
   const model: ModelId = isModelId(body.model) ? body.model : DEFAULT_MODEL;
 
   if (!firstLoop && loopIds.length === 0) {

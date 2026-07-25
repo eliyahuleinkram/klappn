@@ -67,7 +67,7 @@ import {
  * the WAVEFORM is the voice (drag to select, cut what you don't want — cuts
  * survive every re-process; TAP to play from right there) → LOOKS are one
  * tap (six house presets, plus three the song itself names after ✦ asks
- * Fable to listen).
+ * Opus to listen).
  *
  * THERE IS NO SAVE BUTTON — AND NO SAVE UI AT ALL. The moment processing
  * lands, the voice IS in the song (auto-saved; every knob/cut/voice change

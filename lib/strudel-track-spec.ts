@@ -1,7 +1,7 @@
 /**
  * strudel-track-spec.ts — the generation prompts for the DIRECT-STRUDEL path.
  *
- * Premise (2026-07-01, the user; born on Sonnet 5, now Fable 5): write Strudel DIRECTLY, one playable `$:` line at a
+ * Premise (2026-07-01, the user; born on Sonnet 5, now Opus 5): write Strudel DIRECTLY, one playable `$:` line at a
  * time — no TidalCycles, no compile step. The model is fluent enough in Strudel that the deterministic
  * Tidal→Strudel compiler buys us nothing here; we trade it for a simpler, lossless pipeline (what the
  * model writes IS what plays).

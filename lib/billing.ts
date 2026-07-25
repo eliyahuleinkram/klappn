@@ -9,8 +9,9 @@ import { db } from "./db";
  * uses, so the unit is model-agnostic; only the $/unit differs by model).
  *
  * THE DEAL, stated plainly (and shown to users just as plainly — /open): you
- * buy tokens at one flat public rate — $10 per 1M weighted units (anchored
- * today to Fable 5's input rate), with output/cache normalized by the
+ * buy tokens at one flat public rate — $10 per 1M weighted units (set when
+ * Fable 5's input rate was $10/1M; the composer is now Opus 5 at $5/1M —
+ * the public rate is unchanged for now), with output/cache normalized by the
  * weights above. The rate lives in open code (lib/pricing.ts) — changing it
  * is a commit anyone can read. Credits never expire and are metered
  * against LIFETIME usage alongside the free taste. This replaces the
