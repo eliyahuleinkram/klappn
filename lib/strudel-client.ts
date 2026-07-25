@@ -3715,8 +3715,14 @@ async function evalProgram(
           await zaltzEvaluate(program, ac, masterNode() ?? null, takeover);
         } catch (e) {
           if (zaltzBootFailed()) throw e; // engine never booted — not a visuals problem
-          const music = stripHydraBlock(program);
-          if (program === music) throw e; // not a visuals problem — bubble up
+          // Strip from CODE, not program: buildProgram already UNCOMMENTED the
+          // hydra block into the combined program, so stripping the program
+          // finds no /* @hydra */ marker and the audio-only rescue never fired
+          // — a visual whose sketch collides with a Strudel control name (the
+          // model legally writes Hydra's shape(); Strudel's shape() shadows it
+          // in the eval scope) silenced the WHOLE song (2026-07-26).
+          const music = stripHydraBlock(code);
+          if (program === music) throw e; // no visuals in play — bubble up
           console.error("[klappn] visuals failed to run; playing audio only", e);
           reportHydraError(e instanceof Error ? e.message : String(e));
           visualsEnabled = false;
@@ -5114,8 +5120,13 @@ export async function playSong(
         (c, a) => web.evaluate(c, a),
         songOpts.decorate ? songOpts.decorate(section.code, section.id) : section.code,
       );
-    } catch {
-      // Skip a section that fails to evaluate rather than killing playback.
+    } catch (e) {
+      // Skip a section that fails to evaluate rather than killing playback —
+      // but never SILENTLY: the swallowed error here hid a whole class of
+      // dead-silent songs (the hydra shape() collision, 2026-07-26) from
+      // every console and from the self-heal pipeline.
+      console.error("[klappn] section failed to evaluate — skipping", section.id, e);
+      reportStrudelError(e instanceof Error ? e.message : String(e), section.id);
     }
     trackEvalLead(evalT0);
     releaseTails(); // the new section is scheduling — un-strangle the master
@@ -5176,7 +5187,11 @@ export async function playSong(
         if (zaltzActive()) zaltzHush();
       }
       await a.evalFn(built.program);
-    } catch {
+    } catch (e) {
+      // Loud, always — this catch silently ate the eval error of every
+      // arrangement-unit play (the dead-silent-song hunt of 2026-07-26).
+      console.error("[klappn] arrangement unit failed to evaluate", a.anchorId, e);
+      reportStrudelError(e instanceof Error ? e.message : String(e), a.anchorId || undefined);
       stopArrangement();
     }
     trackEvalLead(evalT0);
