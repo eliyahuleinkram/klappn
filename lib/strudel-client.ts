@@ -4715,6 +4715,13 @@ export async function playPart(partId: string, code: string, owner?: string): Pr
   kickResumeInGesture(); // unlock BEFORE the awaits below spend the tap's activation (iOS)
   const web = await ensureStarted();
   await resumeAudio(); // in case a previous stop() suspended the context
+  // Arm the mobile audio session on EVERY play, exactly like playSong()
+  // (idempotent; desktop no-ops inside; must run AFTER the engine is up so
+  // the master exists). The silent looping anchor holds the phone's
+  // "playback" session — without it, an iPhone with the ringer switch on
+  // silent mutes the whole Web Audio graph: the zaltz playground and event
+  // trailers (the two playPart surfaces) played to NOTHING on muted phones.
+  void enableBackgroundPlayback();
   assertMaxPolyphony(); // cap voices AFTER the engine's NaN init (see the note)
   // Reset the scheduler to cycle 0 so the loop starts at its DOWNBEAT (bar 1) —
   // via hush on the repl path, via the takeover re-anchor on zaltz.
