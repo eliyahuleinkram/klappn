@@ -35,11 +35,10 @@ import { useKeyboardInset } from "@/lib/use-keyboard-inset";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import {
   assignChannelOrbits,
-  CHANNELS,
   channelOfOrbit,
-  filterDisplay,
   type Channel,
 } from "@/lib/set-live";
+import ZaltzMixer from "./ZaltzMixer";
 import { transformForPlayback } from "@/lib/playback";
 import {
   cardFeeCents,
@@ -183,17 +182,8 @@ function humanizeEngineError(raw: string): string {
   return raw;
 }
 
-// THE ONE PINK — the deck's hot gradient, worn by every lit control.
-const HOT_GRADIENT =
-  "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)";
-
-/** Hold: on · release: back — the deck's momentary throws, plus one of ours. */
-const PADS: { name: string; hint: string; patch: { filter?: number; echo?: number; punch?: number; space?: number } }[] = [
-  { name: "DIVE", hint: "filter down", patch: { filter: -78 } },
-  { name: "AIR", hint: "bass away", patch: { filter: 62 } },
-  { name: "ECHO", hint: "throw", patch: { echo: 0.6 } },
-  { name: "WASH", hint: "drown it", patch: { space: 0.55, echo: 0.25 } },
-];
+// (The deck's pads, gradient and dial grid live in components/ZaltzMixer —
+// this file keeps only the wiring they pull on.)
 
 
 
@@ -803,6 +793,14 @@ export default function ZaltzIDE() {
       /* engine not up — the dial still remembers; runMusic re-asserts */
     }
   };
+  const moveMaster = (v: number) => {
+    setMaster(v);
+    try {
+      fadeMaster(v, 0.05);
+    } catch {
+      /* engine not up yet — the dial still remembers */
+    }
+  };
 
   // The code's own tempo (its LAST setcpm) — what the nudge multiplies.
   const baseCps = useMemo(() => {
@@ -1388,312 +1386,32 @@ export default function ZaltzIDE() {
       )}
 
 
-      {/* ── the mixer — the Sets deck, moved into the IDE: kills on orbit
-          buses, perf on the master chain, video FX on the canvas. Ephemeral
-          gestures, deterministic, zero AI — the pane's code never changes. */}
+      {/* ── the desk — the Sets deck's machinery worn by the instrument:
+          SEASON TO TASTE (components/ZaltzMixer). Pure view; the audio wiring
+          (kills, master chain, scheduler nudge, canvas filters) stays here. */}
       {(hasVoices || hydra.trim()) && (
-        <div className="mt-2 shrink-0">
-          {/* OPEN, THE HANDLE IS THE PANEL'S TOP EDGE (user 07-26: "connect
-              the bar to the panel it lifts") — same border, same glass, no
-              seam: rounded top, flat bottom, the panel continues beneath. */}
-          <button
-            onClick={() => setMixerOpen((o) => !o)}
-            className={`group flex w-full items-center justify-center gap-2.5 border px-4 py-1.5 backdrop-blur-xl transition active:scale-[.99] ${
-              mixerOpen
-                ? "rounded-t-[22px] rounded-b-none border-b-0 border-accent/25 bg-black/75 shadow-[0_0_44px_-16px_rgba(224,49,156,.5)]"
-                : "rounded-full border-white/[0.07] bg-black/45 hover:border-accent/30"
-            }`}
-            aria-expanded={mixerOpen}
-          >
-            {/* THE HANDLE IS A TINY DESK (user 07-26: "mixer + dots" read as
-                nothing) — three miniature faders, one per channel, DANCING
-                while the music plays, dropping dead grey when killed. The
-                handle looks like the thing it opens. */}
-            <span className="flex h-4 items-end gap-[3px]" aria-hidden>
-              {CHANNELS.map((ch, i) => (
-                <span
-                  key={ch}
-                  style={
-                    playing && !kills[ch]
-                      ? { animationDelay: `${i * 140}ms` }
-                      : undefined
-                  }
-                  className={`w-[3px] origin-bottom rounded-full transition-all duration-300 ${
-                    kills[ch]
-                      ? "h-[5px] bg-white/20"
-                      : `bg-gradient-to-t from-[#b3126f] to-[#ff63c1] shadow-[0_0_8px_rgba(224,49,156,.8)] ${
-                          i === 0 ? "h-[14px]" : i === 1 ? "h-[9px]" : "h-[12px]"
-                        } ${playing ? "fader-dance" : ""}`
-                  }`}
-                />
-              ))}
-            </span>
-            <span
-              className={`text-[10.5px] font-semibold uppercase tracking-[0.24em] transition ${
-                mixerOpen ? "text-accent-strong" : "text-muted/60 group-hover:text-accent-strong"
-              }`}
-            >
-              hands on
-            </span>
-            <span className="text-[10px] text-muted/40" aria-hidden>
-              {mixerOpen ? "▾" : "▴"}
-            </span>
-          </button>
-          <div
-            className={`overflow-hidden transition-all duration-300 ease-out ${
-              mixerOpen ? "max-h-[38dvh] opacity-100" : "max-h-0 opacity-0"
-            }`}
-          >
-            <div className="max-h-[38dvh] overflow-y-auto rounded-b-[22px] border border-t-0 border-accent/25 bg-gradient-to-b from-black/75 to-black/55 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
-              <div className="mb-3 flex items-center gap-1.5">
-                {(["music", "light"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setMixerTab(t)}
-                    className={`rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.18em] transition active:scale-[.96] ${
-                      mixerTab === t
-                        ? "bg-accent/20 text-accent-strong ring-1 ring-inset ring-accent/40"
-                        : "bg-white/[0.04] text-muted/60 hover:text-foreground"
-                    }`}
-                  >
-                    {t === "light" ? "visuals" : t}
-                  </button>
-                ))}
-              </div>
-              {mixerTab === "music" ? (
-                <>
-                  {/* THE CHANNELS — three fixed kill switches, the deck's own
-                      row: instant, tails included, back mid-note. */}
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {CHANNELS.map((ch) => {
-                      const off = kills[ch];
-                      return (
-                        <button
-                          key={ch}
-                          onClick={() => toggleKill(ch)}
-                          aria-pressed={!off}
-                          title={off ? `Bring the ${ch} back` : `Kill the ${ch}`}
-                          className={`flex h-9 items-center justify-center gap-2 rounded-full text-[12px] font-medium uppercase tracking-[0.12em] transition active:scale-[.97] ${
-                            off
-                              ? "bg-white/[0.02] text-muted/40"
-                              : "bg-white/[0.06] text-foreground/90 hover:bg-white/[0.1]"
-                          }`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full transition ${
-                              off ? "bg-white/[0.12]" : "bg-accent-strong"
-                            }`}
-                            style={off ? undefined : { boxShadow: "0 0 10px rgba(255,99,193,0.8)" }}
-                          />
-                          {ch}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {/* THE PADS — hold: on · release: snap back. */}
-                  <div className="mt-2 grid grid-cols-4 gap-1.5">
-                    {PADS.map((pad) => (
-                      <button
-                        key={pad.name}
-                        onPointerDown={() => padDown(pad.name, pad.patch)}
-                        onPointerUp={padUp}
-                        onPointerLeave={() => heldPad === pad.name && padUp()}
-                        onPointerCancel={padUp}
-                        onContextMenu={(e) => e.preventDefault()}
-                        title="Hold — release to snap back"
-                        className={`flex h-11 select-none flex-col items-center justify-center rounded-2xl transition ${
-                          heldPad === pad.name
-                            ? "text-white"
-                            : "bg-white/[0.04] hover:bg-white/[0.08]"
-                        }`}
-                        style={{
-                          touchAction: "none",
-                          ...(heldPad === pad.name
-                            ? {
-                                backgroundImage: HOT_GRADIENT,
-                                boxShadow: "0 0 30px -8px rgba(224,49,156,0.9)",
-                              }
-                            : {}),
-                        }}
-                      >
-                        <span
-                          className={`text-[11px] font-medium tracking-[0.12em] ${
-                            heldPad === pad.name ? "text-white" : "text-foreground/85"
-                          }`}
-                        >
-                          {pad.name}
-                        </span>
-                        <span
-                          className={`max-w-full overflow-hidden whitespace-nowrap px-1 text-[8px] uppercase tracking-[0.08em] sm:text-[9px] sm:tracking-[0.14em] ${
-                            heldPad === pad.name ? "text-white/70" : "text-muted/45"
-                          }`}
-                        >
-                          hold · {pad.hint}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  {/* the dials — the deck's grid: whispered label, mono readout,
-                      TEMPO/KEY/FILTER centre-detent (double-tap zeroes them) */}
-                  <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-3 sm:gap-x-6">
-                    <DeckSlider
-                      label="Master"
-                      value={master}
-                      min={0}
-                      max={1}
-                      step={0.02}
-                      display={`${Math.round(master * 100)}%`}
-                      onChange={(v) => {
-                        setMaster(v);
-                        try {
-                          fadeMaster(v, 0.05);
-                        } catch {
-                          /* engine not up yet — the dial still remembers */
-                        }
-                      }}
-                    />
-                    <DeckSlider
-                      label="Tempo"
-                      value={nudge}
-                      min={-8}
-                      max={8}
-                      step={1}
-                      bipolar
-                      display={nudge === 0 ? "—" : `${nudge > 0 ? "+" : ""}${nudge}%`}
-                      onChange={moveNudge}
-                    />
-                    <DeckSlider
-                      label="Key"
-                      value={key}
-                      min={-7}
-                      max={7}
-                      step={1}
-                      bipolar
-                      display={key === 0 ? "—" : `${key > 0 ? "+" : ""}${key} st`}
-                      onChange={moveKey}
-                    />
-                    <DeckSlider
-                      label="Filter"
-                      value={perf.filter}
-                      min={-100}
-                      max={100}
-                      step={2}
-                      bipolar
-                      display={filterDisplay(perf.filter)}
-                      onChange={(v) => movePerf({ filter: v })}
-                    />
-                    <DeckSlider
-                      label="Echo"
-                      value={perf.echo}
-                      min={0}
-                      max={0.7}
-                      step={0.05}
-                      display={perf.echo === 0 ? "—" : `${Math.round((perf.echo / 0.7) * 100)}%`}
-                      onChange={(v) => movePerf({ echo: v })}
-                    />
-                    <DeckSlider
-                      label="Space"
-                      value={perf.space}
-                      min={0}
-                      max={0.6}
-                      step={0.05}
-                      display={perf.space === 0 ? "—" : `${Math.round((perf.space / 0.6) * 100)}%`}
-                      onChange={(v) => movePerf({ space: v })}
-                    />
-                    {/* The dirt-and-dub row — desktop completes the 3×3; the
-                        phone keeps its even six (2×3) and skips these. */}
-                    <div className="hidden sm:contents">
-                      <DeckSlider
-                        label="Drive"
-                        value={perf.punch}
-                        min={0}
-                        max={0.5}
-                        step={0.05}
-                        display={perf.punch === 0 ? "—" : `${Math.round((perf.punch / 0.5) * 100)}%`}
-                        onChange={(v) => movePerf({ punch: v })}
-                      />
-                      <DeckSlider
-                        label="Time"
-                        value={perf.time}
-                        min={0.08}
-                        max={0.75}
-                        step={0.005}
-                        display={perf.time === 0.375 ? "—" : `${Math.round(perf.time * 1000)}ms`}
-                        onChange={(v) => movePerf({ time: v })}
-                      />
-                      <DeckSlider
-                        label="Tail"
-                        value={perf.tail}
-                        min={0}
-                        max={0.85}
-                        step={0.05}
-                        display={perf.tail === 0.4 ? "—" : `${Math.round(perf.tail * 100)}%`}
-                        onChange={(v) => movePerf({ tail: v })}
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-3 sm:gap-x-6">
-                  <DeckSlider
-                    label="Hue"
-                    value={light.hue}
-                    min={0}
-                    max={360}
-                    step={2}
-                    display={light.hue === 0 ? "—" : `${Math.round(light.hue)}°`}
-                    onChange={(v) => moveLight({ hue: v })}
-                  />
-                  <DeckSlider
-                    label="Colour"
-                    value={light.sat}
-                    min={0}
-                    max={3}
-                    step={0.05}
-                    display={light.sat === 1 ? "—" : `${light.sat.toFixed(2)}×`}
-                    onChange={(v) => moveLight({ sat: v })}
-                  />
-                  <DeckSlider
-                    label="Contrast"
-                    value={light.contrast}
-                    min={0.4}
-                    max={2.5}
-                    step={0.05}
-                    display={light.contrast === 1 ? "—" : `${light.contrast.toFixed(2)}×`}
-                    onChange={(v) => moveLight({ contrast: v })}
-                  />
-                  <DeckSlider
-                    label="Glow"
-                    value={light.bright}
-                    min={0.4}
-                    max={2}
-                    step={0.05}
-                    display={light.bright === 1 ? "—" : `${light.bright.toFixed(2)}×`}
-                    onChange={(v) => moveLight({ bright: v })}
-                  />
-                  <DeckSlider
-                    label="Smear"
-                    value={light.blur}
-                    min={0}
-                    max={8}
-                    step={0.25}
-                    display={light.blur === 0 ? "—" : `${light.blur.toFixed(1)}px`}
-                    onChange={(v) => moveLight({ blur: v })}
-                  />
-                  <DeckSlider
-                    label="Invert"
-                    value={light.invert}
-                    min={0}
-                    max={1}
-                    step={0.02}
-                    display={light.invert === 0 ? "—" : `${Math.round(light.invert * 100)}%`}
-                    onChange={(v) => moveLight({ invert: v })}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <ZaltzMixer
+          open={mixerOpen}
+          onToggle={() => setMixerOpen((o) => !o)}
+          tab={mixerTab}
+          onTab={setMixerTab}
+          playing={playing}
+          kills={kills}
+          onKill={toggleKill}
+          heldPad={heldPad}
+          onPadDown={padDown}
+          onPadUp={padUp}
+          master={master}
+          onMaster={moveMaster}
+          nudge={nudge}
+          onNudge={moveNudge}
+          keyShift={key}
+          onKeyShift={moveKey}
+          perf={perf}
+          onPerf={movePerf}
+          light={light}
+          onLight={moveLight}
+        />
       )}
 
       {/* ── sheets ──────────────────────────────────────────────────────── */}
@@ -1741,8 +1459,8 @@ export default function ZaltzIDE() {
                   </ul>
                 ) : (
                   <p className="mt-3 text-[13px] leading-relaxed text-muted">
-                    Nothing in the crate yet — touch the bench and it keeps
-                    itself here.
+                    No grains yet — touch the bench and the work keeps itself
+                    here, grain by grain.
                     {me?.signedIn && me.isGuest
                       ? " Guest work stays with this browser until you claim it."
                       : ""}
@@ -1946,51 +1664,3 @@ export default function ZaltzIDE() {
 /** One deck dial (the Sets deck's own design): whispered label, live mono
  *  readout, accent fill drawn to the value — bipolar dials fill from centre
  *  and double-tap back to zero. */
-function DeckSlider({
-  label,
-  value,
-  min,
-  max,
-  step,
-  display,
-  bipolar,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  display: string;
-  bipolar?: boolean;
-  onChange: (v: number) => void;
-}) {
-  const pct = ((value - min) / (max - min)) * 100;
-  const fill = bipolar
-    ? pct >= 50
-      ? `linear-gradient(to right, rgba(255,255,255,0.08) 50%, var(--accent) 50%, var(--accent) ${pct}%, rgba(255,255,255,0.08) ${pct}%)`
-      : `linear-gradient(to right, rgba(255,255,255,0.08) ${pct}%, var(--accent) ${pct}%, var(--accent) 50%, rgba(255,255,255,0.08) 50%)`
-    : `linear-gradient(to right, var(--accent) ${pct}%, rgba(255,255,255,0.08) ${pct}%)`;
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="flex items-baseline justify-between text-[10px] uppercase tracking-[0.18em] text-muted/60">
-        {label}
-        <span className="font-mono text-[11px] normal-case tracking-normal text-foreground/70">
-          {display}
-        </span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        onDoubleClick={bipolar ? () => onChange(0) : undefined}
-        className="slider deck-slider"
-        style={{ background: fill }}
-      />
-    </label>
-  );
-}
-
