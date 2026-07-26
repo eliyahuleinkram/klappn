@@ -35,14 +35,15 @@ export function loopsFor(tokens: number): number {
 }
 
 /**
- * The IDE copilot's friendly estimate — "~1k weighted units buys a ghost".
+ * The IDE copilot's friendly estimate — "~1.5k weighted units buys a ghost".
  * Ghosts run SONNET 5 (2026-07-26 cost pass) and units bill at the served
- * model's own rate (MODEL_COST_FACTOR ×0.6), so the old Opus-measured ~1.5k
- * p50 lands near ~0.9k; rounded UP like TOKENS_PER_LOOP so the estimate
- * under-promises. The IDE's meter speaks ghosts, not loops — a completion is
- * ~30× cheaper than a composed loop and the estimate must say so.
+ * model's own rate (MODEL_COST_FACTOR ×0.6). MEASURED live 2026-07-27: a warm
+ * multi-line ghost = ~13.8k cache read ×0.1 + ~250 write ×1.25 + ~140 out ×5
+ * ≈ 2.0–2.4k weighted ×0.6 ≈ 1.2–1.45k units — rounded UP like
+ * TOKENS_PER_LOOP so the meter under-promises, never over. The IDE speaks
+ * ghosts, not loops — a completion is ~20× cheaper than a composed loop.
  */
-export const TOKENS_PER_GHOST = 1_000;
+export const TOKENS_PER_GHOST = 1_500;
 
 /** Tokens a payment buys — $1 = 100k weighted units, exact. */
 export function tokensForUsdCents(usdCents: number): number {
