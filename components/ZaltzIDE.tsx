@@ -13,7 +13,9 @@ import { authClient } from "@/lib/auth-client";
 import { attachHydraBlock } from "@/lib/hydra-embed";
 import { openDeep } from "@/lib/seal";
 import {
+  pausePlayback,
   playPart,
+  resumePlayback,
   setExplicitVisualsDrive,
   setHydraErrorSink,
   setStrudelErrorSink,
@@ -22,6 +24,7 @@ import {
   stop,
   updateVisuals,
 } from "@/lib/strudel-client";
+import { useKeyboardInset } from "@/lib/use-keyboard-inset";
 import {
   cardFeeCents,
   CREDIT_PACK_USD,
@@ -203,7 +206,12 @@ export default function ZaltzIDE() {
   const [me, setMe] = useState<Me | null>(null);
   const [sketches, setSketches] = useState<Sketch[]>([]);
 
+  // Phones OVERLAY the keyboard — without this the transport (and the ⇥ take
+  // pill) vanish behind it the moment a pane focuses.
+  const kbInset = useKeyboardInset();
+
   const [playing, setPlaying] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [waking, setWaking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -384,6 +392,7 @@ export default function ZaltzIDE() {
         return;
       }
       setPlaying(true);
+      setPaused(false); // a fresh eval always sounds
       if (sketch.trim()) void updateVisuals(hydraProgram(sketch));
       // It runs clean — let the machine name some next moves (throttled).
       setTimeout(() => void tweaksAfterRun.current(), 1500);
@@ -414,7 +423,27 @@ export default function ZaltzIDE() {
       /* already stopped */
     }
     setPlaying(false);
+    setPaused(false);
     setBusy(false);
+  }, []);
+
+  // PAUSE holds the music mid-phrase (the light keeps gently drifting — the
+  // engine's own law); RESUME picks it back up exactly there. Stop ends it.
+  const pause = useCallback(() => {
+    try {
+      pausePlayback();
+    } catch {
+      /* engine not up — nothing to hold */
+    }
+    setPaused(true);
+  }, []);
+  const resume = useCallback(async () => {
+    try {
+      await resumePlayback();
+    } catch {
+      /* worst case the next ⌘↵ restarts it */
+    }
+    setPaused(false);
   }, []);
 
   // ⌘. stops and ⌘S saves from anywhere (not just inside a pane); Esc closes
@@ -437,43 +466,69 @@ export default function ZaltzIDE() {
   }, [halt]);
 
   // ── save / load ────────────────────────────────────────────────────────────
-  const save = useCallback(async () => {
-    if (saving) return;
-    if (!(await ensureSession())) return;
-    setSaving(true);
-    try {
-      const { strudel: s, hydra: h, title: t, sketchId: id } = stateRef.current;
-      const body = JSON.stringify({ title: t, strudel: s, hydra: h });
-      let res = await fetch(id ? `/api/sketches/${id}` : "/api/sketches", {
-        method: id ? "PATCH" : "POST",
-        headers: { "content-type": "application/json" },
-        body,
-      });
-      // A stale id (another session's sketch, or one deleted elsewhere) 404s —
-      // the work on the bench is still real: save it as a fresh sketch.
-      if (id && res.status === 404) {
-        res = await fetch("/api/sketches", {
-          method: "POST",
+  // Every edit bumps the rev; a save only marks the bench clean if nothing
+  // landed while it was in flight.
+  const revRef = useRef(0);
+  const markDirty = useCallback(() => {
+    revRef.current++;
+    setDirty(true);
+  }, []);
+
+  const save = useCallback(
+    async (auto = false) => {
+      if (saving) return;
+      // Autosave rides an EXISTING session only; the explicit ⌘S may mint the
+      // guest. (In practice the copilot mints one at the first typing pause,
+      // so autosave engages almost immediately anyway.)
+      if (!meRef.current?.signedIn) {
+        if (auto) return;
+        if (!(await ensureSession())) return;
+      }
+      const rev = revRef.current;
+      setSaving(true);
+      try {
+        const { strudel: s, hydra: h, title: t, sketchId: id } = stateRef.current;
+        const body = JSON.stringify({ title: t, strudel: s, hydra: h });
+        let res = await fetch(id ? `/api/sketches/${id}` : "/api/sketches", {
+          method: id ? "PATCH" : "POST",
           headers: { "content-type": "application/json" },
           body,
         });
+        // A stale id (another session's sketch, or one deleted elsewhere) 404s —
+        // the work on the bench is still real: save it as a fresh sketch.
+        if (id && res.status === 404) {
+          res = await fetch("/api/sketches", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body,
+          });
+        }
+        const d = openDeep(
+          (await res.json().catch(() => ({}))) as { sketch?: Sketch; error?: string },
+        );
+        if (!res.ok || !d.sketch) {
+          if (!auto) setNotice(d.error || "Couldn't save — try again.");
+          return;
+        }
+        setSketchId(d.sketch.id);
+        if (revRef.current === rev) setDirty(false); // nothing landed mid-save
+        void refreshSketches();
+      } finally {
+        setSaving(false);
       }
-      const d = openDeep(
-        (await res.json().catch(() => ({}))) as { sketch?: Sketch; error?: string },
-      );
-      if (!res.ok || !d.sketch) {
-        setNotice(d.error || "Couldn't save — try again.");
-        return;
-      }
-      setSketchId(d.sketch.id);
-      setDirty(false);
-      void refreshSketches();
-    } finally {
-      setSaving(false);
-    }
-  }, [ensureSession, saving]);
+    },
+    [ensureSession, saving],
+  );
   const saveRef = useRef(save);
   saveRef.current = save;
+
+  // AUTOSAVE — there is no Save button; work is simply KEPT. 2.5s after the
+  // last edit the bench writes itself to the crate (create-on-first-save).
+  useEffect(() => {
+    if (!dirty) return;
+    const t = setTimeout(() => void saveRef.current(true), 2500);
+    return () => clearTimeout(t);
+  }, [dirty, strudel, hydra, title]);
 
   function loadSketch(s: Sketch) {
     setStrudel(s.strudel);
@@ -572,7 +627,7 @@ export default function ZaltzIDE() {
   // ── tweak chips — the machine's "next moves", after a clean run ────────────
   const maybeTweaks = useCallback(async () => {
     const { strudel: s, hydra: h } = stateRef.current;
-    const code = s + " " + h;
+    const code = s + " " + h;
     const meta = tweaksMeta.current;
     if (meta.inflight || code === meta.lastCode) return;
     if (Date.now() - meta.at < 45_000) return;
@@ -654,7 +709,7 @@ export default function ZaltzIDE() {
     const wasPlaying = stateRef.current.playing;
     if (proposal.strudel !== undefined) setStrudel(proposal.strudel);
     if (proposal.hydra !== undefined) setHydra(proposal.hydra);
-    setDirty(true);
+    markDirty();
     const p = proposal;
     setProposal(null);
     // Mid-set, the take drops straight into the running mix — that's the point.
@@ -799,7 +854,10 @@ export default function ZaltzIDE() {
   );
 
   return (
-    <main className="relative flex h-dvh flex-col overflow-hidden px-3 pb-3 sm:px-4">
+    <main
+      className="relative flex h-dvh flex-col overflow-hidden px-3 pb-3 sm:px-4"
+      style={kbInset ? { paddingBottom: kbInset + 12 } : undefined}
+    >
       {/* legibility scrims — the picture burns behind; the words never sit on panels */}
       <div
         aria-hidden
@@ -823,23 +881,31 @@ export default function ZaltzIDE() {
           value={title}
           onChange={(e) => {
             setTitle(e.target.value);
-            setDirty(true);
+            markDirty();
           }}
           spellCheck={false}
           className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-1 text-[14px] text-foreground/90 outline-none transition placeholder:text-muted/40 hover:bg-white/[0.04] focus:bg-white/[0.05]"
           placeholder="name this sketch"
         />
-        <button
-          onClick={() => void save()}
-          className={`shrink-0 rounded-full px-3 py-1.5 text-[12.5px] transition active:scale-[.97] ${
-            dirty
-              ? "bg-accent/20 text-accent-strong ring-1 ring-inset ring-accent/40 hover:bg-accent/30"
-              : "bg-white/[0.05] text-muted hover:text-foreground"
+        {/* No Save button — work is simply KEPT. The dot breathes while the
+            bench writes itself; steel once it's in the crate. */}
+        <span
+          aria-hidden
+          title={
+            me?.signedIn
+              ? dirty || saving
+                ? "keeping…"
+                : "kept"
+              : "kept in this browser — a session picks it up the moment you touch the machine"
+          }
+          className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-500 ${
+            me?.signedIn
+              ? dirty || saving
+                ? "animate-pulse bg-accent-strong"
+                : "bg-white/25"
+              : "bg-white/15"
           }`}
-          title="Save (⌘S)"
-        >
-          {saving ? <span className="shimmer-text">Saving…</span> : dirty ? "Save ·" : "Saved"}
-        </button>
+        />
         <button
           onClick={toggleCopilot}
           className={`shrink-0 rounded-full px-3 py-1.5 text-[12.5px] transition active:scale-[.97] ${
@@ -918,7 +984,7 @@ export default function ZaltzIDE() {
             onChange={(v) => {
               if (ghost?.pane === "strudel") killGhost();
               setStrudel(v);
-              setDirty(true);
+              markDirty();
             }}
             onRun={() => void runMusic()}
             onSave={() => void save()}
@@ -946,7 +1012,7 @@ export default function ZaltzIDE() {
             onChange={(v) => {
               if (ghost?.pane === "hydra") killGhost();
               setHydra(v);
-              setDirty(true);
+              markDirty();
             }}
             onRun={runVisuals}
             onSave={() => void save()}
@@ -1029,14 +1095,30 @@ export default function ZaltzIDE() {
       {/* ── transport + the machine's next moves (offered, never applied) ── */}
       <footer className="mt-2.5 flex items-center gap-2.5">
         <button
-          onClick={playing ? halt : () => void runMusic()}
+          onClick={
+            !playing
+              ? () => void runMusic()
+              : paused
+                ? () => void resume()
+                : pause
+          }
           disabled={busy}
           className={`btn-primary min-w-[5.5rem] shrink-0 rounded-full px-5 py-2.5 text-[14px] font-medium transition active:scale-[.97] ${
             waking ? "opacity-60" : ""
           }`}
         >
-          {waking ? "Waking…" : playing ? "Stop" : "Play"}
+          {waking ? "Waking…" : !playing ? "Play" : paused ? "Resume" : "Pause"}
         </button>
+        {playing && (
+          <button
+            onClick={halt}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-[13px] text-foreground/80 backdrop-blur-xl transition hover:bg-white/[0.1] hover:text-foreground active:scale-[.95]"
+            title="Stop (⌘.)"
+            aria-label="Stop"
+          >
+            ■
+          </button>
+        )}
         {tweaks.length > 0 && !proposal ? (
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-1">
             <span
@@ -1077,7 +1159,15 @@ export default function ZaltzIDE() {
                 the machine is taking a pass…
               </span>
             ) : (
-              "ghosts land as you type — ⇥ takes one, ⌥\\ summons one. Play it clean and the machine offers tweaks."
+              <>
+                <span className="sm:hidden">
+                  ghosts land as you type — tap ⇥ take. Play it clean and tweaks appear.
+                </span>
+                <span className="hidden sm:inline">
+                  ghosts land as you type — ⇥ takes one, ⌥\ summons one. Play it
+                  clean and the machine offers tweaks.
+                </span>
+              </>
             )}
           </p>
         )}
@@ -1128,9 +1218,10 @@ export default function ZaltzIDE() {
                   </ul>
                 ) : (
                   <p className="mt-3 text-[13px] leading-relaxed text-muted">
-                    Nothing in the crate yet — save a take and it lives here.
+                    Nothing in the crate yet — touch the bench and it keeps
+                    itself here.
                     {me?.signedIn && me.isGuest
-                      ? " Saves stay with this browser until you claim them."
+                      ? " Guest work stays with this browser until you claim it."
                       : ""}
                   </p>
                 )}
