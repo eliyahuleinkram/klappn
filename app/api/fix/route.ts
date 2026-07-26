@@ -57,6 +57,11 @@ export async function POST(req: Request) {
     const fixed = raw
       .replace(/^\s*```[a-z]*\r?\n?/i, "")
       .replace(/\r?\n?```\s*$/i, "")
+      .trim()
+      // Sonnet's single-backtick wrapper habit — edge backticks are never code
+      // in our dialect (see cleanCompletion).
+      .replace(/^`+/, "")
+      .replace(/`+$/, "")
       .trim();
     // Nothing to mend, or the model gave up — say so honestly.
     if (!fixed || fixed === code.trim()) return Response.json({ code: "" });

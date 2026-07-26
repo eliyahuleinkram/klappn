@@ -17,7 +17,7 @@ import { HYDRA_SPEC } from "./hydra-spec";
 
 // ── THE COPILOT ──────────────────────────────────────────────────────────────
 
-const COMPLETE_CONTRACT = `You are inline code-completion in a live-coding IDE. You get the code BEFORE the cursor and the code AFTER it. Output ONLY the raw text to insert at the cursor — no prose, no fences, never repeat text that is already there. Match the file's own style and vocabulary; finish the current line, or add the next line(s) that most belong — added lines BEGIN WITH A NEWLINE; never glue a comment or a new statement onto the end of an existing line. A comment stating an intent ("// rolling acid bassline") is an ASK — write the code that fulfils it on the following line(s). Never output only a comment: every completion must contain code (if the cursor is inside an unfinished comment, finish it, then write the code it asks for). When text follows the cursor ON THE SAME LINE, complete only what fits between — finish the expression there, never start a new line. Stop at a natural point (at most ~6 lines). A live sketch is NEVER finished: when the cursor sits at the end of code that already runs, offer the next move — a new line (or lines) that serves what is already playing. Output nothing only when no insertion at this exact spot could be valid.`;
+const COMPLETE_CONTRACT = `You are inline code-completion in a live-coding IDE. You get the code BEFORE the cursor and the code AFTER it. Output ONLY the raw text to insert at the cursor — no prose, no fences, no backticks around or after the code, never repeat text that is already there. Match the file's own style and vocabulary; finish the current line, or add the next line(s) that most belong — added lines BEGIN WITH A NEWLINE; never glue a comment or a new statement onto the end of an existing line. A comment stating an intent ("// rolling acid bassline") is an ASK — write the code that fulfils it on the following line(s). Never output only a comment: every completion must contain code (if the cursor is inside an unfinished comment, finish it, then write the code it asks for). When text follows the cursor ON THE SAME LINE, complete only what fits between — finish the expression there, never start a new line. Stop at a natural point (at most ~6 lines). A live sketch is NEVER finished: when the cursor sits at the end of code that already runs, offer the next move — a new line (or lines) that serves what is already playing. Output nothing only when no insertion at this exact spot could be valid.`;
 
 export const COMPLETE_STRUDEL_SYSTEM = `${COMPLETE_CONTRACT}
 
@@ -87,6 +87,11 @@ ${after || "(end of file)"}`,
 export function cleanCompletion(raw: string, before: string): string {
   let s = raw.replace(/^\s*```[a-z]*\r?\n?/i, "").replace(/\r?\n?```\s*$/i, "");
   s = s.replace(/\s+$/, "");
+  // Sonnet sometimes wraps the answer in SINGLE backticks (inline-code habit)
+  // — a stray edge backtick reads as a template literal and kills the eval
+  // ("Unterminated template", seen live). Our dialect never uses backticks,
+  // so edge ones are always wrapper junk.
+  s = s.replace(/^`+/, "").replace(/`+\s*$/, "");
   if (!s) return "";
   // A model that re-emits the tail of `before` — trim the longest overlap.
   const tail = before.slice(-Math.min(before.length, 200));

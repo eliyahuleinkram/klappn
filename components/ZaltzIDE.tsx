@@ -1338,8 +1338,11 @@ export default function ZaltzIDE() {
 
       {/* ── errors / notices ────────────────────────────────────────────── */}
       {(err || notice) && (
+        /* A CAPSULE, not a banner (user 07-27): full-width on the phone, but
+           on desktop it hugs its words and centres — so the ✦ fix sits right
+           beside the complaint instead of a screen-width away. */
         <div
-          className={`mt-2 flex items-center gap-2.5 rounded-2xl border px-3.5 py-2 backdrop-blur-xl ${
+          className={`mt-2 flex items-center gap-2.5 rounded-2xl border px-3.5 py-2 backdrop-blur-xl sm:mx-auto sm:w-fit sm:max-w-2xl ${
             err
               ? "border-red-400/25 bg-red-950/35 shadow-[0_0_44px_-18px_rgba(248,113,113,.5)]"
               : "border-accent/30 bg-black/55 shadow-[0_0_44px_-16px_rgba(224,49,156,.55)]"
