@@ -185,6 +185,32 @@ function humanizeEngineError(raw: string): string {
 // (The deck's pads, gradient and dial grid live in components/ZaltzMixer —
 // this file keeps only the wiring they pull on.)
 
+/** The copilot's mark — a spark trailing a smaller one, cut as an SVG so it
+ *  scales crisp and wears the house gradient while the copilot rides along. */
+function CopilotMark({ on }: { on: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" className="h-[13px] w-[13px] shrink-0" aria-hidden>
+      <defs>
+        <linearGradient id="copilot-spark" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#ff63c1" />
+          <stop offset="55%" stopColor="#e0319c" />
+          <stop offset="100%" stopColor="#b3126f" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M10 1 C11.2 6.8 13.2 8.8 19 10 C13.2 11.2 11.2 13.2 10 19 C8.8 13.2 6.8 11.2 1 10 C6.8 8.8 8.8 6.8 10 1 Z"
+        fill={on ? "url(#copilot-spark)" : "currentColor"}
+        opacity={on ? 1 : 0.55}
+      />
+      <path
+        d="M19 15 C19.6 17.4 20.6 18.4 23 19 C20.6 19.6 19.6 20.6 19 23 C18.4 20.6 17.4 19.6 15 19 C17.4 18.4 18.4 17.4 19 15 Z"
+        fill={on ? "url(#copilot-spark)" : "currentColor"}
+        opacity={on ? 0.9 : 0.45}
+      />
+    </svg>
+  );
+}
+
 
 
 
@@ -1204,26 +1230,30 @@ export default function ZaltzIDE() {
             markDirty();
           }}
           spellCheck={false}
-          className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-1 text-[14px] text-foreground/90 outline-none transition placeholder:text-muted/40 hover:bg-white/[0.04] focus:bg-white/[0.05]"
+          className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-1 text-[14px] text-foreground/90 outline-none transition placeholder:text-muted/40 hover:bg-white/[0.04] focus:bg-white/[0.05] sm:w-64 sm:flex-none"
           placeholder="name it"
         />
+        {/* Desktop: the name is a name, not a runway — fixed width, the air
+            in the middle belongs to the room. */}
+        <span className="hidden flex-1 sm:block" />
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
         <button
           onClick={toggleCopilot}
-          className={`hidden shrink-0 rounded-full px-3 py-1.5 text-[12.5px] transition active:scale-[.97] sm:inline-flex ${
+          className={`hidden shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] transition active:scale-[.97] sm:inline-flex ${
             copilot
               ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
               : "bg-white/[0.05] text-muted/60 hover:text-foreground"
           }`}
           title="Ghosts as you type — ⇥ takes them, ⌥\ summons one, Esc bins them"
         >
+          <CopilotMark on={copilot} />
           copilot
         </button>
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="hidden shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-muted transition hover:text-foreground active:scale-[.97] sm:inline-flex"
-        >Crate</button>
+        >Stash</button>
         {canFullscreen && (
           <button
             onClick={toggleFullscreen}
@@ -1284,18 +1314,19 @@ export default function ZaltzIDE() {
         <span className="flex-1" />
         <button
           onClick={toggleCopilot}
-          className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] transition active:scale-[.97] ${
+          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] transition active:scale-[.97] ${
             copilot
               ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
               : "bg-white/[0.05] text-muted/60"
           }`}
         >
+          <CopilotMark on={copilot} />
           copilot
         </button>
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted transition active:scale-[.97]"
-        >Crate</button>
+        >Stash</button>
       </div>
       )}
 
@@ -1491,7 +1522,7 @@ export default function ZaltzIDE() {
             {sheet === "sketches" && (
               <>
                 <div className="flex items-center justify-between">
-                  <h2 className="text-[15px] font-medium text-foreground">Crate</h2>
+                  <h2 className="text-[15px] font-medium text-foreground">Stash</h2>
                   <button
                     onClick={newSketch}
                     className="rounded-full bg-accent/[0.14] px-3 py-1.5 text-[12.5px] text-foreground transition hover:bg-accent/[0.22] active:scale-[.97]"
@@ -1523,8 +1554,7 @@ export default function ZaltzIDE() {
                   </ul>
                 ) : (
                   <p className="mt-3 text-[13px] leading-relaxed text-muted">
-                    Nothing in the crate yet — play, and the work keeps itself
-                    here.
+                    Nothing stashed yet — play, and the work keeps itself here.
                     {me?.signedIn && me.isGuest
                       ? " Guest work stays with this browser until you claim it."
                       : ""}
