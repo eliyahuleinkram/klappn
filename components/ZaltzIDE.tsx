@@ -629,7 +629,11 @@ export default function ZaltzIDE() {
         if (!(await ensureSession())) return;
       }
       const cacheKey = `${pane}|${ctx.before.slice(-240)}|${ctx.after.slice(0, 80)}`;
-      const cached = ghostLRU.current.get(cacheKey);
+      // A cached EMPTY never answers a DIRECT order — ✦/⌥\ re-asks the machine
+      // (the cache remembered "nothing to say", which silenced the button; a
+      // cached real ghost is still served instantly).
+      const cached0 = ghostLRU.current.get(cacheKey);
+      const cached = ctx.forced && cached0 !== undefined && !cached0.trim() ? undefined : cached0;
       if (cached !== undefined) {
         lastCue.current = { key: cueKey, empty: !cached.trim(), at: Date.now() };
         let g = cached;

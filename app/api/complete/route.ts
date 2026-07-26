@@ -85,6 +85,17 @@ export async function POST(req: Request) {
     // THE FILTER: a ghost may not introduce errors the pane didn't already
     // have. One fast repair pass, then silence — no ghost beats a wrong ghost.
     let issues = await ghostIssues(pane, before, after, ghost);
+    // THE NEWLINE SALVAGE (2026-07-26, the "copilot doesn't work for visuals"
+    // bug): the commonest corpse is a perfect ghost glued to the end of the
+    // line — `…out()src(o0)…` — which the gate reads as a syntax error and
+    // kills. Before burning a model repair pass, try the one-character fix.
+    if (issues.length && ghost && !ghost.startsWith("\n")) {
+      const nl = "\n" + ghost;
+      if (!(await ghostIssues(pane, before, after, nl)).length) {
+        ghost = nl;
+        issues = [];
+      }
+    }
     if (issues.length) {
       try {
         ghost = cleanCompletion(
@@ -107,7 +118,11 @@ ${issues.map((e) => `- ${e}`).join("\n")}`,
         issues = ["repair failed"];
       }
       if (issues.length) {
-        console.log(`[klappn] ghost dropped (${pane}): ${issues[0]}`);
+        // Log the corpse too — "dropped: syntax error" alone made a gate bug
+        // undiagnosable from tail (2026-07-26: the gate itself was the fault).
+        console.log(
+          `[klappn] ghost dropped (${pane}): ${issues[0]} :: ${JSON.stringify(ghost.slice(0, 200))}`,
+        );
         return Response.json({ ghost: "" });
       }
     }
