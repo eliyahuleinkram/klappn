@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -186,12 +187,17 @@ function humanizeEngineError(raw: string): string {
 // this file keeps only the wiring they pull on.)
 
 /** The copilot's mark — a spark trailing a smaller one, cut as an SVG so it
- *  scales crisp and wears the house gradient while the copilot rides along. */
+ *  scales crisp and wears the house gradient while the copilot rides along.
+ *  The gradient id is per-instance (useId): two marks render (desktop pill +
+ *  mobile row), and a shared id resolved into the display:none twin, which
+ *  left the visible mark unpainted on phones (2026-07-27). */
 function CopilotMark({ on }: { on: boolean }) {
+  const uid = useId();
+  const grad = `copilot-spark-${uid.replace(/[^a-zA-Z0-9]/g, "")}`;
   return (
     <svg viewBox="0 0 24 24" className="h-[13px] w-[13px] shrink-0" aria-hidden>
       <defs>
-        <linearGradient id="copilot-spark" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={grad} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#ff63c1" />
           <stop offset="55%" stopColor="#e0319c" />
           <stop offset="100%" stopColor="#b3126f" />
@@ -199,12 +205,12 @@ function CopilotMark({ on }: { on: boolean }) {
       </defs>
       <path
         d="M10 1 C11.2 6.8 13.2 8.8 19 10 C13.2 11.2 11.2 13.2 10 19 C8.8 13.2 6.8 11.2 1 10 C6.8 8.8 8.8 6.8 10 1 Z"
-        fill={on ? "url(#copilot-spark)" : "currentColor"}
+        fill={on ? `url(#${grad})` : "currentColor"}
         opacity={on ? 1 : 0.55}
       />
       <path
         d="M19 15 C19.6 17.4 20.6 18.4 23 19 C20.6 19.6 19.6 20.6 19 23 C18.4 20.6 17.4 19.6 15 19 C17.4 18.4 18.4 17.4 19 15 Z"
-        fill={on ? "url(#copilot-spark)" : "currentColor"}
+        fill={on ? `url(#${grad})` : "currentColor"}
         opacity={on ? 0.9 : 0.45}
       />
     </svg>
@@ -895,24 +901,14 @@ export default function ZaltzIDE() {
     el.style.filter = f.join(" ");
   };
 
-  // FULLSCREEN — the algorave posture: just the glass and the room. Hidden
-  // where the API doesn't exist (iPhone Safari can't fullscreen a page).
+  // Browser-fullscreen tracking — solo rides it where it exists (the header's
+  // own fullscreen button died 07-27; solo's ⛶ is the one door).
   const [fullscreen, setFullscreen] = useState(false);
-  const [canFullscreen, setCanFullscreen] = useState(false);
   useEffect(() => {
-    setCanFullscreen(!!document.documentElement.requestFullscreen);
     const on = () => setFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", on);
     return () => document.removeEventListener("fullscreenchange", on);
   }, []);
-  const toggleFullscreen = () => {
-    try {
-      if (document.fullscreenElement) void document.exitFullscreen();
-      else void document.documentElement.requestFullscreen();
-    } catch {
-      /* denied — nothing breaks */
-    }
-  };
 
   // SOLO VISUALS — the VJ posture (user 07-27, twice: JUST the picture, not
   // the pane): every panel vanishes and the canvas owns the room at full
@@ -1253,20 +1249,9 @@ export default function ZaltzIDE() {
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="hidden shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-muted transition hover:text-foreground active:scale-[.97] sm:inline-flex"
-        >Stash</button>
-        {canFullscreen && (
-          <button
-            onClick={toggleFullscreen}
-            title={fullscreen ? "Leave fullscreen" : "Fullscreen — just you and the room"}
-            className={`shrink-0 rounded-full px-2.5 py-1.5 text-[13px] leading-none transition active:scale-[.97] ${
-              fullscreen
-                ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
-                : "bg-white/[0.05] text-muted/70 hover:text-foreground"
-            }`}
-          >
-            ⛶
-          </button>
-        )}
+        >Jams</button>
+        {/* (The header's own ⛶ died 2026-07-27 — two fullscreen glyphs read
+            as confusion. ONE ⛶ lives on the visuals pane: solo the picture.) */}
         {/* ONE door for the person (user 07-27: the token pill was "a bit
             much" — less is more): a profile orb, like klappn.com. Everything
             about YOU — balance, top-ups, claim/sign-in — lives one tap deep
@@ -1326,7 +1311,7 @@ export default function ZaltzIDE() {
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted transition active:scale-[.97]"
-        >Stash</button>
+        >Jams</button>
       </div>
       )}
 
@@ -1522,7 +1507,7 @@ export default function ZaltzIDE() {
             {sheet === "sketches" && (
               <>
                 <div className="flex items-center justify-between">
-                  <h2 className="text-[15px] font-medium text-foreground">Stash</h2>
+                  <h2 className="text-[15px] font-medium text-foreground">Jams</h2>
                   <button
                     onClick={newSketch}
                     className="rounded-full bg-accent/[0.14] px-3 py-1.5 text-[12.5px] text-foreground transition hover:bg-accent/[0.22] active:scale-[.97]"
@@ -1554,7 +1539,7 @@ export default function ZaltzIDE() {
                   </ul>
                 ) : (
                   <p className="mt-3 text-[13px] leading-relaxed text-muted">
-                    Nothing stashed yet — play, and the work keeps itself here.
+                    No jams yet — play, and what you make keeps itself here.
                     {me?.signedIn && me.isGuest
                       ? " Guest work stays with this browser until you claim it."
                       : ""}

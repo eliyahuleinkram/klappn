@@ -102,10 +102,13 @@ export default function ZaltzMixer({
       <button
         onClick={onToggle}
         title="The mixer — kills, pads, dials"
-        className={`group flex w-full items-center justify-center gap-2.5 border px-4 py-1.5 backdrop-blur-xl transition active:scale-[.99] ${
+        className={`group mx-auto flex items-center justify-center gap-2.5 border px-4 py-1.5 backdrop-blur-xl transition-all active:scale-[.99] ${
           open
-            ? "rounded-t-[22px] rounded-b-none border-b-0 border-accent/25 bg-black/75 shadow-[0_0_44px_-16px_rgba(224,49,156,.5)]"
-            : "rounded-full border-white/[0.07] bg-black/45 hover:border-accent/30"
+            ? "w-full rounded-t-[22px] rounded-b-none border-b-0 border-accent/25 bg-black/75 shadow-[0_0_44px_-16px_rgba(224,49,156,.5)]"
+            : // Closed on wide glass it is a HANDLE, not a runway — a centred
+              // capsule that hugs its word; open it grows into the panel's
+              // full-width top edge.
+              "w-full rounded-full border-white/[0.07] bg-black/45 hover:border-accent/30 sm:w-auto sm:min-w-[16rem]"
         }`}
         aria-expanded={open}
       >
