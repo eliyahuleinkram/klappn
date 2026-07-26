@@ -828,3 +828,14 @@ body.ide-stage #k1-canvas {
   color: #6a6d78;
   opacity: 0.85;
 }
+
+/* The copilot's pulse — a ✦ breathing at the caret while a completion is in
+   flight. You SEE it thinking; a cache hit never shows it (instant). */
+@keyframes ghost-ponder {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.9; }
+}
+.tok-pondering {
+  color: var(--accent-strong);
+  animation: ghost-ponder 1.1s ease-in-out infinite;
+}

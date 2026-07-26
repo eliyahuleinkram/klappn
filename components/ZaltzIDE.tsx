@@ -44,7 +44,7 @@ import { transformForPlayback } from "@/lib/playback";
 import {
   cardFeeCents,
   CREDIT_PACK_USD,
-  TOKENS_PER_LOOP,
+  TOKENS_PER_GHOST,
   tokensForUsdCents,
 } from "@/lib/pricing";
 import { ZALTZ_GITHUB_URL, ZALTZ_NPM_URL } from "@/lib/links";
@@ -246,7 +246,10 @@ export default function ZaltzIDE() {
   const mintTried = useRef(false); // one silent guest-mint attempt per visit
   // One cue per SPOT: a caret parked on the same unchanged code never re-asks
   // after the machine already came back empty there.
-  const lastCue = useRef({ key: "", empty: false });
+  const lastCue = useRef({ key: "", empty: false, at: 0 });
+  // While a completion is in flight the caret wears a breathing ✦ — you SEE
+  // the copilot thinking (cache hits skip it; they land instantly).
+  const [pondering, setPondering] = useState<PaneId | null>(null);
   // Copilot-speed trick #2: an LRU of recent completions — revisiting a spot
   // (dismissed ghost, caret wander-and-return) re-shows instantly, no call.
   const ghostLRU = useRef(new Map<string, string>());
@@ -607,7 +610,15 @@ export default function ZaltzIDE() {
       const cueKey = `${pane}:${ctx.before.length}:${ctx.after.length}:${ctx.before.slice(-40)}`;
       // An explicit ✦/⌥\ summon is a direct order — it re-asks even where an
       // auto-cue already came back empty.
-      if (!ctx.forced && lastCue.current.key === cueKey && lastCue.current.empty)
+      // An empty answer only holds a spot for 10s — a parked caret gets the
+      // copilot's attention again (one empty must never go permanent; that was
+      // the "my cursor has been waiting forever" bug).
+      if (
+        !ctx.forced &&
+        lastCue.current.key === cueKey &&
+        lastCue.current.empty &&
+        Date.now() - lastCue.current.at < 10_000
+      )
         return;
       // Nothing left to spend → the copilot goes quiet instead of 402-spamming.
       const m = meRef.current;
@@ -620,7 +631,7 @@ export default function ZaltzIDE() {
       const cacheKey = `${pane}|${ctx.before.slice(-240)}|${ctx.after.slice(0, 80)}`;
       const cached = ghostLRU.current.get(cacheKey);
       if (cached !== undefined) {
-        lastCue.current = { key: cueKey, empty: !cached.trim() };
+        lastCue.current = { key: cueKey, empty: !cached.trim(), at: Date.now() };
         let g = cached;
         if (!ctx.atEnd) {
           const lines = g.split("\n");
@@ -633,6 +644,7 @@ export default function ZaltzIDE() {
       ghostAbort.current?.abort();
       const ac = new AbortController();
       ghostAbort.current = ac;
+      setPondering(pane);
       try {
         const res = await fetch("/api/complete", {
           method: "POST",
@@ -676,7 +688,7 @@ export default function ZaltzIDE() {
           const lines = g.split("\n");
           g = lines[0] || (lines[1] !== undefined ? "\n" + lines[1] : "");
         }
-        lastCue.current = { key: cueKey, empty: !g.trim() };
+        lastCue.current = { key: cueKey, empty: !g.trim(), at: Date.now() };
         if (!g.trim()) return;
         if (seq !== ghostSeq.current) return; // superseded by newer typing
         const cur = pane === "strudel" ? stateRef.current.strudel : stateRef.current.hydra;
@@ -684,6 +696,8 @@ export default function ZaltzIDE() {
         setGhost({ pane, text: g });
       } catch {
         /* aborted or offline — a missing ghost is nothing */
+      } finally {
+        if (seq === ghostSeq.current) setPondering(null);
       }
     },
     [copilot, ensureSession],
@@ -1115,7 +1129,7 @@ export default function ZaltzIDE() {
                 : "bg-white/[0.04] text-muted/70"
             }`}
           >
-            {p === "strudel" ? "music" : "light"}
+            {p === "strudel" ? "music" : "visuals"}
           </button>
         ))}
       </div>
@@ -1146,8 +1160,14 @@ export default function ZaltzIDE() {
             onRun={() => void runMusic()}
             onSave={() => void save()}
             flash={sFlash}
+            pondering={pondering === "strudel" && ghost?.pane !== "strudel"}
             ghost={ghost?.pane === "strudel" ? ghost.text : null}
-            onGhostAccept={killGhost}
+            onGhostAccept={() => {
+              killGhost();
+              // THE REAL-TIME LAW: a take made mid-set LANDS mid-set — the new
+              // line crossfades into the running mix, no extra gesture.
+              if (stateRef.current.playing) setTimeout(() => void runMusic(), 60);
+            }}
             onGhostDismiss={killGhost}
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
             placeholder={`setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then hit ▶ run — the room hears you\n// stuck? ✦ complete writes the next line${
@@ -1161,7 +1181,7 @@ export default function ZaltzIDE() {
           }`}
         >
           {paneHeader(
-            "light · hydra",
+            "visuals · hydra",
             ghost?.pane === "hydra" ? "⇥ takes the ghost" : "⌘↵ paints it",
             runVisuals,
             playing && !!hydra.trim(),
@@ -1178,8 +1198,13 @@ export default function ZaltzIDE() {
             onRun={runVisuals}
             onSave={() => void save()}
             flash={hFlash}
+            pondering={pondering === "hydra" && ghost?.pane !== "hydra"}
             ghost={ghost?.pane === "hydra" ? ghost.text : null}
-            onGhostAccept={killGhost}
+            onGhostAccept={() => {
+              killGhost();
+              // A visual take repaints the room the moment it's taken.
+              setTimeout(() => runVisuals(), 60);
+            }}
             onGhostDismiss={killGhost}
             onCaretIdle={(ctx) => void requestGhost("hydra", ctx)}
             placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them`}
@@ -1203,7 +1228,7 @@ export default function ZaltzIDE() {
                 : "bg-accent/[0.14] text-accent-strong"
             }`}
           >
-            {err ? (err.startsWith("hydra:") ? "light" : "music") : "✦"}
+            {err ? (err.startsWith("hydra:") ? "visuals" : "music") : "✦"}
           </span>
           <p
             className={`min-w-0 flex-1 truncate text-[12.5px] leading-snug ${
@@ -1283,7 +1308,7 @@ export default function ZaltzIDE() {
                         : "bg-white/[0.04] text-muted/60 hover:text-foreground"
                     }`}
                   >
-                    {t}
+                    {t === "light" ? "visuals" : t}
                   </button>
                 ))}
               </div>
@@ -1585,8 +1610,8 @@ export default function ZaltzIDE() {
                         ? spent
                         ? "the taste is spent — the machine waits"
                         : `${fmtTokens(Math.max(0, remaining ?? 0))} left · ~${Math.floor(
-                            Math.max(0, remaining ?? 0) / TOKENS_PER_LOOP,
-                          )} asks`
+                            Math.max(0, remaining ?? 0) / TOKENS_PER_GHOST,
+                          ).toLocaleString()} ghosts`
                         : me?.poolOpen === false
                           ? "the free tastes are spoken for"
                           : "your first taste is on the house"}

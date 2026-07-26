@@ -80,6 +80,8 @@ const CodePane = forwardRef<
     /** Increment to fire the eval flash (live-coding convention: you SEE the send). */
     flash?: number;
     autoFocus?: boolean;
+    /** A completion is in flight — the caret wears a breathing ✦. */
+    pondering?: boolean;
     /** The copilot's suggestion, rendered at the caret. Parent owns its lifecycle. */
     ghost?: string | null;
     onGhostAccept?: () => void;
@@ -97,6 +99,7 @@ const CodePane = forwardRef<
     placeholder,
     flash,
     autoFocus,
+    pondering,
     ghost,
     onGhostAccept,
     onGhostDismiss,
@@ -112,18 +115,21 @@ const CodePane = forwardRef<
   // knows nothing about it (alignment guaranteed by the parent's truncation
   // rule — see the header note).
   const html = useMemo(() => {
-    if (ghost) {
+    if (ghost || pondering) {
       const at =
         ghostCaretRef.current >= 0 ? ghostCaretRef.current : value.length;
+      const marker = ghost
+        ? `<span class="tok-ghost">${esc(ghost)}</span>`
+        : `<span class="tok-pondering">✦</span>`;
       return (
         highlightCore(value.slice(0, at)) +
-        `<span class="tok-ghost">${esc(ghost)}</span>` +
+        marker +
         highlightCore(value.slice(at)) +
         "\n"
       );
     }
     return highlightCore(value) + "\n";
-  }, [value, ghost]);
+  }, [value, ghost, pondering]);
 
   // Eval flash — a quick pink wash over the pane when its code is sent.
   const flashRef = useRef<HTMLDivElement>(null);

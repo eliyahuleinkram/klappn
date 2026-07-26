@@ -28,6 +28,15 @@ export function loopsFor(tokens: number): number {
   return Math.floor(tokens / TOKENS_PER_LOOP);
 }
 
+/**
+ * The IDE copilot's friendly estimate — "~2k weighted units buys a ghost"
+ * (measured: ~5k spec input rides the cache at 0.1×, a few hundred tokens of
+ * pane, ~100 output at 5× ≈ 1.5k p50; rounded UP like TOKENS_PER_LOOP so the
+ * estimate under-promises). The IDE's meter speaks ghosts, not loops — a
+ * completion is 15× cheaper than a composed loop and the estimate must say so.
+ */
+export const TOKENS_PER_GHOST = 2_000;
+
 /** Tokens a payment buys — $1 = 100k weighted units, exact. */
 export function tokensForUsdCents(usdCents: number): number {
   return Math.round((usdCents / USD_CENTS_PER_MILLION) * 1_000_000);
