@@ -867,6 +867,17 @@ body.ide-stage #k1-canvas {
    screen). caret-color is animatable; browsers that won't animate it still get
    the steady pink from the base rule. ONE cursor, one meaning; a cache hit
    never shows it (instant). */
+/* The mixer handle's tiny desk — three mini faders dancing while the music
+   plays (staggered via inline animation-delay). Height rides a bottom-origin
+   scale so the bars bounce like meters, not blink like LEDs. */
+@keyframes fader-dance {
+  0%, 100% { transform: scaleY(0.55); }
+  50% { transform: scaleY(1); }
+}
+.fader-dance {
+  animation: fader-dance 0.9s ease-in-out infinite;
+}
+
 @keyframes caret-think {
   0%, 100% { caret-color: rgba(255, 99, 193, 0.35); }
   50% { caret-color: #ff63c1; }

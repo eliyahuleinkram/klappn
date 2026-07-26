@@ -1036,6 +1036,52 @@ export default function ZaltzIDE() {
     if (!stateRef.current.hydra.trim()) return seedVisuals();
     hydraPane.current?.summon();
   };
+
+  // THE ONE-TAP FIX — ✦ on the error chip: the broken pane + its error go up,
+  // the mended pane comes back, lands with a flash and re-runs itself. The
+  // machine either fixes it or says so — never a silent nothing.
+  const [fixing, setFixing] = useState(false);
+  const fixError = async () => {
+    if (!err || fixing) return;
+    if (spent) return setSheet("tokens");
+    const pane: PaneId = err.startsWith("hydra:") ? "hydra" : "strudel";
+    const code = pane === "hydra" ? stateRef.current.hydra : stateRef.current.strudel;
+    const message = err.replace(/^hydra:\s*/, "");
+    setFixing(true);
+    try {
+      if (!meRef.current?.signedIn && !(await ensureSession())) return;
+      const res = await fetch("/api/fix", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pane, code, error: message }),
+      });
+      if (res.status === 402) {
+        void refreshMe();
+        setSheet("tokens");
+        return;
+      }
+      const d = openDeep((await res.json().catch(() => ({}))) as { code?: string });
+      const fixed = d.code ?? "";
+      if (!fixed.trim()) {
+        setNotice("The machine couldn't mend this one — it may not be the code's fault.");
+        setErr(null);
+        return;
+      }
+      if (pane === "hydra") setHydra(fixed);
+      else setStrudel(fixed);
+      markDirty();
+      (pane === "hydra" ? setHFlash : setSFlash)((f) => f + 1);
+      setErr(null);
+      // The mend proves itself: re-run the pane it healed.
+      setTimeout(() => {
+        void (pane === "hydra" ? runVisuals() : runMusic());
+      }, 80);
+    } catch {
+      setNotice("The mend didn't reach the machine — try again.");
+    } finally {
+      setFixing(false);
+    }
+  };
   const tokenChip = !me
     ? "…"
     : me.owner
@@ -1339,6 +1385,16 @@ export default function ZaltzIDE() {
           >
             {err ? humanizeEngineError(err.replace(/^hydra:\s*/, "")) : notice}
           </p>
+          {err && (
+            <button
+              onClick={() => void fixError()}
+              disabled={fixing}
+              title="The machine reads the error and mends the code — one tap"
+              className="shrink-0 rounded-full border border-accent/40 bg-accent/[0.12] px-2.5 py-1 text-[12px] text-accent-strong shadow-[0_0_24px_-8px_rgba(224,49,156,.8)] transition hover:bg-accent/[0.2] active:scale-[.96] disabled:opacity-70"
+            >
+              {fixing ? <span className="shimmer-text">mending…</span> : "✦ fix"}
+            </button>
+          )}
           <button
             onClick={() => {
               setErr(null);
@@ -1367,26 +1423,35 @@ export default function ZaltzIDE() {
             }`}
             aria-expanded={mixerOpen}
           >
+            {/* THE HANDLE IS A TINY DESK (user 07-26: "mixer + dots" read as
+                nothing) — three miniature faders, one per channel, DANCING
+                while the music plays, dropping dead grey when killed. The
+                handle looks like the thing it opens. */}
+            <span className="flex h-4 items-end gap-[3px]" aria-hidden>
+              {CHANNELS.map((ch, i) => (
+                <span
+                  key={ch}
+                  style={
+                    playing && !kills[ch]
+                      ? { animationDelay: `${i * 140}ms` }
+                      : undefined
+                  }
+                  className={`w-[3px] origin-bottom rounded-full transition-all duration-300 ${
+                    kills[ch]
+                      ? "h-[5px] bg-white/20"
+                      : `bg-gradient-to-t from-[#b3126f] to-[#ff63c1] shadow-[0_0_8px_rgba(224,49,156,.8)] ${
+                          i === 0 ? "h-[14px]" : i === 1 ? "h-[9px]" : "h-[12px]"
+                        } ${playing ? "fader-dance" : ""}`
+                  }`}
+                />
+              ))}
+            </span>
             <span
               className={`text-[10.5px] font-semibold uppercase tracking-[0.24em] transition ${
                 mixerOpen ? "text-accent-strong" : "text-muted/60 group-hover:text-accent-strong"
               }`}
             >
-              mixer
-            </span>
-            <span className="flex items-center gap-1" aria-hidden>
-              {CHANNELS.map((ch) => (
-                <span
-                  key={ch}
-                  className={`rounded-full transition-all duration-300 ${
-                    kills[ch]
-                      ? "h-1 w-1 bg-white/20"
-                      : `h-1.5 w-1.5 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_8px_rgba(224,49,156,.8)] ${
-                          playing ? "animate-pulse" : ""
-                        }`
-                  }`}
-                />
-              ))}
+              hands on
             </span>
             <span className="text-[10px] text-muted/40" aria-hidden>
               {mixerOpen ? "▾" : "▴"}

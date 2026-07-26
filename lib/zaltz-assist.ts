@@ -31,6 +31,34 @@ The file is a Hydra sketch for this IDE: chains ending in .out() (NOTHING chains
 
 ${HYDRA_SPEC}`;
 
+// ── THE ONE-TAP FIX ──────────────────────────────────────────────────────────
+// The error chip's ✦ fix: the broken pane + its error in, the mended pane out.
+// Thinking-off (a fix is surgery, not composition); the route gates the result
+// with the same server validators the ghost rides.
+
+const FIX_CONTRACT = `You are the one-tap FIX in a live-coding IDE. You get a file and the error it throws at eval. Output ONLY the corrected file, whole — raw code, no prose, no fences. Make the SMALLEST change that kills the error; keep everything else byte-identical (same style, same ideas, no additions, no commentary). If the error cannot be caused by this code, output the file unchanged.`;
+
+export const FIX_STRUDEL_SYSTEM = `${FIX_CONTRACT}
+
+The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer.
+
+${STRUDEL_SPEC}`;
+
+export const FIX_HYDRA_SYSTEM = `${FIX_CONTRACT}
+
+The file is a Hydra sketch for this IDE: chains ending in .out() (NOTHING chains after .out()), all motion via H(<strudel signal>).
+
+${HYDRA_SPEC}`;
+
+/** The fix call's user block. */
+export function fixUserText(code: string, error: string): string {
+  return `THE FILE:
+${code}
+
+THE ERROR IT THROWS:
+${error}`;
+}
+
 /** The user block for one completion call, SPLIT for the prompt cache: the
  *  read-only context (the other pane — byte-stable across a whole typing
  *  burst) rides as CompleteOpts.cacheStable, its own cache-marked block, so
