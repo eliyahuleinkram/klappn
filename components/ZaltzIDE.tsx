@@ -187,16 +187,16 @@ function humanizeEngineError(raw: string): string {
 // (The deck's pads, gradient and dial grid live in components/ZaltzMixer —
 // this file keeps only the wiring they pull on.)
 
-/** The copilot's mark — a spark trailing a smaller one, cut as an SVG so it
- *  scales crisp and wears the house gradient while the copilot rides along.
- *  The gradient id is per-instance (useId): two marks render (desktop pill +
- *  mobile row), and a shared id resolved into the display:none twin, which
- *  left the visible mark unpainted on phones (2026-07-27). */
-function CopilotMark({ on }: { on: boolean }) {
+/** SALTBAE's mark — one bold spark (the sign everyone reads as "AI") shedding
+ *  two grains of salt: the house's copilot in a single glance. Gradient id is
+ *  per-instance (useId — the shared-id/display:none trap left the mobile twin
+ *  unpainted once). */
+function SaltbaeMark({ on }: { on: boolean }) {
   const uid = useId();
-  const grad = `copilot-spark-${uid.replace(/[^a-zA-Z0-9]/g, "")}`;
+  const grad = `saltbae-${uid.replace(/[^a-zA-Z0-9]/g, "")}`;
+  const fill = on ? `url(#${grad})` : "currentColor";
   return (
-    <svg viewBox="0 0 24 24" className="h-[13px] w-[13px] shrink-0" aria-hidden>
+    <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] shrink-0" aria-hidden>
       <defs>
         <linearGradient id={grad} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#ff63c1" />
@@ -205,15 +205,12 @@ function CopilotMark({ on }: { on: boolean }) {
         </linearGradient>
       </defs>
       <path
-        d="M10 1 C11.2 6.8 13.2 8.8 19 10 C13.2 11.2 11.2 13.2 10 19 C8.8 13.2 6.8 11.2 1 10 C6.8 8.8 8.8 6.8 10 1 Z"
-        fill={on ? `url(#${grad})` : "currentColor"}
+        d="M11 2 C12.2 7.6 14.4 9.8 20 11 C14.4 12.2 12.2 14.4 11 20 C9.8 14.4 7.6 12.2 2 11 C7.6 9.8 9.8 7.6 11 2 Z"
+        fill={fill}
         opacity={on ? 1 : 0.55}
       />
-      <path
-        d="M19 15 C19.6 17.4 20.6 18.4 23 19 C20.6 19.6 19.6 20.6 19 23 C18.4 20.6 17.4 19.6 15 19 C17.4 18.4 18.4 17.4 19 15 Z"
-        fill={on ? `url(#${grad})` : "currentColor"}
-        opacity={on ? 0.9 : 0.45}
-      />
+      <circle cx="17.6" cy="17.2" r="1.1" fill={fill} opacity={on ? 0.8 : 0.45} />
+      <circle cx="20.2" cy="20.6" r="0.9" fill={fill} opacity={on ? 0.55 : 0.3} />
     </svg>
   );
 }
@@ -236,7 +233,13 @@ function fmtTokens(n: number): string {
 
 const hydraProgram = (hydra: string) => attachHydraBlock("", hydra);
 
-export default function ZaltzIDE() {
+export default function ZaltzIDE({
+  initialMe = null,
+}: {
+  /** Server-read identity so the avatar is right on FIRST paint (no "you"
+   *  flash); the full meter still hydrates via /api/me. */
+  initialMe?: Pick<Me, "signedIn" | "isGuest" | "email"> | null;
+}) {
   const [strudel, setStrudel] = useState(STARTERS[0].strudel);
   const [hydra, setHydra] = useState(STARTERS[0].hydra);
   const [title, setTitle] = useState(STARTERS[0].name);
@@ -244,7 +247,7 @@ export default function ZaltzIDE() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const [me, setMe] = useState<Me | null>(null);
+  const [me, setMe] = useState<Me | null>(initialMe);
   const [sketches, setSketches] = useState<Sketch[]>([]);
 
   // Phones OVERLAY the keyboard — without this the transport (and the ⇥ take
@@ -284,7 +287,10 @@ export default function ZaltzIDE() {
   const hydraPane = useRef<CodePaneHandle>(null);
 
 
-  const [sheet, setSheet] = useState<null | "sketches" | "tokens" | "signin">(null);
+  const [sheet, setSheet] = useState<null | "tokens" | "signin">(null);
+  // The project switcher — a plain ▾ beside the name (user 07-27: no fancy
+  // noun, just a straightforward way to open old work).
+  const [projOpen, setProjOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<PaneId>("strudel");
   const [sFlash, setSFlash] = useState(0);
   const [hFlash, setHFlash] = useState(0);
@@ -555,6 +561,8 @@ export default function ZaltzIDE() {
       runVisuals(); // nothing to sound — light the room anyway
     }
   };
+  const transportRef = useRef(transport);
+  transportRef.current = transport;
 
 
   // ⌘. stops and ⌘S saves from anywhere (not just inside a pane); Esc closes
@@ -569,6 +577,21 @@ export default function ZaltzIDE() {
         void saveRef.current();
       } else if (e.key === "Escape") {
         setSheet(null);
+      } else if (e.key === " " || e.code === "Space") {
+        // SPACE = the transport (user 07-27) — the player's oldest key. Never
+        // while typing (space is a character there), and preventDefault stops
+        // the browser re-firing whatever button was last clicked (the old
+        // "space went fullscreen" surprise).
+        const el = document.activeElement as HTMLElement | null;
+        const editable =
+          !!el &&
+          (el.tagName === "TEXTAREA" ||
+            el.tagName === "INPUT" ||
+            el.isContentEditable);
+        if (!editable) {
+          e.preventDefault();
+          transportRef.current();
+        }
       }
     }
     window.addEventListener("keydown", onKey);
@@ -751,7 +774,7 @@ export default function ZaltzIDE() {
         }
         if (!res.ok) return; // 429 etc → quiet; the meter chip tells the story
         const d = openDeep((await res.json().catch(() => ({}))) as { ghost?: string });
-        let g = d.ghost ?? "";
+        const g = d.ghost ?? "";
         ghostLRU.current.set(cacheKey, g);
         if (ghostLRU.current.size > 16) {
           const oldest = ghostLRU.current.keys().next().value;
@@ -1249,6 +1272,75 @@ export default function ZaltzIDE() {
           className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-1 text-[14px] text-foreground/90 outline-none transition placeholder:text-muted/40 hover:bg-white/[0.04] focus:bg-white/[0.05] sm:w-64 sm:flex-none"
           placeholder="name it"
         />
+        {/* ▾ — the project switcher lives WITH the name it switches: your
+            saved pieces and a ＋ New, nothing to learn. */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => {
+              setProjOpen((o) => !o);
+              if (!projOpen) void refreshSketches();
+            }}
+            title="Your saved pieces"
+            aria-label="Open a saved piece"
+            className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] transition ${
+              projOpen
+                ? "bg-accent/[0.14] text-accent-strong"
+                : "bg-white/[0.05] text-muted/60 hover:text-foreground"
+            }`}
+          >
+            ▾
+          </button>
+          {projOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setProjOpen(false)}
+                aria-hidden
+              />
+              <div className="absolute left-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+                <button
+                  onClick={() => {
+                    newSketch();
+                    setProjOpen(false);
+                  }}
+                  className="block w-full rounded-lg px-3 py-2 text-left text-[14px] text-accent-strong transition hover:bg-accent/[0.08]"
+                >
+                  ＋ New
+                </button>
+                {sketches.length > 0 && <div className="mx-2 my-1 h-px bg-white/[0.06]" />}
+                <ul className="max-h-[46dvh] overflow-y-auto">
+                  {sketches.map((s) => (
+                    <li key={s.id} className="group flex items-center">
+                      <button
+                        onClick={() => {
+                          loadSketch(s);
+                          setProjOpen(false);
+                        }}
+                        className={`min-w-0 flex-1 truncate rounded-lg px-3 py-2 text-left text-[14px] transition hover:bg-white/[0.06] ${
+                          s.id === sketchId ? "text-accent-strong" : "text-foreground/85"
+                        }`}
+                      >
+                        {s.title}
+                      </button>
+                      <button
+                        onClick={() => void removeSketch(s.id)}
+                        className="px-2 py-1 text-[12px] text-muted/40 opacity-0 transition hover:text-red-300 group-hover:opacity-100"
+                        aria-label={`Delete ${s.title}`}
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {sketches.length === 0 && (
+                  <p className="px-3 py-2 text-[12px] leading-relaxed text-muted/60">
+                    Nothing saved yet — play, and the work keeps itself here.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
         {/* Desktop: the name is a name, not a runway — fixed width, the air
             in the middle belongs to the room. */}
         <span className="hidden flex-1 sm:block" />
@@ -1278,15 +1370,11 @@ export default function ZaltzIDE() {
               ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
               : "bg-white/[0.05] text-muted/60 hover:text-foreground"
           }`}
-          title="Ghosts as you type — ⇥ takes them, ⌥\ summons one, Esc bins them"
+          title="Saltbae, your AI copilot — ghosts as you type: ⇥ takes them, ⌥\ summons one, Esc bins them"
         >
-          <CopilotMark on={copilot} />
-          Copilot
-        </button>
-        <button
-          onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
-          className="hidden shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-muted transition hover:text-foreground active:scale-[.97] sm:inline-flex"
-        >Grains</button>
+          <SaltbaeMark on={copilot} />Saltbae</button>
+        {/* (The Grains pill is gone — saved work now lives in the ▾ beside
+            the name, where a project switcher belongs.) */}
         {/* ⛶ — plain and whole: the page, furniture and all, goes fullscreen
             (the picture-only posture is the movie rule's job, not a button's). */}
         {canFullscreen && (
@@ -1340,13 +1428,7 @@ export default function ZaltzIDE() {
               : "bg-white/[0.05] text-muted/60"
           }`}
         >
-          <CopilotMark on={copilot} />
-          Copilot
-        </button>
-        <button
-          onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
-          className="shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted transition active:scale-[.97]"
-        >Grains</button>
+          <SaltbaeMark on={copilot} />Saltbae</button>
       </div>
 
       {/* ── the panes (all gone in solo — the picture alone) ────────────── */}
@@ -1517,76 +1599,8 @@ export default function ZaltzIDE() {
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-xl rounded-3xl border border-accent/20 bg-black/70 p-5 shadow-[0_0_80px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl"
           >
-            {sheet === "sketches" && (
-              <>
-                <div className="flex items-center justify-between">
-                  <h2 className="text-[15px] font-medium text-foreground">Grains</h2>
-                  <button
-                    onClick={newSketch}
-                    className="rounded-full bg-accent/[0.14] px-3 py-1.5 text-[12.5px] text-foreground transition hover:bg-accent/[0.22] active:scale-[.97]"
-                  >
-                    ＋ New
-                  </button>
-                </div>
-                {sketches.length > 0 ? (
-                  <ul className="mt-3 max-h-[40dvh] space-y-1 overflow-y-auto">
-                    {sketches.map((s) => (
-                      <li key={s.id} className="group flex items-center gap-2">
-                        <button
-                          onClick={() => loadSketch(s)}
-                          className={`min-w-0 flex-1 truncate rounded-xl px-3 py-2 text-left text-[13.5px] transition hover:bg-white/[0.06] ${
-                            s.id === sketchId ? "text-accent-strong" : "text-foreground/85"
-                          }`}
-                        >
-                          {s.title}
-                        </button>
-                        <button
-                          onClick={() => void removeSketch(s.id)}
-                          className="rounded-full px-2 py-1 text-[12px] text-muted/50 opacity-0 transition hover:text-red-300 group-hover:opacity-100"
-                          aria-label={`Delete ${s.title}`}
-                        >
-                          ✕
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-3 text-[13px] leading-relaxed text-muted">
-                    No grains yet — play, and what you make keeps itself here.
-                    {me?.signedIn && me.isGuest
-                      ? " Guest work stays with this browser until you claim it."
-                      : ""}
-                  </p>
-                )}
-                <div className="mt-4 border-t border-white/[0.06] pt-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted/60">
-                    Starters
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {STARTERS.map((p) => (
-                      <button
-                        key={p.name}
-                        onClick={() => loadStarter(p)}
-                        className="rounded-full bg-white/[0.04] px-3 py-1.5 text-[12.5px] text-muted/80 transition hover:bg-accent/15 hover:text-accent-strong active:scale-[.97]"
-                      >
-                        {p.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted/60">
-                  <a href={ZALTZ_GITHUB_URL} target="_blank" rel="noreferrer" className="transition hover:text-foreground">
-                    Source on GitHub
-                  </a>
-                  <a href={ZALTZ_NPM_URL} target="_blank" rel="noreferrer" className="transition hover:text-foreground">
-                    npm install zaltz
-                  </a>
-                  <Link href="/open" className="transition hover:text-foreground">
-                    Why it&apos;s open
-                  </Link>
-                </div>
-              </>
-            )}
+            {/* (The sketches sheet died with the Grains pill — saved work
+                lives in the ▾ beside the name now.) */}
 
             {sheet === "tokens" && (
               <>

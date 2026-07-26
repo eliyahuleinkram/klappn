@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
+import { getAuth } from "@/lib/auth";
 import ZaltzIDE from "@/components/ZaltzIDE";
+
+// Session is read per-request so the avatar is RIGHT on first paint — the
+// client-only /api/me fetch made every visit open as "you" for a beat
+// (user 07-27: klappn.com doesn't blink; neither may the instrument).
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "zaltz — the instrument you type",
@@ -19,6 +26,20 @@ export const metadata: Metadata = {
 /** PUBLIC IDE (zaltz.klappn.com lands here) — no account, no gate: play first,
  *  a guest session appears only when you save or ask the machine, and one
  *  email later it's all yours forever. */
-export default function ZaltzPage() {
-  return <ZaltzIDE />;
+export default async function ZaltzPage() {
+  // Identity only — the meter still hydrates via /api/me (billing needs its
+  // own queries); this is just so the avatar never flashes "you" at a friend.
+  let initialMe: { signedIn: boolean; isGuest: boolean; email: string | null } | null = null;
+  try {
+    const session = await getAuth().api.getSession({ headers: await headers() });
+    const u = session?.user as
+      | { email?: string | null; isAnonymous?: boolean | null }
+      | undefined;
+    initialMe = u
+      ? { signedIn: true, isGuest: !!u.isAnonymous, email: u.email ?? null }
+      : { signedIn: false, isGuest: false, email: null };
+  } catch {
+    /* DB not up (fresh clone) — the client fetch takes over as before */
+  }
+  return <ZaltzIDE initialMe={initialMe} />;
 }

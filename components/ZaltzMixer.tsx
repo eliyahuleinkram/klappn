@@ -146,7 +146,7 @@ export default function ZaltzMixer({
           07-27: the panes own the floor now; the mixer rises over them). */}
       {open && (
         <div
-          className="fixed inset-x-3 z-20 sm:inset-x-auto sm:right-4 sm:w-[620px]"
+          className="animate-rise fixed inset-x-3 z-20 sm:inset-x-auto sm:right-4 sm:w-[620px]"
           style={{
             bottom: "calc(max(0.75rem, env(safe-area-inset-bottom)) + 3.9rem)",
           }}
@@ -154,15 +154,17 @@ export default function ZaltzMixer({
           {/* FIXED height — Sound and Visual are the same size slab, so the
               tab switch never jolts the glass (user 07-27: "feels glitchy"). */}
           <div className="h-[360px] max-h-[56dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/80 to-black/60 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
-          <div className="mb-3 flex items-center gap-1.5">
+          {/* ONE segmented capsule — two equal halves of the same machined
+              control, not two loose pills. */}
+          <div className="mb-3.5 flex rounded-full bg-white/[0.04] p-1">
             {(["music", "light"] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => onTab(t)}
-                className={`rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.18em] transition active:scale-[.96] ${
+                className={`flex-1 rounded-full px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.18em] transition active:scale-[.98] ${
                   tab === t
                     ? "bg-accent/20 text-accent-strong ring-1 ring-inset ring-accent/40"
-                    : "bg-white/[0.04] text-muted/60 hover:text-foreground"
+                    : "text-muted/60 hover:text-foreground"
                 }`}
               >
                 {t === "light" ? "Visual" : "Sound"}
@@ -173,6 +175,9 @@ export default function ZaltzMixer({
             <>
               {/* THE CHANNELS — three fixed kill switches, the deck's own
                   row: instant, tails included, back mid-note. */}
+              <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
+                kills
+              </div>
               <div className="grid grid-cols-3 gap-1.5">
                 {CHANNELS.map((ch) => {
                   const off = kills[ch];
@@ -200,7 +205,10 @@ export default function ZaltzMixer({
                 })}
               </div>
               {/* THE PADS — hold: on · release: snap back. */}
-              <div className="mt-2 grid grid-cols-4 gap-1.5">
+              <div className="mb-1.5 mt-3 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
+                holds
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
                 {PADS.map((pad) => (
                   <button
                     key={pad.name}
@@ -244,7 +252,10 @@ export default function ZaltzMixer({
               </div>
               {/* the dials — the deck's grid: whispered label, mono readout,
                   TEMPO/KEY/FILTER centre-detent (double-tap zeroes them) */}
-              <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-3 sm:gap-x-6">
+              <div className="mb-1.5 mt-3 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
+                dials
+              </div>
+              <div className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 sm:gap-x-6">
                 <DeckSlider
                   label="Master"
                   value={master}
@@ -336,7 +347,14 @@ export default function ZaltzMixer({
               </div>
             </>
           ) : (
-            <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-3 sm:gap-x-6">
+            // VISUAL — six dials given the whole slab: vertically centred with
+            // generous air, so the fixed height reads as intention, not
+            // emptiness.
+            <div className="flex h-[calc(100%-3.25rem)] flex-col">
+              <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
+                dials
+              </div>
+              <div className="grid flex-1 grid-cols-2 content-center gap-x-5 gap-y-8 sm:grid-cols-3 sm:gap-x-6">
               <DeckSlider
                 label="Hue"
                 value={light.hue}
@@ -391,6 +409,7 @@ export default function ZaltzMixer({
                 display={light.invert === 0 ? "—" : `${Math.round(light.invert * 100)}%`}
                 onChange={(v) => onLight({ invert: v })}
               />
+              </div>
             </div>
           )}
           </div>
