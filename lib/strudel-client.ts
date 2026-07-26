@@ -922,6 +922,9 @@ interface PerfFx {
   lp: BiquadFilterNode;
   driveWet: GainNode;
   echoSend: GainNode;
+  /** The echo's own guts, exposed as dials (2026-07-26): delay time + regen. */
+  delay: DelayNode;
+  fb: GainNode;
   spaceSend: GainNode;
   conv: ConvolverNode;
   convConnected: boolean;
@@ -1010,7 +1013,7 @@ export function ensurePerfFx(): void {
     }
     tap.connect(input);
     out.connect(sink);
-    perfFx = { input, out, hp, lp, driveWet, echoSend, spaceSend, conv, convConnected: false, convKill: null };
+    perfFx = { input, out, hp, lp, driveWet, echoSend, delay, fb, spaceSend, conv, convConnected: false, convKill: null };
   } catch (e) {
     console.error("[klappn] perf fx failed to install; dials fall back to code", e);
   }
@@ -2610,6 +2613,10 @@ export function setLivePerf(perf: {
   echo: number;
   punch: number;
   space: number;
+  /** Echo delay time in seconds (optional — defaults to the chain's 0.375). */
+  time?: number;
+  /** Echo regen/feedback 0..0.85 (optional — defaults to the chain's 0.4). */
+  tail?: number;
 }): boolean {
   const ac = audioContext();
   if (!perfFx || !ac) return false;
@@ -2626,6 +2633,12 @@ export function setLivePerf(perf: {
   set(perfFx.lp.frequency, v < 0 ? 12000 * Math.pow(400 / 12000, -v / 100) : 20000);
   set(perfFx.hp.frequency, v > 0 ? 20 * Math.pow(100, v / 100) : 20);
   set(perfFx.echoSend.gain, Math.max(0, Math.min(1, perf.echo || 0)));
+  // The echo's own guts as dials: time = the throw's subdivision, tail = regen
+  // (0.85 cap keeps the loop shy of self-oscillating runaway).
+  if (perf.time !== undefined)
+    set(perfFx.delay.delayTime, Math.max(0.05, Math.min(1.4, perf.time)));
+  if (perf.tail !== undefined)
+    set(perfFx.fb.gain, Math.max(0, Math.min(0.85, perf.tail)));
   set(perfFx.driveWet.gain, Math.max(0, Math.min(1, perf.punch || 0)));
   const space = Math.max(0, Math.min(1, perf.space || 0));
   set(perfFx.spaceSend.gain, space);

@@ -9,7 +9,7 @@ import {
   cleanCompletion,
   COMPLETE_HYDRA_SYSTEM,
   COMPLETE_STRUDEL_SYSTEM,
-  completeUserText,
+  completeUserParts,
 } from "@/lib/zaltz-assist";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +59,11 @@ export async function POST(req: Request) {
   if (gate) return gate;
 
   const system = pane === "hydra" ? COMPLETE_HYDRA_SYSTEM : COMPLETE_STRUDEL_SYSTEM;
-  const userText = completeUserText(
+  // Cache split: the other-pane context is byte-stable across a typing burst,
+  // so it rides cacheStable (its own cache-marked block after the system) and
+  // every summon re-reads [system + context] at ~0.1× — only BEFORE/AFTER pay
+  // full rate. (Verify in tail: `anthropic(...) cache: read=…`.)
+  const { stable, tail } = completeUserParts(
     before,
     after,
     context,
@@ -74,9 +78,13 @@ export async function POST(req: Request) {
     };
     // NO fast mode (2× price for 2.5× tok/s — not worth it here): thinking-off
     // + a tight cap IS the latency lever; a ghost is ~3 lines, 300 tokens is roomy.
-    const opts = { thinking: false, maxTokens: 300 } as const;
+    const opts = {
+      thinking: false,
+      maxTokens: 300,
+      ...(stable ? { cacheStable: stable } : {}),
+    } as const;
     let ghost = cleanCompletion(
-      await complete(system, userText, cfg, {
+      await complete(system, tail, cfg, {
         ...opts,
         trace: { kind: "ide-complete" },
       }),
@@ -101,7 +109,7 @@ export async function POST(req: Request) {
         ghost = cleanCompletion(
           await complete(
             system,
-            `${userText}
+            `${tail}
 
 YOUR PREVIOUS COMPLETION:
 ${ghost}

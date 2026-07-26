@@ -607,7 +607,14 @@ export default function ZaltzIDE() {
   const requestGhost = useCallback(
     async (pane: PaneId, ctx: CaretContext) => {
       if (!copilot) return;
-      if (ghostRef.current) return; // one ghost at a time — take it or bin it
+      if (ghostRef.current) {
+        // ✦/⌥\ while a ghost is up = ANOTHER TAKE: bin it and roll fresh (the
+        // button must always DO something — a dead press reads as broken).
+        // (killGhost is declared below — TDZ — so use its primitives.)
+        if (!ctx.forced) return; // auto-cues still defer to the standing ghost
+        ghostSeq.current++;
+        setGhost(null);
+      }
       const cueKey = `${pane}:${ctx.before.length}:${ctx.after.length}:${ctx.before.slice(-40)}`;
       // An explicit ✦/⌥\ summon is a direct order — it re-asks even where an
       // auto-cue already came back empty.
@@ -630,11 +637,11 @@ export default function ZaltzIDE() {
         if (!(await ensureSession())) return;
       }
       const cacheKey = `${pane}|${ctx.before.slice(-240)}|${ctx.after.slice(0, 80)}`;
-      // A cached EMPTY never answers a DIRECT order — ✦/⌥\ re-asks the machine
-      // (the cache remembered "nothing to say", which silenced the button; a
-      // cached real ghost is still served instantly).
-      const cached0 = ghostLRU.current.get(cacheKey);
-      const cached = ctx.forced && cached0 !== undefined && !cached0.trim() ? undefined : cached0;
+      // A DIRECT order (✦/⌥\) never answers from the cache — pressing the
+      // button means "another take", never "show me the same one again" (and a
+      // cached silence used to mute it entirely). Auto-cues still ride the
+      // cache for free.
+      const cached = ctx.forced ? undefined : ghostLRU.current.get(cacheKey);
       if (cached !== undefined) {
         lastCue.current = { key: cueKey, empty: !cached.trim(), at: Date.now() };
         if (cached.trim()) setGhost({ pane, text: cached });
@@ -722,7 +729,16 @@ export default function ZaltzIDE() {
   });
   const killsRef = useRef(kills);
   killsRef.current = kills;
-  const [perf, setPerf] = useState({ filter: 0, echo: 0, punch: 0, space: 0 });
+  // time/tail = the echo's own guts (delay seconds, regen 0..0.85) — they rest
+  // at the chain's build values, so "—" on the dial means untouched.
+  const [perf, setPerf] = useState({
+    filter: 0,
+    echo: 0,
+    punch: 0,
+    space: 0,
+    time: 0.375,
+    tail: 0.4,
+  });
   const perfRef = useRef(perf);
   perfRef.current = perf;
   // TEMPO — the deck's nudge, driven straight into the scheduler (no re-eval);
@@ -736,7 +752,14 @@ export default function ZaltzIDE() {
   // THE PADS — hold: on · release: back (the deck's momentary throws).
   const [heldPad, setHeldPad] = useState<string | null>(null);
   const padPrev = useRef<typeof perf | null>(null);
-  const [light, setLight] = useState({ hue: 0, sat: 1, contrast: 1, bright: 1, blur: 0 });
+  const [light, setLight] = useState({
+    hue: 0,
+    sat: 1,
+    contrast: 1,
+    bright: 1,
+    blur: 0,
+    invert: 0,
+  });
 
   const killGainFor = useCallback(
     (orbit: number): number | undefined => {
@@ -841,7 +864,27 @@ export default function ZaltzIDE() {
     if (next.contrast !== 1) f.push(`contrast(${next.contrast})`);
     if (next.bright !== 1) f.push(`brightness(${next.bright})`);
     if (next.blur > 0) f.push(`blur(${next.blur}px)`);
+    if (next.invert > 0) f.push(`invert(${next.invert})`);
     el.style.filter = f.join(" ");
+  };
+
+  // FULLSCREEN — the algorave posture: just the glass and the room. Hidden
+  // where the API doesn't exist (iPhone Safari can't fullscreen a page).
+  const [fullscreen, setFullscreen] = useState(false);
+  const [canFullscreen, setCanFullscreen] = useState(false);
+  useEffect(() => {
+    setCanFullscreen(!!document.documentElement.requestFullscreen);
+    const on = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
+  const toggleFullscreen = () => {
+    try {
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else void document.documentElement.requestFullscreen();
+    } catch {
+      /* denied — nothing breaks */
+    }
   };
 
   // Does the pane have voices to mix at all? (The handle hides on an empty bench.)
@@ -1080,25 +1123,20 @@ export default function ZaltzIDE() {
           className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-1 text-[14px] text-foreground/90 outline-none transition placeholder:text-muted/40 hover:bg-white/[0.04] focus:bg-white/[0.05]"
           placeholder="name this sketch"
         />
-        {/* No Save button — work is simply KEPT. The dot breathes while the
-            bench writes itself; steel once it's in the crate. */}
+        {/* No Save button — work is simply KEPT, and the word says so (the
+            old 6px dot was illegible — user: "what is that dot doing"). */}
         <span
-          aria-hidden
           title={
             me?.signedIn
-              ? dirty || saving
-                ? "keeping…"
-                : "kept"
+              ? undefined
               : "kept in this browser — a session picks it up the moment you touch the machine"
           }
-          className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-500 ${
-            me?.signedIn
-              ? dirty || saving
-                ? "animate-pulse bg-accent-strong"
-                : "bg-white/25"
-              : "bg-white/15"
+          className={`shrink-0 select-none text-[11px] tracking-[0.05em] transition-colors duration-500 ${
+            dirty || saving ? "text-accent-strong/80" : "text-muted/40"
           }`}
-        />
+        >
+          {dirty || saving ? "keeping…" : "kept"}
+        </span>
         <button
           onClick={toggleCopilot}
           className={`hidden shrink-0 rounded-full px-3 py-1.5 text-[12.5px] transition active:scale-[.97] sm:inline-flex ${
@@ -1116,6 +1154,19 @@ export default function ZaltzIDE() {
         >
           Sketches
         </button>
+        {canFullscreen && (
+          <button
+            onClick={toggleFullscreen}
+            title={fullscreen ? "Leave fullscreen" : "Fullscreen — just you and the room"}
+            className={`shrink-0 rounded-full px-2.5 py-1.5 text-[13px] leading-none transition active:scale-[.97] ${
+              fullscreen
+                ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
+                : "bg-white/[0.05] text-muted/70 hover:text-foreground"
+            }`}
+          >
+            ⛶
+          </button>
+        )}
         <button
           onClick={() => setSheet(sheet === "tokens" ? null : "tokens")}
           className={`shrink-0 rounded-full border px-3 py-1.5 text-[12.5px] tabular-nums backdrop-blur-xl transition active:scale-[.97] ${
@@ -1494,15 +1545,6 @@ export default function ZaltzIDE() {
                       onChange={(v) => movePerf({ echo: v })}
                     />
                     <DeckSlider
-                      label="Drive"
-                      value={perf.punch}
-                      min={0}
-                      max={0.5}
-                      step={0.05}
-                      display={perf.punch === 0 ? "—" : `${Math.round((perf.punch / 0.5) * 100)}%`}
-                      onChange={(v) => movePerf({ punch: v })}
-                    />
-                    <DeckSlider
                       label="Space"
                       value={perf.space}
                       min={0}
@@ -1511,6 +1553,37 @@ export default function ZaltzIDE() {
                       display={perf.space === 0 ? "—" : `${Math.round((perf.space / 0.6) * 100)}%`}
                       onChange={(v) => movePerf({ space: v })}
                     />
+                    {/* The dirt-and-dub row — desktop completes the 3×3; the
+                        phone keeps its even six (2×3) and skips these. */}
+                    <div className="hidden sm:contents">
+                      <DeckSlider
+                        label="Drive"
+                        value={perf.punch}
+                        min={0}
+                        max={0.5}
+                        step={0.05}
+                        display={perf.punch === 0 ? "—" : `${Math.round((perf.punch / 0.5) * 100)}%`}
+                        onChange={(v) => movePerf({ punch: v })}
+                      />
+                      <DeckSlider
+                        label="Time"
+                        value={perf.time}
+                        min={0.08}
+                        max={0.75}
+                        step={0.005}
+                        display={perf.time === 0.375 ? "—" : `${Math.round(perf.time * 1000)}ms`}
+                        onChange={(v) => movePerf({ time: v })}
+                      />
+                      <DeckSlider
+                        label="Tail"
+                        value={perf.tail}
+                        min={0}
+                        max={0.85}
+                        step={0.05}
+                        display={perf.tail === 0.4 ? "—" : `${Math.round(perf.tail * 100)}%`}
+                        onChange={(v) => movePerf({ tail: v })}
+                      />
+                    </div>
                   </div>
                 </>
               ) : (
@@ -1559,6 +1632,15 @@ export default function ZaltzIDE() {
                     step={0.25}
                     display={light.blur === 0 ? "—" : `${light.blur.toFixed(1)}px`}
                     onChange={(v) => moveLight({ blur: v })}
+                  />
+                  <DeckSlider
+                    label="Invert"
+                    value={light.invert}
+                    min={0}
+                    max={1}
+                    step={0.02}
+                    display={light.invert === 0 ? "—" : `${Math.round(light.invert * 100)}%`}
+                    onChange={(v) => moveLight({ invert: v })}
                   />
                 </div>
               )}
