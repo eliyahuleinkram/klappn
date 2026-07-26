@@ -284,7 +284,7 @@ export default function SetsClient({ initialSets }: { initialSets: SetCard[] }) 
           <span className="text-lg leading-none transition group-hover:-translate-x-0.5">
             ‹
           </span>
-          Loops
+          Hits
         </Link>
       </div>
 

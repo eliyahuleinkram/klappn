@@ -304,7 +304,7 @@ export default function HomeClient({
     if (ids.length === 0 || deleting) return;
     if (
       !confirm(
-        `Delete ${ids.length} loop${ids.length === 1 ? "" : "s"}? This can’t be undone.`,
+        `Delete ${ids.length} hit${ids.length === 1 ? "" : "s"}? This can’t be undone.`,
       )
     )
       return;
@@ -348,7 +348,7 @@ export default function HomeClient({
       });
       const data = (await res.json()) as { id?: string; error?: string };
       if (!res.ok || !data.id) {
-        setError(data.error || "Couldn’t create that loop.");
+        setError(data.error || "Couldn’t create that hit.");
         setBusy(false);
         return;
       }
@@ -374,7 +374,7 @@ export default function HomeClient({
     if (!confirm(`Delete “${title}”? This can’t be undone.`)) return;
     setDeleting(true);
     setError(null);
-    if (!(await del(id))) setError("Couldn’t delete that loop.");
+    if (!(await del(id))) setError("Couldn’t delete that hit.");
     else setSongs((prev) => prev.filter((s) => s.id !== id));
     setDeleting(false);
     router.refresh();
@@ -575,12 +575,12 @@ export default function HomeClient({
         />
         <div className="relative">
           <h1 className="wordmark text-gradient-hot text-[40px] leading-[0.95] tracking-tight sm:text-[54px]">
-            Loops
+            Hits
           </h1>
           <p className="mt-2.5 text-[15px] text-muted">
             {empty
-              ? "Your loops live here."
-              : `${songs.length} loop${songs.length === 1 ? "" : "s"} in the works.`}
+              ? "Your hits live here."
+              : `${songs.length} hit${songs.length === 1 ? "" : "s"} in the works.`}
           </p>
         </div>
         <div className="hidden shrink-0 items-center gap-2.5 sm:flex">
@@ -599,7 +599,7 @@ export default function HomeClient({
               className="btn-primary inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-[15px] font-medium transition active:scale-[.98] disabled:opacity-50"
             >
               <span className="text-base leading-none">+</span>
-              New loop
+              New hit
             </button>
           )}
         </div>
@@ -622,7 +622,7 @@ export default function HomeClient({
             className="btn-primary inline-flex flex-1 items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-[16px] font-medium transition active:scale-[.99] disabled:opacity-50"
           >
             <span className="text-lg leading-none">+</span>
-            New loop
+            New hit
           </button>
         )}
       </div>
@@ -660,7 +660,7 @@ export default function HomeClient({
             onKeyDown={(e) => {
               if (e.key === "Escape") searchFor("");
             }}
-            placeholder="Search your loops"
+            placeholder="Search your hits"
             className="w-full rounded-2xl bg-white/[0.04] py-3 pl-11 pr-10 text-[15px] text-foreground outline-none transition placeholder:text-muted/45 focus:bg-white/[0.07]"
           />
           {query && (
@@ -730,7 +730,7 @@ export default function HomeClient({
             Silence, for now.
           </span>
           <p className="relative mt-3 max-w-xs text-[15px] leading-relaxed text-muted">
-            Hit <span className="text-foreground">New loop</span> and describe a
+            Tap <span className="text-foreground">New hit</span> and describe a
             sound — a beat, a vibe, a feeling.
           </p>
         </div>
@@ -903,7 +903,7 @@ export default function HomeClient({
                     <button
                       onClick={() => onDelete(s.id, s.title)}
                       disabled={busy || deleting}
-                      title="Delete loop"
+                      title="Delete hit"
                       aria-label={`Delete ${s.title}`}
                       className="absolute right-3.5 top-4 hidden h-7 w-7 items-center justify-center rounded-full text-muted opacity-0 transition hover:bg-white/[0.06] hover:text-red-400 disabled:opacity-30 sm:flex sm:group-hover:opacity-100"
                     >

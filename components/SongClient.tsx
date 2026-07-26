@@ -3106,7 +3106,7 @@ export default function SongClient({
           <span className="text-lg leading-none transition group-hover:-translate-x-0.5">
             ‹
           </span>
-          Loops
+          Hits
         </Link>
         {song.status === "error" && (
           <span className="text-[13px] text-rose-300/75">needs attention</span>

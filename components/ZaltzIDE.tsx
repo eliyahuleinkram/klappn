@@ -1220,10 +1220,10 @@ export default function ZaltzIDE({
   // stop TOGETHER — the one ▶/■ lives in the top bar); a pane is a page of
   // code with a name, lit while its half of the room is live.
   const paneHeader = (label: string, hint: string, active: boolean) => (
-    <div className="flex items-center gap-2 border-b border-white/[0.06] px-3.5 py-2">
+    <div className="flex items-center gap-2 border-b border-white/[0.09] px-3.5 py-2.5">
       <span
-        className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${
-          active ? "text-accent-strong" : "text-muted/70"
+        className={`text-[11.5px] font-semibold uppercase tracking-[0.18em] ${
+          active ? "text-accent-strong" : "text-foreground/60"
         }`}
       >
         {label}
@@ -1250,7 +1250,10 @@ export default function ZaltzIDE({
       />
 
       {/* ── top bar ─────────────────────────────────────────────────────── */}
-      <header className="flex items-center gap-2.5 py-2.5">
+      {/* CRISP (user 07-27: zaltz rides the same penthouse as klappn.com):
+          the furniture wears klappn's own sizes — 15px type in the bar,
+          machined /[0.12] edges on the glass — never smaller, never hazier. */}
+      <header className="flex items-center gap-2.5 py-3">
         <Link href="/" className="flex shrink-0 items-center gap-2" title="Klappn">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -1269,7 +1272,7 @@ export default function ZaltzIDE({
             markDirty();
           }}
           spellCheck={false}
-          className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-1 text-[14px] text-foreground/90 outline-none transition placeholder:text-muted/40 hover:bg-white/[0.04] focus:bg-white/[0.05] sm:w-64 sm:flex-none"
+          className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-1 text-[15px] text-foreground outline-none transition placeholder:text-muted/40 hover:bg-white/[0.04] focus:bg-white/[0.05] sm:w-64 sm:flex-none"
           placeholder="name it"
         />
         {/* ▾ — the project switcher lives WITH the name it switches: your
@@ -1282,7 +1285,7 @@ export default function ZaltzIDE({
             }}
             title="Your saved pieces"
             aria-label="Open a saved piece"
-            className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] transition ${
+            className={`flex h-8 w-8 items-center justify-center rounded-full text-[12px] transition ${
               projOpen
                 ? "bg-accent/[0.14] text-accent-strong"
                 : "bg-white/[0.05] text-muted/60 hover:text-foreground"
@@ -1348,7 +1351,7 @@ export default function ZaltzIDE({
         <button
           onClick={transport}
           title={transportOn ? "Stop (⌘.)" : "Play the room — ⌘↵ evals a pane"}
-          className={`shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition active:scale-[.96] ${
+          className={`shrink-0 rounded-full px-4 py-2 text-[13.5px] font-medium transition active:scale-[.96] ${
             transportOn
               ? "bg-accent/[0.16] text-accent-strong ring-1 ring-inset ring-accent/40 hover:bg-accent/[0.24]"
               : "text-white shadow-[0_0_30px_-8px_rgba(224,49,156,.8)]"
@@ -1365,7 +1368,7 @@ export default function ZaltzIDE({
             less is more): the work simply keeps itself, silently. */}
         <button
           onClick={toggleCopilot}
-          className={`hidden shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] transition active:scale-[.97] sm:inline-flex ${
+          className={`hidden shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] transition active:scale-[.97] sm:inline-flex ${
             copilot
               ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
               : "bg-white/[0.05] text-muted/60 hover:text-foreground"
@@ -1376,15 +1379,17 @@ export default function ZaltzIDE({
         {/* (The Grains pill is gone — saved work now lives in the ▾ beside
             the name, where a project switcher belongs.) */}
         {/* ⛶ — plain and whole: the page, furniture and all, goes fullscreen
-            (the picture-only posture is the movie rule's job, not a button's). */}
+            (the picture-only posture is the movie rule's job, not a button's).
+            Bare glyph, no pill (user 07-27): a window control is furniture,
+            not a button — it just needs to be seen. */}
         {canFullscreen && (
           <button
             onClick={toggleFullscreen}
             title={fullscreen ? "Leave fullscreen" : "Fullscreen"}
-            className={`shrink-0 rounded-full px-2.5 py-1.5 text-[13px] leading-none transition active:scale-[.97] ${
+            className={`shrink-0 px-1 text-[19px] leading-none transition active:scale-[.95] ${
               fullscreen
-                ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
-                : "bg-white/[0.05] text-muted/70 hover:text-foreground"
+                ? "text-accent-strong"
+                : "text-muted/70 hover:text-foreground"
             }`}
           >
             ⛶
@@ -1434,7 +1439,7 @@ export default function ZaltzIDE({
       {/* ── the panes (all gone in solo — the picture alone) ────────────── */}
       <div className="flex min-h-0 flex-1 gap-3">
         <section
-          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex sm:w-[58%] ${
+          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex sm:w-[58%] ${
             mobilePane === "strudel" ? "flex w-full" : "hidden"
           }`}
         >
@@ -1471,7 +1476,7 @@ export default function ZaltzIDE({
           />
         </section>
         <section
-          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex ${
+          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex ${
             mobilePane === "hydra" ? "flex w-full" : "hidden"
           }`}
         >

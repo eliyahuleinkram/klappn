@@ -841,7 +841,9 @@ body.ide-stage.ide-solo #k1-canvas {
   color: transparent;
 }
 .code-pane pre {
-  color: #b9bcc6;
+  /* Crisp pass 07-27: the resting code reads a step brighter — the old
+     #b9bcc6 sat too close to the glass and the whole pane felt hazy. */
+  color: #c9ccd6;
 }
 /* Monochrome + the one pink: the pattern strings ARE the music, so they carry
    the accent; everything else stays quiet steel. */
