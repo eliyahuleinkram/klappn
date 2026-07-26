@@ -3089,6 +3089,27 @@ let hydraInstance: {
   setResolution?: (w: number, h: number) => void;
   hush?: () => void;
 } | null = null;
+// HYDRA'S OWN GLOBALS, captured the instant initHydra stamps them (2026-07-26).
+// The strudel repl's evalScope ALSO writes shared names (shape, noise, osc, …)
+// onto globalThis at boot/eval — whoever stamps LAST wins, so page-scope
+// sketches raced: when strudel won, shape(64, fn, .45) hit strudel's control
+// factory and died with "t.set is not a function". Captured here and
+// re-asserted immediately before every sketch run, the race is gone.
+const HYDRA_GLOBAL_NAMES = [
+  "osc", "noise", "voronoi", "shape", "gradient", "src", "solid", "render", "H",
+] as const;
+let hydraGlobals: Record<string, unknown> | null = null;
+function captureHydraGlobals(): void {
+  const g = globalThis as Record<string, unknown>;
+  hydraGlobals = {};
+  for (const k of HYDRA_GLOBAL_NAMES)
+    if (typeof g[k] === "function") hydraGlobals[k] = g[k];
+}
+function assertHydraGlobals(): void {
+  if (!hydraGlobals) return;
+  const g = globalThis as Record<string, unknown>;
+  for (const k of Object.keys(hydraGlobals)) g[k] = hydraGlobals[k];
+}
 let resizeBound = false;
 let resizeTimer: ReturnType<typeof setTimeout> | null = null;
 // Bound ONCE per live canvas / page: a webglcontextlost recovery handler and a
@@ -3219,6 +3240,7 @@ async function ensureHydra(): Promise<boolean> {
       }
     }
     fitHydra(); // size to the current viewport right away
+    captureHydraGlobals(); // hydra just stamped its generators — snapshot them before strudel can overwrite
     armVisualYield(); // phones: music wins — sustained jank turns visuals off
     // Refit on resize (debounced) so visuals always fill the screen edge-to-edge.
     if (!resizeBound) {
@@ -3287,6 +3309,7 @@ export async function updateVisuals(code: string): Promise<void> {
     if (!visualsEnabled || !hydra) return;
     if (!(await ensureHydra())) return;
     try {
+      assertHydraGlobals(); // strudel's evalScope may have overwritten shape/noise/… since init
       new Function(hydra)();
     } catch (e) {
       console.error("[klappn] visual tweak failed; keeping previous look", e);
@@ -3550,6 +3573,7 @@ export async function startIdleVisual(code: string): Promise<void> {
     // etc.) would have re-pointed setTime back to scheduler.now(). With nothing playing,
     // transportActive is false, so this makes the idle drift take effect immediately.
     if (!transportActive) armVisualClock();
+    assertHydraGlobals(); // strudel's evalScope may have overwritten shape/noise/… since init
     new Function(hydra)();
   } catch (e) {
     console.error("[klappn] idle visual failed to start", e);
