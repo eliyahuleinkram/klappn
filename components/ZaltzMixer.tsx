@@ -151,7 +151,9 @@ export default function ZaltzMixer({
             bottom: "calc(max(0.75rem, env(safe-area-inset-bottom)) + 3.9rem)",
           }}
         >
-          <div className="max-h-[56dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/80 to-black/60 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+          {/* FIXED height — Sound and Visual are the same size slab, so the
+              tab switch never jolts the glass (user 07-27: "feels glitchy"). */}
+          <div className="h-[360px] max-h-[56dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/80 to-black/60 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
           <div className="mb-3 flex items-center gap-1.5">
             {(["music", "light"] as const).map((t) => (
               <button
@@ -163,7 +165,7 @@ export default function ZaltzMixer({
                     : "bg-white/[0.04] text-muted/60 hover:text-foreground"
                 }`}
               >
-                {t === "light" ? "hydra" : t}
+                {t === "light" ? "Visual" : "Sound"}
               </button>
             ))}
           </div>
@@ -399,12 +401,8 @@ export default function ZaltzMixer({
           (one glyph, one meaning). */}
       <button
         onClick={() => {
-          if (!open) {
-            setShaking(true); // a shaker SHAKES when you grab it
-            // Backstop: if the animation never runs (reduced-motion, a lost
-            // frame), the ✕ must still take over — never a stuck shaker.
-            setTimeout(() => setShaking(false), 700);
-          }
+          setShaking(true); // a shaker SHAKES every time you grab it
+          setTimeout(() => setShaking(false), 700); // backstop if the animation can't run
           onToggle();
         }}
         title={open ? "Close the mixer" : "The mixer — kills, pads, dials"}
@@ -421,16 +419,14 @@ export default function ZaltzMixer({
           bottom: "max(0.75rem, env(safe-area-inset-bottom))",
         }}
       >
-        {open && !shaking ? (
-          <span className="text-[15px] leading-none">✕</span>
-        ) : (
-          <span
-            className={shaking ? "shaker-shaking" : ""}
-            onAnimationEnd={() => setShaking(false)}
-          >
-            <SaltShaker />
-          </span>
-        )}
+        {/* The shaker never becomes an ✕ (user 07-27): it IS the mixer —
+            tap again and the desk goes away, the shaker stays itself. */}
+        <span
+          className={shaking ? "shaker-shaking" : ""}
+          onAnimationEnd={() => setShaking(false)}
+        >
+          <SaltShaker />
+        </span>
       </button>
     </>
   );

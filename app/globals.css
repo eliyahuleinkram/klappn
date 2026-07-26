@@ -883,6 +883,18 @@ body.ide-stage.ide-solo #k1-canvas {
   animation: fader-dance 0.9s ease-in-out infinite;
 }
 
+/* THE MOVIE RULE — while the room plays and the hands rest, every panel
+   fades and the picture owns the glass (body.ide-solo lifts the canvas to
+   full brightness alongside); the first touch of the mouse brings the
+   controls back, like a video player. */
+.ide-root > * {
+  transition: opacity 0.8s ease;
+}
+.ide-root.ide-dimmed > * {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* The salt shaker's SHAKE — tap it and it shakes like the real thing:
    quick decaying wobbles about its foot. */
 @keyframes shaker-shake {

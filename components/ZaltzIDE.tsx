@@ -541,6 +541,21 @@ export default function ZaltzIDE() {
     setBusy(false);
   }, []);
 
+  // THE TRANSPORT — one ▶/■ in the top bar for the WHOLE room (user 07-27:
+  // music and picture play and stop together; per-pane transport is gone).
+  // ⌘↵ still evals the pane under your fingers while the room runs.
+  const transportOn = playing || visualsLive;
+  const transport = () => {
+    if (playing || visualsLive) {
+      halt();
+      stopVisuals();
+    } else if (stateRef.current.strudel.trim()) {
+      void runMusic(); // its tail paints the hydra pane too
+    } else {
+      runVisuals(); // nothing to sound — light the room anyway
+    }
+  };
+
 
   // ⌘. stops and ⌘S saves from anywhere (not just inside a pane); Esc closes
   // whatever's open.
@@ -931,55 +946,57 @@ export default function ZaltzIDE() {
     el.style.filter = f.join(" ");
   };
 
-  // Browser-fullscreen tracking — solo rides it where it exists (the header's
-  // own fullscreen button died 07-27; solo's ⛶ is the one door).
+  // FULLSCREEN — one ⛶ in the top bar, plain and whole (user 07-27, final
+  // round: the page with all its furniture goes fullscreen; the picture-only
+  // posture belongs to the MOVIE RULE below, not a button). Hidden where the
+  // API doesn't exist (iPhone Safari).
   const [fullscreen, setFullscreen] = useState(false);
+  const [canFullscreen, setCanFullscreen] = useState(false);
   useEffect(() => {
+    setCanFullscreen(!!document.documentElement.requestFullscreen);
     const on = () => setFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", on);
     return () => document.removeEventListener("fullscreenchange", on);
   }, []);
-
-  // SOLO VISUALS — the VJ posture (user 07-27, twice: JUST the picture, not
-  // the pane): every panel vanishes and the canvas owns the room at full
-  // brightness. Esc leaves (a whisper of an ✕ for hands with no keys). Rides
-  // browser fullscreen where it exists; works in-page where it doesn't.
-  const [soloVisuals, setSoloVisuals] = useState(false);
-  useEffect(() => {
-    if (!soloVisuals) return;
-    document.body.classList.add("ide-solo"); // canvas to full brightness
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setSoloVisuals(false);
-        if (document.fullscreenElement) void document.exitFullscreen();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.classList.remove("ide-solo");
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [soloVisuals]);
-  const toggleSoloVisuals = () => {
-    setSoloVisuals((v) => {
-      const next = !v;
-      try {
-        if (next && !document.fullscreenElement)
-          void document.documentElement.requestFullscreen?.();
-        else if (!next && document.fullscreenElement) void document.exitFullscreen();
-      } catch {
-        /* fullscreen denied — solo still works in-page */
-      }
-      return next;
-    });
+  const toggleFullscreen = () => {
+    try {
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else void document.documentElement.requestFullscreen();
+    } catch {
+      /* denied — nothing breaks */
+    }
   };
-  // Esc out of browser fullscreen leaves solo too (transition-edge only, so
-  // devices that never entered fullscreen keep their in-page solo).
-  const wasFullscreen = useRef(false);
+
+  // THE MOVIE RULE (user 07-27): on desktop, while the room plays and the
+  // hands rest, every panel fades away and the picture owns the glass at full
+  // brightness — the first touch of the mouse brings the controls back, like
+  // a video player. Never while a sheet or the mixer is open, never on touch
+  // (a phone's tap is already the wake gesture).
+  const [dimmed, setDimmed] = useState(false);
   useEffect(() => {
-    if (wasFullscreen.current && !fullscreen) setSoloVisuals(false);
-    wasFullscreen.current = fullscreen;
-  }, [fullscreen]);
+    if (touch || !playing || sheet !== null || mixerOpen) {
+      setDimmed(false);
+      return;
+    }
+    let t: ReturnType<typeof setTimeout>;
+    const arm = () => {
+      setDimmed(false);
+      clearTimeout(t);
+      t = setTimeout(() => setDimmed(true), 4000);
+    };
+    const evs = ["pointermove", "pointerdown", "keydown", "wheel"] as const;
+    evs.forEach((e) => window.addEventListener(e, arm, { passive: true }));
+    arm();
+    return () => {
+      clearTimeout(t);
+      evs.forEach((e) => window.removeEventListener(e, arm));
+      setDimmed(false);
+    };
+  }, [touch, playing, sheet, mixerOpen]);
+  useEffect(() => {
+    document.body.classList.toggle("ide-solo", dimmed); // canvas to full brightness
+    return () => document.body.classList.remove("ide-solo");
+  }, [dimmed]);
 
   // Does the pane have voices to mix at all? (The handle hides on an empty bench.)
   const hasVoices = useMemo(() => /^\s*_?\$:/m.test(strudel), [strudel]);
@@ -1176,14 +1193,10 @@ export default function ZaltzIDE() {
   // (The "✦ complete" button lived here until 2026-07-26 — the user found it
   // confusing next to a copilot that already whispers on its own. The ghost
   // paths that remain: the caret-park auto-cue, ⌥\/⌃Space, and ⇥.)
-  const paneHeader = (
-    label: string,
-    hint: string,
-    run: () => void,
-    active: boolean,
-    stop?: () => void,
-    extra?: React.ReactNode,
-  ) => (
+  // Pane headers carry NO transport (user 07-27: music and picture play and
+  // stop TOGETHER — the one ▶/■ lives in the top bar); a pane is a page of
+  // code with a name, lit while its half of the room is live.
+  const paneHeader = (label: string, hint: string, active: boolean) => (
     <div className="flex items-center gap-2 border-b border-white/[0.06] px-3.5 py-2">
       <span
         className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${
@@ -1196,47 +1209,24 @@ export default function ZaltzIDE() {
       {!touch && hint && (
         <span className="hidden text-[11px] text-muted/45 sm:inline">{hint}</span>
       )}
-      {extra}
-      <button
-        onClick={stop && active ? stop : run}
-        className={`rounded-full px-2.5 py-1 text-[11.5px] transition active:scale-[.96] ${
-          stop && active
-            ? "bg-accent/[0.16] text-accent-strong ring-1 ring-inset ring-accent/40 hover:bg-accent/[0.24]"
-            : "bg-white/[0.06] text-foreground/85 hover:bg-accent/20 hover:text-accent-strong"
-        }`}
-        title={stop && active ? "Stop" : "Run this pane"}
-      >
-        {stop && active ? "■ stop" : waking ? "waking…" : "▶ run"}
-      </button>
     </div>
   );
 
   return (
     <main
-      className="ide-safe relative flex h-dvh flex-col overflow-hidden"
+      className={`ide-safe ide-root relative flex h-dvh flex-col overflow-hidden ${
+        dimmed ? "ide-dimmed" : ""
+      }`}
       style={kbInset ? { paddingBottom: kbInset + 12 } : undefined}
     >
       {/* legibility scrims — the picture burns behind; the words never sit on
-          panels. Solo drops them: nothing may dim the picture. */}
-      {!soloVisuals && (
-        <div
-          aria-hidden
-          className="pointer-events-none fixed inset-0 -z-[1] bg-[linear-gradient(to_bottom,rgba(0,0,0,.42),transparent_22%,transparent_62%,rgba(0,0,0,.55))]"
-        />
-      )}
-      {soloVisuals && (
-        <button
-          onClick={toggleSoloVisuals}
-          aria-label="Leave the picture"
-          title="Leave (Esc)"
-          className="fixed right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-30 flex h-9 w-9 items-center justify-center rounded-full bg-black/30 text-[14px] text-white/40 backdrop-blur-sm transition hover:bg-black/50 hover:text-white active:scale-[.95]"
-        >
-          ✕
-        </button>
-      )}
+          panels. The movie rule fades them with everything else. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-[1] bg-[linear-gradient(to_bottom,rgba(0,0,0,.42),transparent_22%,transparent_62%,rgba(0,0,0,.55))]"
+      />
 
-      {/* ── top bar (gone in solo — the picture owns the room) ──────────── */}
-      {!soloVisuals && (
+      {/* ── top bar ─────────────────────────────────────────────────────── */}
       <header className="flex items-center gap-2.5 py-2.5">
         <Link href="/" className="flex shrink-0 items-center gap-2" title="Klappn">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1262,6 +1252,23 @@ export default function ZaltzIDE() {
         {/* Desktop: the name is a name, not a runway — fixed width, the air
             in the middle belongs to the room. */}
         <span className="hidden flex-1 sm:block" />
+        {/* THE TRANSPORT — the whole room plays and stops as one. */}
+        <button
+          onClick={transport}
+          title={transportOn ? "Stop (⌘.)" : "Play the room — ⌘↵ evals a pane"}
+          className={`shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition active:scale-[.96] ${
+            transportOn
+              ? "bg-accent/[0.16] text-accent-strong ring-1 ring-inset ring-accent/40 hover:bg-accent/[0.24]"
+              : "text-white shadow-[0_0_30px_-8px_rgba(224,49,156,.8)]"
+          }`}
+          style={
+            transportOn
+              ? undefined
+              : { backgroundImage: "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)" }
+          }
+        >
+          {transportOn ? "■ stop" : waking ? "waking…" : "▶ play"}
+        </button>
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
         <button
@@ -1280,8 +1287,21 @@ export default function ZaltzIDE() {
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="hidden shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-muted transition hover:text-foreground active:scale-[.97] sm:inline-flex"
         >Grains</button>
-        {/* (The header's own ⛶ died 2026-07-27 — two fullscreen glyphs read
-            as confusion. ONE ⛶ lives on the visuals pane: solo the picture.) */}
+        {/* ⛶ — plain and whole: the page, furniture and all, goes fullscreen
+            (the picture-only posture is the movie rule's job, not a button's). */}
+        {canFullscreen && (
+          <button
+            onClick={toggleFullscreen}
+            title={fullscreen ? "Leave fullscreen" : "Fullscreen"}
+            className={`shrink-0 rounded-full px-2.5 py-1.5 text-[13px] leading-none transition active:scale-[.97] ${
+              fullscreen
+                ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
+                : "bg-white/[0.05] text-muted/70 hover:text-foreground"
+            }`}
+          >
+            ⛶
+          </button>
+        )}
         {/* ONE door for the person — klappn.com's own AccountMenu, worn
             unchanged (user 07-27: "it must look the same"): email · Tokens &
             usage · Sign out, the guest's claim path, or a sign-in door. The
@@ -1295,10 +1315,8 @@ export default function ZaltzIDE() {
           onSignIn={() => setSheet("signin")}
         />
       </header>
-      )}
 
       {/* ── mobile pane tabs ────────────────────────────────────────────── */}
-      {!soloVisuals && (
       <div className="mb-2 flex items-center gap-1.5 sm:hidden">
         {(["strudel", "hydra"] as const).map((p) => (
           <button
@@ -1330,10 +1348,9 @@ export default function ZaltzIDE() {
           className="shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted transition active:scale-[.97]"
         >Grains</button>
       </div>
-      )}
 
       {/* ── the panes (all gone in solo — the picture alone) ────────────── */}
-      <div className={`min-h-0 flex-1 gap-3 ${soloVisuals ? "hidden" : "flex"}`}>
+      <div className="flex min-h-0 flex-1 gap-3">
         <section
           className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex sm:w-[58%] ${
             mobilePane === "strudel" ? "flex w-full" : "hidden"
@@ -1342,9 +1359,7 @@ export default function ZaltzIDE() {
           {paneHeader(
             "strudel",
             ghost?.pane === "strudel" ? "⇥ takes the ghost" : "",
-            () => void runMusic(),
             playing,
-            halt,
           )}
           <CodePane
             ref={strudelPane}
@@ -1381,26 +1396,7 @@ export default function ZaltzIDE() {
           {paneHeader(
             "hydra",
             ghost?.pane === "hydra" ? "⇥ takes the ghost" : "",
-            runVisuals,
             visualsLive && !!hydra.trim(),
-            stopVisuals,
-            // SOLO — the VJ posture: just the picture and this pane.
-            <button
-              key="solo"
-              onClick={toggleSoloVisuals}
-              title={
-                soloVisuals
-                  ? "Back to the desk"
-                  : "Just the picture, fullscreen — Esc brings the room back"
-              }
-              className={`rounded-full px-2.5 py-1 text-[11.5px] leading-none transition active:scale-[.96] ${
-                soloVisuals
-                  ? "bg-accent/[0.16] text-accent-strong ring-1 ring-inset ring-accent/40"
-                  : "bg-white/[0.06] text-foreground/85 hover:bg-accent/20 hover:text-accent-strong"
-              }`}
-            >
-              ⛶
-            </button>,
           )}
           <CodePane
             ref={hydraPane}
@@ -1466,7 +1462,7 @@ export default function ZaltzIDE() {
               title="The machine reads the error and mends the code — one tap"
               className="shrink-0 rounded-full border border-accent/40 bg-accent/[0.12] px-2.5 py-1 text-[12px] text-accent-strong shadow-[0_0_24px_-8px_rgba(224,49,156,.8)] transition hover:bg-accent/[0.2] active:scale-[.96] disabled:opacity-70"
             >
-              {fixing ? <span className="shimmer-text">mending…</span> : "✦ fix"}
+              {fixing ? <span className="shimmer-text">sifting…</span> : "✦ fix"}
             </button>
           )}
           <button
@@ -1486,7 +1482,7 @@ export default function ZaltzIDE() {
       {/* ── the desk — the Sets deck's machinery worn by the instrument:
           SEASON TO TASTE (components/ZaltzMixer). Pure view; the audio wiring
           (kills, master chain, scheduler nudge, canvas filters) stays here. */}
-      {!soloVisuals && (hasVoices || hydra.trim()) && (
+      {(hasVoices || hydra.trim()) && (
         <ZaltzMixer
           open={mixerOpen}
           onToggle={() => setMixerOpen((o) => !o)}
