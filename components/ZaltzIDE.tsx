@@ -164,6 +164,24 @@ $: note("<[e3,g3,b3] [c3,e3,g3] [g2,b2,d3] [a2,c3,e3]>").s("triangle").attack(2)
 
 const DRAFT_KEY = "zaltz-ide-draft-v1";
 
+/** Engine errors arrive as raw JS strings — translate the known classes into
+ *  one line a live coder can act on mid-set. The raw text stays in the
+ *  tooltip; unknown classes pass through untouched (never hide the truth). */
+function humanizeEngineError(raw: string): string {
+  let m = raw.match(/sound not found[:\s]*["'\u2018\u201c]?([\w:.-]+)/i);
+  if (m) return `"${m[1]}" isn\u2019t a sound the engine knows \u2014 check the name (gm_\u2026, a bank\u2019s drum letters, or an oscillator).`;
+  m = raw.match(/Cannot read propert(?:y|ies) of undefined \(reading ['"](\w+)['"]\)/);
+  if (m) return `Something before .${m[1]}() returned nothing \u2014 check that chain (and remember: nothing chains after .out()).`;
+  m = raw.match(/(\w+) is not a function/);
+  if (m) return `.${m[1]}() isn\u2019t a real method here \u2014 it dies the moment it plays. Check the spelling.`;
+  m = raw.match(/(\w+) is not defined/);
+  if (m) return `${m[1]} doesn\u2019t exist in this room \u2014 transforms are METHODS, chained onto a source.`;
+  if (/\[mini\]|parse error|unexpected token|unmatched|unbalanced/i.test(raw))
+    return "The pattern won\u2019t parse \u2014 count your brackets and quotes in the mini-notation.";
+  if (/hit max_tokens|max_tokens/.test(raw)) return raw;
+  return raw;
+}
+
 // THE ONE PINK — the deck's hot gradient, worn by every lit control.
 const HOT_GRADIENT =
   "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)";
@@ -232,6 +250,9 @@ export default function ZaltzIDE() {
   // Copilot-speed trick #2: an LRU of recent completions — revisiting a spot
   // (dismissed ghost, caret wander-and-return) re-shows instantly, no call.
   const ghostLRU = useRef(new Map<string, string>());
+  // The out-of-tokens line is said ONCE per visit — after that the burning
+  // chip and the redirected \u2726 buttons carry it.
+  const spentToldRef = useRef(false);
   const strudelPane = useRef<CodePaneHandle>(null);
   const hydraPane = useRef<CodePaneHandle>(null);
 
@@ -627,7 +648,19 @@ export default function ZaltzIDE() {
               pane === "strudel" ? stateRef.current.hydra : stateRef.current.strudel,
           }),
         });
-        if (!res.ok) return; // 402/429 → quiet; the meter chip tells the story
+        if (res.status === 402) {
+          // THE PAYING MOMENT — the machine never just goes quiet: it tells
+          // you why, once, and the door to more is one tap away.
+          if (!spentToldRef.current) {
+            spentToldRef.current = true;
+            setNotice(
+              "That was the taste \u2014 the ghosts went quiet. Feed the machine and they come back.",
+            );
+          }
+          void refreshMe(); // the chip flips to its burning 0
+          return;
+        }
+        if (!res.ok) return; // 429 etc → quiet; the meter chip tells the story
         const d = openDeep((await res.json().catch(() => ({}))) as { ghost?: string });
         let g = d.ghost ?? "";
         ghostLRU.current.set(cacheKey, g);
@@ -912,6 +945,9 @@ export default function ZaltzIDE() {
 
   // ── derived bits ───────────────────────────────────────────────────────────
   const remaining = me?.owner ? null : (me?.remainingTokens ?? null);
+  // The wall, named: signed in, metered, and dry. The chip burns, the ✦
+  // buttons redirect to the register — the machine never just goes mute.
+  const spent = !!me?.signedIn && !me.owner && (remaining ?? 0) <= 0;
   const tokenChip = !me
     ? "…"
     : me.owner
@@ -1039,8 +1075,12 @@ export default function ZaltzIDE() {
         </button>
         <button
           onClick={() => setSheet(sheet === "tokens" ? null : "tokens")}
-          className="shrink-0 rounded-full border border-accent/25 bg-black/40 px-3 py-1.5 text-[12.5px] tabular-nums text-foreground/90 shadow-[0_0_30px_-14px_rgba(224,49,156,.6)] backdrop-blur-xl transition hover:border-accent/45 active:scale-[.97]"
-          title="Tokens"
+          className={`shrink-0 rounded-full border px-3 py-1.5 text-[12.5px] tabular-nums backdrop-blur-xl transition active:scale-[.97] ${
+            spent
+              ? "animate-pulse border-accent/60 bg-accent/[0.12] text-accent-strong shadow-[0_0_44px_-10px_rgba(224,49,156,.9)]"
+              : "border-accent/25 bg-black/40 text-foreground/90 shadow-[0_0_30px_-14px_rgba(224,49,156,.6)] hover:border-accent/45"
+          }`}
+          title={spent ? "The taste is spent — feed the machine" : "Tokens"}
         >
           <span className="mr-1 text-accent-strong">✦</span>
           {tokenChip}
@@ -1092,7 +1132,7 @@ export default function ZaltzIDE() {
             ghost?.pane === "strudel" ? "⇥ takes the ghost" : "⌘↵ plays it",
             () => void runMusic(),
             playing,
-            () => strudelPane.current?.summon(),
+            () => (spent ? setSheet("tokens") : strudelPane.current?.summon()),
             halt,
           )}
           <CodePane
@@ -1125,7 +1165,7 @@ export default function ZaltzIDE() {
             ghost?.pane === "hydra" ? "⇥ takes the ghost" : "⌘↵ paints it",
             runVisuals,
             playing && !!hydra.trim(),
-            () => hydraPane.current?.summon(),
+            () => (spent ? setSheet("tokens") : hydraPane.current?.summon()),
           )}
           <CodePane
             ref={hydraPane}
@@ -1149,21 +1189,36 @@ export default function ZaltzIDE() {
 
       {/* ── errors / notices ────────────────────────────────────────────── */}
       {(err || notice) && (
-        <div className="mt-2 flex items-start gap-2">
+        <div
+          className={`mt-2 flex items-center gap-2.5 rounded-2xl border px-3.5 py-2 backdrop-blur-xl ${
+            err
+              ? "border-red-400/25 bg-red-950/35 shadow-[0_0_44px_-18px_rgba(248,113,113,.5)]"
+              : "border-accent/30 bg-black/55 shadow-[0_0_44px_-16px_rgba(224,49,156,.55)]"
+          }`}
+        >
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] ${
+              err
+                ? "bg-red-400/[0.12] text-red-300/90"
+                : "bg-accent/[0.14] text-accent-strong"
+            }`}
+          >
+            {err ? (err.startsWith("hydra:") ? "light" : "music") : "✦"}
+          </span>
           <p
             className={`min-w-0 flex-1 truncate text-[12.5px] leading-snug ${
-              err ? "text-red-300/85" : "text-accent-strong/90"
+              err ? "text-red-200/90" : "text-accent-strong/95"
             }`}
             title={err ?? notice ?? undefined}
           >
-            {err ?? notice}
+            {err ? humanizeEngineError(err.replace(/^hydra:\s*/, "")) : notice}
           </p>
           <button
             onClick={() => {
               setErr(null);
               setNotice(null);
             }}
-            className="text-[12px] text-muted/60 transition hover:text-foreground"
+            className="shrink-0 text-[12px] text-muted/60 transition hover:text-foreground"
             aria-label="Dismiss"
           >
             ✕
@@ -1527,7 +1582,9 @@ export default function ZaltzIDE() {
                     {me?.owner
                       ? "house account — unmetered"
                       : me?.signedIn
-                        ? `${fmtTokens(Math.max(0, remaining ?? 0))} left · ~${Math.floor(
+                        ? spent
+                        ? "the taste is spent — the machine waits"
+                        : `${fmtTokens(Math.max(0, remaining ?? 0))} left · ~${Math.floor(
                             Math.max(0, remaining ?? 0) / TOKENS_PER_LOOP,
                           )} asks`
                         : me?.poolOpen === false
