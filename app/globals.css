@@ -41,6 +41,38 @@ body {
   overflow-x: clip;
 }
 
+/* NOTCHES & HOME INDICATORS (2026-07-26). viewport-fit=cover (app/layout.tsx
+   viewport export) lets the stage paint edge-to-edge on notched devices — the
+   aurora and the hydra canvas reach the physical glass — and these insets keep
+   the CONTENT out of the notch, the rounded corners and the home indicator.
+   env() is 0 on plain rectangles, so nothing changes on desktop.
+   The IDE opts out here (body.ide-stage) and carries its own insets on its
+   root (.ide-safe below) — its <main> is h-dvh, so body padding would overflow
+   it instead of protecting it. */
+body:not(.ide-stage) {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* The IDE's full-viewport root: the old px-3 pb-3 sm:px-4 breathing room, but
+   never less than the device's own safe area on any edge. The keyboard inset
+   (inline style) overrides padding-bottom while typing — the home indicator is
+   under the keyboard then anyway. */
+.ide-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+}
+@media (min-width: 640px) {
+  .ide-safe {
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  }
+}
+
 /* iOS Safari AUTO-ZOOMS the whole page when a focused input's font-size is
    under 16px — and often leaves it zoomed after blur. Every one of our inputs
    sits at 14–15px by design, so on phones typing an edit or a new-loop prompt

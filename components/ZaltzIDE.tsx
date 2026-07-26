@@ -1048,7 +1048,7 @@ export default function ZaltzIDE() {
 
   return (
     <main
-      className="relative flex h-dvh flex-col overflow-hidden px-3 pb-3 sm:px-4"
+      className="ide-safe relative flex h-dvh flex-col overflow-hidden"
       style={kbInset ? { paddingBottom: kbInset + 12 } : undefined}
     >
       {/* legibility scrims — the picture burns behind; the words never sit on panels */}
@@ -1566,7 +1566,7 @@ export default function ZaltzIDE() {
       {/* ── sheets ──────────────────────────────────────────────────────── */}
       {sheet && (
         <div
-          className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 p-3 sm:items-center"
+          className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center"
           onClick={() => setSheet(null)}
         >
           <div

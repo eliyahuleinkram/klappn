@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import ZaltzIDE from "@/components/ZaltzIDE";
 
 export const metadata: Metadata = {
-  title: "zaltz — the live-coding IDE",
+  title: "zaltz — the instrument you type",
   description:
-    "Strudel on the left, Hydra on the right, our 165 KB wasm engine underneath. Type, ⌘↵, the room hears you — and the machine takes requests.",
+    "Strudel on the left, Hydra on the right, our own engine underneath. Sketches keep themselves, the machine whispers the next line, and every take lands in the running mix. Type a bar — the room moves.",
   // The grain, not the Klappn mark: SVG for the browsers that take it, PNG for
   // the rest; the worker also answers /favicon.ico host-aware for Safari.
   icons: {

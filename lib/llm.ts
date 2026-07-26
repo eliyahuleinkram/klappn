@@ -89,6 +89,33 @@ export interface ModelCallRecord {
 
 const ANTHROPIC_DEFAULT_MODEL = "claude-opus-5";
 
+/**
+ * PER-MODEL COST FACTOR — the model's input rate over the anchor rate the house
+ * bills at (lib/pricing.ts USD_CENTS_PER_MILLION = 500 ⇒ $5/1M, Opus 5's own
+ * input price). Anthropic's ratios are uniform across current models (output
+ * 5× input, cache read 0.1×, cache write 1.25× — verified against the live
+ * price sheet 2026-07-26), so ONE factor per model makes a weighted unit equal
+ * real dollars no matter which model served the call: a Sonnet unit costs 3/5
+ * of an Opus unit and meters as 0.6. Matched by prefix against the model id
+ * that ACTUALLY answered (res.model — the classifier fallback can swap models
+ * mid-call). Unknown models bill at the anchor (never silently under-charge).
+ * Sonnet 5's $2/1M intro (through 2026-08-31) is deliberately ignored — the
+ * sticker rate is the durable one and a promo shouldn't reprice the meter.
+ */
+const MODEL_COST_FACTOR: ReadonlyArray<readonly [prefix: string, factor: number]> = [
+  ["claude-opus-5", 1], // $5/1M in — the anchor
+  ["claude-opus-4", 1], // $5/1M (Opus 4.6–4.8 — the classifier-fallback route)
+  ["claude-fable-5", 2], // $10/1M
+  ["claude-sonnet", 0.6], // $3/1M (Sonnet 5 + 4.6)
+  ["claude-haiku", 0.2], // $1/1M
+];
+
+function modelCostFactor(modelId: string): number {
+  for (const [prefix, factor] of MODEL_COST_FACTOR)
+    if (modelId.startsWith(prefix)) return factor;
+  return 1;
+}
+
 // ── PROVIDER ─────────────────────────────────────────────────────────────────
 // One wire: the native Anthropic Messages API. Output tokens are metered at 5×
 // input (the ×5 in completeAnthropic's usage handler).
@@ -496,16 +523,24 @@ async function completeAnthropic(
     }
   }
   // Billing meter — COST-WEIGHTED token units, so a metered "token" tracks real
-  // dollars. Opus-class pricing: output bills ~5× input (thinking bills as
-  // output), cache reads ~10% of input, cache writes 1.25×. Normalised to
-  // input-token units, so the metered total tracks model cost — which is what
-  // the plan allowances are priced against.
+  // dollars ON EVERY MODEL. Two multipliers compose: (1) the kind weights —
+  // output bills 5× input (thinking bills as output), cache reads 0.1×, cache
+  // writes 1.25×, uniform ratios across current Anthropic models; (2) the
+  // per-model factor (MODEL_COST_FACTOR) scaling to the anchor rate the house
+  // sells at ($5/1M = Opus 5 input). res.model — not the requested id — decides
+  // the factor, because the classifier fallback can have another model serve
+  // the call. Fast mode (usage.speed === "fast") bills 2× the standard rate.
   try {
+    const servedBy = (res.model as string) || model;
+    const speedFactor =
+      (u as { speed?: string }).speed === "fast" ? 2 : 1;
     const used =
-      (u?.input_tokens ?? 0) +
-      (u?.output_tokens ?? 0) * 5 +
-      (u?.cache_read_input_tokens ?? 0) * 0.1 +
-      (u?.cache_creation_input_tokens ?? 0) * 1.25;
+      ((u?.input_tokens ?? 0) +
+        (u?.output_tokens ?? 0) * 5 +
+        (u?.cache_read_input_tokens ?? 0) * 0.1 +
+        (u?.cache_creation_input_tokens ?? 0) * 1.25) *
+      modelCostFactor(servedBy) *
+      speedFactor;
     if (used > 0) void cfg?.onUsage?.(Math.round(used));
     if (u)
       void cfg?.onRawUsage?.({

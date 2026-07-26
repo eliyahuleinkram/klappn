@@ -6,13 +6,16 @@
 
 /**
  * THE RATE: dollars per 1M weighted units — REPRICED 2026-07-26 to track the
- * composer's own input rate (Opus 5: $5/1M; the usage weights — output ×5,
- * cache ×0.1/×1.25, lib/llm.ts — normalize every other token kind to it, so a
- * weighted unit tracks real model spend 1:1). $1 = 200k units. The card fee is
- * itemized separately at checkout and passed through to the cent, so a top-up
- * nets exactly its token value. If the model or its pricing moves, move THIS
- * constant with it — the promise is a price you can READ, right here, that
- * follows what the machine actually costs.
+ * composer's own input rate (Opus 5: $5/1M — the ANCHOR). A weighted unit
+ * tracks real model spend 1:1 across EVERY model we run: lib/llm.ts normalizes
+ * each token kind (output ×5, cache ×0.1/×1.25 — Anthropic's uniform ratios)
+ * and then scales by the served model's own rate over the anchor
+ * (MODEL_COST_FACTOR: Sonnet 5 at $3/1M meters ×0.6, Opus ×1), so a call that
+ * cost less bills less. $1 = 200k units. The card fee is itemized separately
+ * at checkout and passed through to the cent, so a top-up nets exactly its
+ * token value. If a model or its pricing moves, move THIS constant (anchor) or
+ * that model's factor with it — the promise is a price you can READ, right
+ * here, that follows what the machine actually costs.
  * (History: launched at $10/1M when Fable 5 — $10/1M input — was the composer;
  * halved when Opus 5 took over rather than pocketing the difference.)
  */

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import NowPlayingDock from "@/components/NowPlayingDock";
 import "./globals.css";
@@ -26,6 +26,20 @@ export const metadata: Metadata = {
     apple: { url: "/apple-icon.png", sizes: "180x180", type: "image/png" },
   },
   manifest: "/manifest.webmanifest",
+};
+
+/* Notched devices (2026-07-26): viewport-fit=cover lets the page paint to the
+   physical edges of the glass; the safe-area env() insets (globals.css) then
+   keep content out of the notch and home indicator. themeColor paints the
+   browser chrome the stage's own black.
+   ⚠ vinext's metadata shim has no `viewportFit` case (it renders width/scale/
+   themeColor only), so the directive rides inside `width` — the shim string-
+   interpolates it verbatim into the meta content, which the viewport parser
+   reads as two ordinary key=value pairs. If we ever move to stock Next.js,
+   replace with `width: "device-width", viewportFit: "cover"`. */
+export const viewport: Viewport = {
+  width: "device-width, viewport-fit=cover",
+  themeColor: "#060708",
 };
 
 export default function RootLayout({
