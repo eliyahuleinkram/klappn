@@ -1153,37 +1153,45 @@ export default function ZaltzIDE() {
               </div>
               {mixerTab === "music" ? (
                 <>
-                  {/* the three kill switches — instant, tails included, like
-                      the kill EQ on a real mixer */}
-                  <div className="flex items-center gap-2">
-                    {CHANNELS.map((ch, i) => (
-                      <button
-                        key={ch}
-                        onClick={() => toggleKill(ch)}
-                        style={{ "--i": i } as CSSProperties}
-                        title={
-                          kills[ch]
-                            ? `Bring the ${ch} back — mid-note, like un-killing an EQ band`
-                            : `Kill the ${ch} — instant, tails and all`
-                        }
-                        className={`animate-rise flex-1 rounded-xl border px-3 py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.18em] transition active:scale-[.97] ${
-                          kills[ch]
-                            ? "border-white/[0.08] bg-white/[0.02] text-muted/40"
-                            : "border-accent/35 bg-accent/[0.1] text-accent-strong shadow-[0_0_34px_-12px_rgba(224,49,156,.7)]"
-                        }`}
-                      >
-                        {ch}
-                      </button>
-                    ))}
+                  {/* THE CHANNELS — three fixed kill switches, the deck's own
+                      row: instant, tails included, back mid-note. */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {CHANNELS.map((ch) => {
+                      const off = kills[ch];
+                      return (
+                        <button
+                          key={ch}
+                          onClick={() => toggleKill(ch)}
+                          aria-pressed={!off}
+                          title={off ? `Bring the ${ch} back` : `Kill the ${ch}`}
+                          className={`flex h-9 items-center justify-center gap-2 rounded-full text-[12px] font-medium uppercase tracking-[0.12em] transition active:scale-[.97] ${
+                            off
+                              ? "bg-white/[0.02] text-muted/40"
+                              : "bg-white/[0.06] text-foreground/90 hover:bg-white/[0.1]"
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full transition ${
+                              off ? "bg-white/[0.12]" : "bg-accent-strong"
+                            }`}
+                            style={off ? undefined : { boxShadow: "0 0 10px rgba(255,99,193,0.8)" }}
+                          />
+                          {ch}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="mt-3.5 flex items-center gap-3.5">
-                    <span className="w-20 shrink-0 truncate text-[12px] text-foreground/90 sm:w-24">
-                      <span className="wordmark text-gradient text-[14px]">master</span>
-                    </span>
-                    <Dial
+                  {/* the dials — the deck's grid: whispered label, mono readout,
+                      FILTER centre-detent (double-tap zeroes it) */}
+                  <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-3 sm:gap-x-6">
+                    <DeckSlider
+                      label="Master"
                       value={master}
+                      min={0}
                       max={1}
-                      onLive={(v) => {
+                      step={0.02}
+                      display={`${Math.round(master * 100)}%`}
+                      onChange={(v) => {
                         setMaster(v);
                         try {
                           fadeMaster(v, 0.05);
@@ -1192,67 +1200,84 @@ export default function ZaltzIDE() {
                         }
                       }}
                     />
+                    <DeckSlider
+                      label="Filter"
+                      value={perf.filter}
+                      min={-100}
+                      max={100}
+                      step={2}
+                      bipolar
+                      display={filterDisplay(perf.filter)}
+                      onChange={(v) => movePerf({ filter: v })}
+                    />
+                    <DeckSlider
+                      label="Echo"
+                      value={perf.echo}
+                      min={0}
+                      max={0.7}
+                      step={0.05}
+                      display={perf.echo === 0 ? "—" : `${Math.round((perf.echo / 0.7) * 100)}%`}
+                      onChange={(v) => movePerf({ echo: v })}
+                    />
+                    <DeckSlider
+                      label="Drive"
+                      value={perf.punch}
+                      min={0}
+                      max={0.5}
+                      step={0.05}
+                      display={perf.punch === 0 ? "—" : `${Math.round((perf.punch / 0.5) * 100)}%`}
+                      onChange={(v) => movePerf({ punch: v })}
+                    />
+                    <DeckSlider
+                      label="Space"
+                      value={perf.space}
+                      min={0}
+                      max={0.6}
+                      step={0.05}
+                      display={perf.space === 0 ? "—" : `${Math.round((perf.space / 0.6) * 100)}%`}
+                      onChange={(v) => movePerf({ space: v })}
+                    />
                   </div>
-                  <ul className="mt-2 space-y-2">
-                    {(
-                      [
-                        { k: "filter", label: "filter", min: -100, max: 100, title: filterDisplay(perf.filter) },
-                        { k: "echo", label: "echo", min: 0, max: 0.7 },
-                        { k: "punch", label: "punch", min: 0, max: 0.5 },
-                        { k: "space", label: "space", min: 0, max: 0.6 },
-                      ] as const
-                    ).map((d, i) => (
-                      <li
-                        key={d.k}
-                        style={{ "--i": i } as CSSProperties}
-                        className="animate-rise flex items-center gap-3.5 rounded-xl px-0.5 py-0.5 transition hover:bg-white/[0.03]"
-                      >
-                        <span
-                          className="w-20 shrink-0 truncate text-[12.5px] text-foreground/85 sm:w-24"
-                          title={"title" in d ? d.title : undefined}
-                        >
-                          {d.label}
-                        </span>
-                        <Dial
-                          value={perf[d.k]}
-                          min={d.min}
-                          max={d.max}
-                          onLive={(v) => movePerf({ [d.k]: v })}
-                        />
-                      </li>
-                    ))}
-                  </ul>
                 </>
               ) : (
-                <ul className="space-y-2">
-                  {(
-                    [
-                      { k: "hue", label: "hue", min: 0, max: 360 },
-                      { k: "sat", label: "saturation", min: 0, max: 3 },
-                      { k: "contrast", label: "contrast", min: 0.4, max: 2.5 },
-                      { k: "bright", label: "glow", min: 0.4, max: 2 },
-                    ] as const
-                  ).map((d, i) => (
-                    <li
-                      key={d.k}
-                      style={{ "--i": i } as CSSProperties}
-                      className="animate-rise flex items-center gap-3.5 rounded-xl px-0.5 py-0.5 transition hover:bg-white/[0.03]"
-                    >
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center" aria-hidden>
-                        <span className="h-2 w-2 rotate-45 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_12px_rgba(224,49,156,.9)]" />
-                      </span>
-                      <span className="w-20 shrink-0 truncate text-[12.5px] text-foreground/85 sm:w-24">
-                        {d.label}
-                      </span>
-                      <Dial
-                        value={light[d.k]}
-                        min={d.min}
-                        max={d.max}
-                        onLive={(v) => moveLight({ [d.k]: v })}
-                      />
-                    </li>
-                  ))}
-                </ul>
+                <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-3 sm:gap-x-6">
+                  <DeckSlider
+                    label="Hue"
+                    value={light.hue}
+                    min={0}
+                    max={360}
+                    step={2}
+                    display={light.hue === 0 ? "—" : `${Math.round(light.hue)}°`}
+                    onChange={(v) => moveLight({ hue: v })}
+                  />
+                  <DeckSlider
+                    label="Colour"
+                    value={light.sat}
+                    min={0}
+                    max={3}
+                    step={0.05}
+                    display={light.sat === 1 ? "—" : `${light.sat.toFixed(2)}×`}
+                    onChange={(v) => moveLight({ sat: v })}
+                  />
+                  <DeckSlider
+                    label="Contrast"
+                    value={light.contrast}
+                    min={0.4}
+                    max={2.5}
+                    step={0.05}
+                    display={light.contrast === 1 ? "—" : `${light.contrast.toFixed(2)}×`}
+                    onChange={(v) => moveLight({ contrast: v })}
+                  />
+                  <DeckSlider
+                    label="Glow"
+                    value={light.bright}
+                    min={0.4}
+                    max={2}
+                    step={0.05}
+                    display={light.bright === 1 ? "—" : `${light.bright.toFixed(2)}×`}
+                    onChange={(v) => moveLight({ bright: v })}
+                  />
+                </div>
               )}
             </div>
           </div>
@@ -1505,46 +1530,54 @@ export default function ZaltzIDE() {
   );
 }
 
-/** One machined fader — the door's pink-filled range, wired for live hands:
- *  onLive fires every movement (master rides it), onCommit on release (layer
- *  gains rewrite code once, not per pixel). */
-function Dial({
+/** One deck dial (the Sets deck's own design): whispered label, live mono
+ *  readout, accent fill drawn to the value — bipolar dials fill from centre
+ *  and double-tap back to zero. */
+function DeckSlider({
+  label,
   value,
-  min = 0,
-  max = 1.2,
-  disabled = false,
-  onLive,
-  onCommit,
+  min,
+  max,
+  step,
+  display,
+  bipolar,
+  onChange,
 }: {
+  label: string;
   value: number;
-  min?: number;
-  max?: number;
-  disabled?: boolean;
-  onLive?: (v: number) => void;
-  onCommit?: (v: number) => void;
+  min: number;
+  max: number;
+  step: number;
+  display: string;
+  bipolar?: boolean;
+  onChange: (v: number) => void;
 }) {
-  const [v, setV] = useState(value);
-  useEffect(() => setV(value), [value]);
+  const pct = ((value - min) / (max - min)) * 100;
+  const fill = bipolar
+    ? pct >= 50
+      ? `linear-gradient(to right, rgba(255,255,255,0.08) 50%, var(--accent) 50%, var(--accent) ${pct}%, rgba(255,255,255,0.08) ${pct}%)`
+      : `linear-gradient(to right, rgba(255,255,255,0.08) ${pct}%, var(--accent) ${pct}%, var(--accent) 50%, rgba(255,255,255,0.08) 50%)`
+    : `linear-gradient(to right, var(--accent) ${pct}%, rgba(255,255,255,0.08) ${pct}%)`;
   return (
-    <input
-      type="range"
-      className="door-range min-w-0 flex-1 disabled:opacity-30"
-      min={min}
-      max={max}
-      step={0.01}
-      value={v}
-      disabled={disabled}
-      style={{ "--p": `${((v - min) / (max - min)) * 100}%` } as CSSProperties}
-      onChange={(e) => {
-        const nv = Number(e.target.value);
-        setV(nv);
-        onLive?.(nv);
-      }}
-      onPointerUp={() => onCommit?.(v)}
-      onKeyUp={(e) => {
-        if (e.key.startsWith("Arrow")) onCommit?.(v);
-      }}
-    />
+    <label className="flex flex-col gap-1.5">
+      <span className="flex items-baseline justify-between text-[10px] uppercase tracking-[0.18em] text-muted/60">
+        {label}
+        <span className="font-mono text-[11px] normal-case tracking-normal text-foreground/70">
+          {display}
+        </span>
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onDoubleClick={bipolar ? () => onChange(0) : undefined}
+        className="slider deck-slider"
+        style={{ background: fill }}
+      />
+    </label>
   );
 }
 
