@@ -28,6 +28,7 @@ import {
   updateVisuals,
 } from "@/lib/strudel-client";
 import { useKeyboardInset } from "@/lib/use-keyboard-inset";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import {
   cardFeeCents,
   CREDIT_PACK_USD,
@@ -212,6 +213,9 @@ export default function ZaltzIDE() {
   // Phones OVERLAY the keyboard — without this the transport (and the ⇥ take
   // pill) vanish behind it the moment a pane focuses.
   const kbInset = useKeyboardInset();
+  // Copy law: a phone is NEVER told to press keys it doesn't have — every
+  // in-pane hint speaks buttons on touch, chords on desktop.
+  const touch = useIsMobile("(pointer: coarse)");
 
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -1019,7 +1023,11 @@ export default function ZaltzIDE() {
             onGhostAccept={killGhost}
             onGhostDismiss={killGhost}
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
-            placeholder={`setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then ⌘↵ — the room hears you`}
+            placeholder={
+              touch
+                ? `setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then tap ▶ run — the room hears you\n// stuck? ✦ complete writes the next line`
+                : `setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then ⌘↵ — the room hears you\n// stuck? ✦ complete writes the next line`
+            }
           />
         </section>
         <section
@@ -1049,7 +1057,11 @@ export default function ZaltzIDE() {
             onGhostAccept={killGhost}
             onGhostDismiss={killGhost}
             onCaretIdle={(ctx) => void requestGhost("hydra", ctx)}
-            placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code`}
+            placeholder={
+              touch
+                ? `osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — tap ▶ run`
+                : `osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ⌘↵ paints them`
+            }
           />
         </section>
       </div>
@@ -1187,16 +1199,19 @@ export default function ZaltzIDE() {
                 the machine is taking a pass…
               </span>
             ) : (
-              <>
-                <span className="sm:hidden">
+              // The same law as the placeholders: chords for pointers,
+              // buttons for thumbs — an iPad counts as thumbs.
+              touch ? (
+                <>
                   ✦ complete conjures a ghost — ⇥ take drops it in. Play it clean
                   and tweaks appear.
-                </span>
-                <span className="hidden sm:inline">
+                </>
+              ) : (
+                <>
                   ghosts land as you type — ⇥ takes one, ✦ complete (or ⌥\)
                   summons one. Play it clean and the machine offers tweaks.
-                </span>
-              </>
+                </>
+              )
             )}
           </p>
         )}
