@@ -932,10 +932,21 @@ interface PerfFx {
 }
 let perfFx: PerfFx | null = null;
 
-/** Build + splice the master perf chain (idempotent). Called at SET play
- *  start — the song page never installs it, keeping its path untouched. */
+/** The stored chain is only real if it lives on the CURRENT AudioContext —
+ *  after an engine recycle, a stale perfFx is a zombie: dial writes land on
+ *  dead nodes (the "drown pad does nothing" bug, 2026-07-27) and reconnecting
+ *  its `out` throws "AudioNode belonging to a different audio context". */
+function perfFxAlive(): boolean {
+  const ac = audioContext();
+  return !!perfFx && !!ac && perfFx.input.context === ac;
+}
+
+/** Build + splice the master perf chain (idempotent per CONTEXT — a chain
+ *  from a dead context is discarded and rebuilt). Called at SET play start —
+ *  the song page never installs it, keeping its path untouched. */
 export function ensurePerfFx(): void {
-  if (perfFx) return;
+  if (perfFxAlive()) return;
+  perfFx = null; // a stale chain (dead context) is rebuilt fresh
   installLimiter(); // the chain hangs POST-limiter — splice order matters
   const ac = audioContext();
   const tap = outputTap ?? masterNode();
@@ -1021,7 +1032,7 @@ export function ensurePerfFx(): void {
 
 /** The node whose downstream edge routeSink()/the bg sink move around. */
 function finalTap(): AudioNode | undefined {
-  return perfFx?.out ?? outputTap ?? masterNode();
+  return (perfFxAlive() ? perfFx?.out : undefined) ?? outputTap ?? masterNode();
 }
 
 // --- PLAY DIAGNOSTIC (klappnDebug only) ----------------------------------------
@@ -2619,7 +2630,7 @@ export function setLivePerf(perf: {
   tail?: number;
 }): boolean {
   const ac = audioContext();
-  if (!perfFx || !ac) return false;
+  if (!perfFxAlive() || !perfFx || !ac) return false;
   const t = ac.currentTime;
   const RAMP = 0.04; // zipper-free but immediate to the ear
   const set = (p: AudioParam, v: number) => {
@@ -4874,7 +4885,17 @@ export { isMobileDevice };
 /** Evaluate and start one part's pattern (it loops — expected).
  *  `owner` identifies whose music this is (song/set/page id) — a live session
  *  with the SAME owner hands over by crossfade; anything else is cut. */
-export async function playPart(partId: string, code: string, owner?: string): Promise<void> {
+export async function playPart(
+  partId: string,
+  code: string,
+  owner?: string,
+  /** SEAMLESS same-owner re-eval (the IDE's take/⌘↵ mid-set): no cycle-0
+   *  reset, no 1.2s retire — the engine swaps the pattern in place and the
+   *  cursor keeps counting (zaltzEvaluate's SWAP path), so the room never
+   *  hears a seam. Ignored on a fresh start or a different owner's takeover
+   *  (those still land on the downbeat / cut as before). */
+  seamless = false,
+): Promise<void> {
   stopSong(); // a single part takes over from any running song
   transportActive = true; // visuals lock to the music while it plays
   armPlayDiagnostic("playPart"); // klappnDebug only — records the first 4s
@@ -4908,13 +4929,17 @@ export async function playPart(partId: string, code: string, owner?: string): Pr
   void enableBackgroundPlayback();
   assertMaxPolyphony(); // cap voices AFTER the engine's NaN init (see the note)
   // Reset the scheduler to cycle 0 so the loop starts at its DOWNBEAT (bar 1) —
-  // via hush on the repl path, via the takeover re-anchor on zaltz.
-  try {
-    web.hush();
-    if (sdTakeover) zaltzTakeoverNext = true;
-    else if (zaltzActive()) zaltzHush();
-  } catch {
-    /* ignore — worst case it starts mid-cycle as before */
+  // via hush on the repl path, via the takeover re-anchor on zaltz. A SEAMLESS
+  // same-owner re-eval skips ALL of it: no hush, no takeover flag — the next
+  // evaluate lands on the engine's phase-preserving SWAP path.
+  if (!(sdTakeover && seamless)) {
+    try {
+      web.hush();
+      if (sdTakeover) zaltzTakeoverNext = true;
+      else if (zaltzActive()) zaltzHush();
+    } catch {
+      /* ignore — worst case it starts mid-cycle as before */
+    }
   }
   currentPartId = partId; // set BEFORE eval so a build error attributes to the right loop
   try {

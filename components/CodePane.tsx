@@ -5,8 +5,10 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type KeyboardEvent,
 } from "react";
 
@@ -119,7 +121,36 @@ const CodePane = forwardRef<
 ) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const ghostCaretRef = useRef<number>(-1);
+
+  // THE TAKE PILL SITS AT THE GHOST (user 07-27: a corner button read as
+  // unrelated) — measured off the ghost's last rendered line, clamped inside
+  // the pane, so the button visibly belongs to the grey text it takes.
+  const [pillPos, setPillPos] = useState<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!ghost) {
+      setPillPos(null);
+      return;
+    }
+    const content = contentRef.current;
+    const el = content?.querySelector(".tok-ghost");
+    if (!content || !el) {
+      setPillPos(null);
+      return;
+    }
+    const rects = el.getClientRects();
+    const last = rects[rects.length - 1];
+    if (!last) {
+      setPillPos(null);
+      return;
+    }
+    const box = content.getBoundingClientRect();
+    setPillPos({
+      top: last.bottom - box.top + 6,
+      left: Math.max(8, Math.min(last.left - box.left, content.clientWidth - 104)),
+    });
+  }, [ghost, value]);
 
   // With a ghost up, the twin renders before + ghost + after; the textarea
   // knows nothing about it (alignment guaranteed by the parent's truncation
@@ -308,7 +339,7 @@ const CodePane = forwardRef<
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} className="code-pane relative flex-1 overflow-y-auto overscroll-contain">
         <div ref={flashRef} aria-hidden className="pointer-events-none absolute inset-0 z-[2]" />
-        <div className="relative min-h-full">
+        <div ref={contentRef} className="relative min-h-full">
           <pre
             aria-hidden
             className="code-layer pointer-events-none relative"
@@ -346,23 +377,31 @@ const CodePane = forwardRef<
               pondering ? " caret-thinking" : ""
             }`}
           />
+          {/* The ghost's handle — a real button, because phones have no ⇥.
+              It sits AT the ghost (measured off its last line) so it visibly
+              belongs to the grey text it takes, and scrolls with the code.
+              pointerDown (not click) so the textarea never blurs first, which
+              would dismiss the very ghost being taken. */}
+          {ghost && pillPos && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                insertText(ghost);
+                onGhostAccept?.();
+              }}
+              style={{
+                top: pillPos.top,
+                left: pillPos.left,
+                backgroundImage:
+                  "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)",
+              }}
+              className="absolute z-[3] rounded-full px-3 py-1.5 text-[12.5px] font-medium text-white shadow-[0_0_30px_-8px_rgba(224,49,156,.9)] transition active:scale-[.96]"
+            >
+              <span className="[@media(pointer:coarse)]:hidden">⇥ </span>take
+            </button>
+          )}
         </div>
       </div>
-      {/* The ghost's handle — a real button, because phones have no ⇥.
-          pointerDown (not click) so the textarea never blurs first, which
-          would dismiss the very ghost being taken. */}
-      {ghost && (
-        <button
-          onPointerDown={(e) => {
-            e.preventDefault();
-            insertText(ghost);
-            onGhostAccept?.();
-          }}
-          className="absolute bottom-2.5 right-2.5 z-[3] rounded-full border border-accent/40 bg-black/70 px-3 py-1.5 text-[12.5px] text-accent-strong shadow-[0_0_30px_-10px_rgba(224,49,156,.7)] backdrop-blur-xl transition active:scale-[.96]"
-        >
-          ⇥ take
-        </button>
-      )}
     </div>
   );
 });

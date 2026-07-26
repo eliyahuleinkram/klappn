@@ -427,6 +427,9 @@ export default function ZaltzIDE() {
           transpose: keyRef.current,
         }),
         "zaltz-ide",
+        // SEAMLESS: a re-eval of the live session hot-swaps in place — no
+        // cycle-0 restart, no retire. Takes and ⌘↵ land mid-set without a seam.
+        true,
       );
       if (runId.current !== id) {
         try {
@@ -581,7 +584,7 @@ export default function ZaltzIDE() {
   function newSketch() {
     setStrudel("");
     setHydra("");
-    setTitle("untitled grain");
+    setTitle("untitled");
     setSketchId(null);
     setDirty(false);
     setSheet(null);
@@ -885,6 +888,31 @@ export default function ZaltzIDE() {
     }
   };
 
+  // SOLO VISUALS — the VJ posture (user 07-27): just the picture and the
+  // hydra pane, everything else gone. Rides browser fullscreen where it
+  // exists; works in-page where it doesn't (iPhone).
+  const [soloVisuals, setSoloVisuals] = useState(false);
+  const toggleSoloVisuals = () => {
+    setSoloVisuals((v) => {
+      const next = !v;
+      try {
+        if (next && !document.fullscreenElement)
+          void document.documentElement.requestFullscreen?.();
+        else if (!next && document.fullscreenElement) void document.exitFullscreen();
+      } catch {
+        /* fullscreen denied — solo still works in-page */
+      }
+      return next;
+    });
+  };
+  // Esc out of browser fullscreen leaves solo too (transition-edge only, so
+  // devices that never entered fullscreen keep their in-page solo).
+  const wasFullscreen = useRef(false);
+  useEffect(() => {
+    if (wasFullscreen.current && !fullscreen) setSoloVisuals(false);
+    wasFullscreen.current = fullscreen;
+  }, [fullscreen]);
+
   // Does the pane have voices to mix at all? (The handle hides on an empty bench.)
   const hasVoices = useMemo(() => /^\s*_?\$:/m.test(strudel), [strudel]);
 
@@ -1072,13 +1100,8 @@ export default function ZaltzIDE() {
       setFixing(false);
     }
   };
-  const tokenChip = !me
-    ? "…"
-    : me.owner
-      ? "∞"
-      : me.signedIn
-        ? fmtTokens(Math.max(0, remaining ?? 0))
-        : "tokens";
+  // (The header token chip died 2026-07-27 — the profile orb + tokens sheet
+  // carry the meter now; less chrome on the instrument.)
 
   // The run button IS the transport (user's law: hit run, it turns into
   // stop, that is it): `stop` given + active → the same button reads ■ stop.
@@ -1091,6 +1114,7 @@ export default function ZaltzIDE() {
     run: () => void,
     active: boolean,
     stop?: () => void,
+    extra?: React.ReactNode,
   ) => (
     <div className="flex items-center gap-2 border-b border-white/[0.06] px-3.5 py-2">
       <span
@@ -1104,6 +1128,7 @@ export default function ZaltzIDE() {
       {!touch && (
         <span className="hidden text-[11px] text-muted/45 sm:inline">{hint}</span>
       )}
+      {extra}
       <button
         onClick={stop && active ? stop : run}
         className={`rounded-full px-2.5 py-1 text-[11.5px] transition active:scale-[.96] ${
@@ -1129,7 +1154,8 @@ export default function ZaltzIDE() {
         className="pointer-events-none fixed inset-0 -z-[1] bg-[linear-gradient(to_bottom,rgba(0,0,0,.42),transparent_22%,transparent_62%,rgba(0,0,0,.55))]"
       />
 
-      {/* ── top bar ─────────────────────────────────────────────────────── */}
+      {/* ── top bar (gone in solo — the picture owns the room) ──────────── */}
+      {!soloVisuals && (
       <header className="flex items-center gap-2.5 py-2.5">
         <Link href="/" className="flex shrink-0 items-center gap-2" title="Klappn">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1150,22 +1176,10 @@ export default function ZaltzIDE() {
           }}
           spellCheck={false}
           className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-1 text-[14px] text-foreground/90 outline-none transition placeholder:text-muted/40 hover:bg-white/[0.04] focus:bg-white/[0.05]"
-          placeholder="name this grain"
+          placeholder="name it"
         />
-        {/* No Save button — work is simply KEPT, and the word says so (the
-            old 6px dot was illegible — user: "what is that dot doing"). */}
-        <span
-          title={
-            me?.signedIn
-              ? undefined
-              : "kept in this browser — a session picks it up the moment you touch the machine"
-          }
-          className={`shrink-0 select-none text-[11px] tracking-[0.05em] transition-colors duration-500 ${
-            dirty || saving ? "text-accent-strong/80" : "text-muted/40"
-          }`}
-        >
-          {dirty || saving ? "keeping…" : "kept"}
-        </span>
+        {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
+            less is more): the work simply keeps itself, silently. */}
         <button
           onClick={toggleCopilot}
           className={`hidden shrink-0 rounded-full px-3 py-1.5 text-[12.5px] transition active:scale-[.97] sm:inline-flex ${
@@ -1180,7 +1194,7 @@ export default function ZaltzIDE() {
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="hidden shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-muted transition hover:text-foreground active:scale-[.97] sm:inline-flex"
-        >Grains</button>
+        >Crate</button>
         {canFullscreen && (
           <button
             onClick={toggleFullscreen}
@@ -1194,37 +1208,36 @@ export default function ZaltzIDE() {
             ⛶
           </button>
         )}
+        {/* ONE door for the person (user 07-27: the token pill was "a bit
+            much" — less is more): a profile orb, like klappn.com. Everything
+            about YOU — balance, top-ups, claim/sign-in — lives one tap deep
+            in the tokens sheet. When the tokens run dry the orb burns. */}
         <button
           onClick={() => setSheet(sheet === "tokens" ? null : "tokens")}
-          className={`shrink-0 rounded-full border px-3 py-1.5 text-[12.5px] tabular-nums backdrop-blur-xl transition active:scale-[.97] ${
+          title={
             spent
-              ? "animate-pulse border-accent/60 bg-accent/[0.12] text-accent-strong shadow-[0_0_44px_-10px_rgba(224,49,156,.9)]"
-              : "border-accent/25 bg-black/40 text-foreground/90 shadow-[0_0_30px_-14px_rgba(224,49,156,.6)] hover:border-accent/45"
+              ? "The machine waits — feed it"
+              : me?.signedIn && !me.isGuest
+                ? (me.email ?? "You")
+                : "You — tokens, and claiming your work"
+          }
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12.5px] font-medium backdrop-blur-xl transition active:scale-[.95] ${
+            spent
+              ? "animate-pulse bg-accent/[0.18] text-accent-strong ring-2 ring-accent/60 shadow-[0_0_44px_-10px_rgba(224,49,156,.9)]"
+              : "bg-white/[0.06] text-foreground/85 ring-1 ring-inset ring-accent/30 hover:ring-accent/60"
           }`}
-          title={spent ? "The machine waits — feed it" : "Tokens"}
         >
-          <span className="mr-1 text-accent-strong">✦</span>
-          {tokenChip}
+          {me?.signedIn && !me.isGuest && me.email ? (
+            <span className="uppercase">{me.email[0]}</span>
+          ) : (
+            <span className="text-[10px] lowercase text-muted/80">you</span>
+          )}
         </button>
-        {me?.signedIn && !me.isGuest ? (
-          <span
-            className="hidden max-w-[9rem] truncate text-[12px] text-muted/60 sm:inline"
-            title={me.email ?? undefined}
-          >
-            {me.email}
-          </span>
-        ) : (
-          <button
-            onClick={() => setSheet("signin")}
-            className="shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-muted transition hover:text-accent-strong active:scale-[.97]"
-            title="Sign in — everything you make here becomes yours forever"
-          >
-            Claim
-          </button>
-        )}
       </header>
+      )}
 
       {/* ── mobile pane tabs ────────────────────────────────────────────── */}
+      {!soloVisuals && (
       <div className="mb-2 flex items-center gap-1.5 sm:hidden">
         {(["strudel", "hydra"] as const).map((p) => (
           <button
@@ -1253,14 +1266,17 @@ export default function ZaltzIDE() {
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted transition active:scale-[.97]"
-        >Grains</button>
+        >Crate</button>
       </div>
+      )}
 
       {/* ── the panes ───────────────────────────────────────────────────── */}
       <div className="flex min-h-0 flex-1 gap-3">
         <section
-          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex sm:w-[58%] ${
-            mobilePane === "strudel" ? "flex w-full" : "hidden"
+          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] ${
+            soloVisuals
+              ? "!hidden"
+              : `sm:flex sm:w-[58%] ${mobilePane === "strudel" ? "flex w-full" : "hidden"}`
           }`}
         >
           {paneHeader(
@@ -1298,8 +1314,10 @@ export default function ZaltzIDE() {
           />
         </section>
         <section
-          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex ${
-            mobilePane === "hydra" ? "flex w-full" : "hidden"
+          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.08] backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex ${
+            soloVisuals
+              ? "flex w-full bg-black/25"
+              : `bg-black/45 ${mobilePane === "hydra" ? "flex w-full" : "hidden"}`
           }`}
         >
           {paneHeader(
@@ -1307,6 +1325,24 @@ export default function ZaltzIDE() {
             ghost?.pane === "hydra" ? "⇥ takes the ghost" : "⌘↵ paints it",
             runVisuals,
             playing && !!hydra.trim(),
+            undefined,
+            // SOLO — the VJ posture: just the picture and this pane.
+            <button
+              key="solo"
+              onClick={toggleSoloVisuals}
+              title={
+                soloVisuals
+                  ? "Back to the desk"
+                  : "Solo the visuals — just the picture and this pane"
+              }
+              className={`rounded-full px-2.5 py-1 text-[11.5px] leading-none transition active:scale-[.96] ${
+                soloVisuals
+                  ? "bg-accent/[0.16] text-accent-strong ring-1 ring-inset ring-accent/40"
+                  : "bg-white/[0.06] text-foreground/85 hover:bg-accent/20 hover:text-accent-strong"
+              }`}
+            >
+              ⛶
+            </button>,
           )}
           <CodePane
             ref={hydraPane}
@@ -1392,7 +1428,7 @@ export default function ZaltzIDE() {
       {/* ── the desk — the Sets deck's machinery worn by the instrument:
           SEASON TO TASTE (components/ZaltzMixer). Pure view; the audio wiring
           (kills, master chain, scheduler nudge, canvas filters) stays here. */}
-      {(hasVoices || hydra.trim()) && (
+      {!soloVisuals && (hasVoices || hydra.trim()) && (
         <ZaltzMixer
           open={mixerOpen}
           onToggle={() => setMixerOpen((o) => !o)}
@@ -1430,7 +1466,7 @@ export default function ZaltzIDE() {
             {sheet === "sketches" && (
               <>
                 <div className="flex items-center justify-between">
-                  <h2 className="text-[15px] font-medium text-foreground">Grains</h2>
+                  <h2 className="text-[15px] font-medium text-foreground">Crate</h2>
                   <button
                     onClick={newSketch}
                     className="rounded-full bg-accent/[0.14] px-3 py-1.5 text-[12.5px] text-foreground transition hover:bg-accent/[0.22] active:scale-[.97]"
@@ -1462,8 +1498,8 @@ export default function ZaltzIDE() {
                   </ul>
                 ) : (
                   <p className="mt-3 text-[13px] leading-relaxed text-muted">
-                    No grains yet — touch the bench and the work keeps itself
-                    here, grain by grain.
+                    Nothing in the crate yet — play, and the work keeps itself
+                    here.
                     {me?.signedIn && me.isGuest
                       ? " Guest work stays with this browser until you claim it."
                       : ""}

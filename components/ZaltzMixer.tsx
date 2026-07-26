@@ -96,8 +96,9 @@ export default function ZaltzMixer({
     <div className="mt-2 shrink-0">
       {/* OPEN, THE HANDLE IS THE PANEL'S TOP EDGE — same border, same glass,
           no seam: rounded top, flat bottom, the desk continues beneath. The
-          words work the salt: you don't operate this desk, you season with
-          it — and while the music plays the words warm up. */}
+          word is the club's own: MIXER — plain, honest, zero cleverness
+          (user 07-27: "season to taste" read cute-weird; the salt lives in
+          the brand, not in the furniture) — warming while the music plays. */}
       <button
         onClick={onToggle}
         title="The mixer — kills, pads, dials"
@@ -115,7 +116,7 @@ export default function ZaltzMixer({
               : "text-muted/60 group-hover:text-accent-strong"
           }`}
         >
-          season to taste
+          mixer
         </span>
         <span className="text-[10px] text-muted/40" aria-hidden>
           {open ? "▾" : "▴"}
