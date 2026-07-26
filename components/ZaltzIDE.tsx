@@ -166,6 +166,11 @@ $: note("<[e3,g3,b3] [c3,e3,g3] [g2,b2,d3] [a2,c3,e3]>").s("triangle").attack(2)
 
 const DRAFT_KEY = "zaltz-ide-draft-v1";
 
+/** A layer line's identity for the AI-name map: mute-prefix and whitespace
+ *  don't change what the voice IS; any other edit does (name falls back until
+ *  the next clean run re-hears it). */
+const layerSig = (line: string) => line.trim().replace(/^_/, "").slice(0, 120);
+
 /** Earlier placeholder copy leaked into some saved buffers as real comments —
  *  and it named keyboard chords, which lied on phones. Scrub the known legacy
  *  lines from anything we LOAD (draft or sketch); user-written code is never
@@ -681,6 +686,8 @@ export default function ZaltzIDE() {
   // live edit. Master is engine-level (fadeMaster) and moves DURING the drag.
   const [dialsOpen, setDialsOpen] = useState(false);
   const [master, setMaster] = useState(1);
+  // AI names per layer (line-signature → "Deep kick"), refreshed with tweaks.
+  const [layerNames, setLayerNames] = useState<Map<string, string>>(new Map());
 
   interface LayerDial {
     idx: number;
@@ -713,11 +720,13 @@ export default function ZaltzIDE() {
         return {
           idx: x.idx,
           muted,
-          label,
+          // The machine's human name when it has heard this exact line;
+          // the code sniff only until then.
+          label: layerNames.get(layerSig(x.line)) ?? label,
           gain: num ? parseFloat(num[1]) : patterned ? null : 0.8,
         };
       });
-  }, [strudel]);
+  }, [strudel, layerNames]);
 
   const applyLine = useCallback(
     (idx: number, fn: (line: string) => string) => {
@@ -775,11 +784,31 @@ export default function ZaltzIDE() {
         body: JSON.stringify({ strudel: s, hydra: h }),
       });
       if (!res.ok) return;
-      const d = (await res.json().catch(() => ({}))) as { tweaks?: Tweak[] };
+      const d = (await res.json().catch(() => ({}))) as {
+        tweaks?: Tweak[];
+        layerNames?: string[];
+      };
       if (Array.isArray(d.tweaks) && d.tweaks.length) {
         setTweaks(d.tweaks);
         meta.lastCode = code;
         meta.at = Date.now();
+      }
+      // The machine's human names for each `$:` line — the dials wear them.
+      // Keyed by the LINE ITSELF (trimmed), so an edited line falls back to
+      // the sniffed label until the next clean run re-names it.
+      if (Array.isArray(d.layerNames) && d.layerNames.length) {
+        const sigs = s
+          .split("\n")
+          .filter((l) => /^\s*_?\$:/.test(l))
+          .map(layerSig);
+        setLayerNames((prev) => {
+          const next = new Map(prev);
+          sigs.forEach((sig, i) => {
+            const name = d.layerNames?.[i];
+            if (name) next.set(sig, name);
+          });
+          return next;
+        });
       }
     } catch {
       /* chips just don't appear */
@@ -1245,12 +1274,12 @@ export default function ZaltzIDE() {
 
       {/* ── the dials — hands on the running code, no AI in the loop ────── */}
       {dialsOpen && (
-        <div className="mt-2 max-h-[34dvh] overflow-y-auto rounded-2xl border border-white/[0.08] bg-black/60 p-3.5 backdrop-blur-2xl">
-          <div className="flex items-center gap-3">
-            <span className="w-8 shrink-0 text-center text-[13px] text-accent-strong/80">
-              ∞
+        <div className="animate-rise mt-2 max-h-[38dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/75 to-black/55 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+          <div className="flex items-center gap-3.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden>
+              <span className="h-2 w-2 rounded-full bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_16px_rgba(224,49,156,.9)]" />
             </span>
-            <span className="w-24 shrink-0 truncate text-[12px] font-medium text-foreground/85 sm:w-28">
+            <span className="wordmark text-gradient w-24 shrink-0 truncate text-[15px] sm:w-32">
               master
             </span>
             <Dial
@@ -1267,28 +1296,34 @@ export default function ZaltzIDE() {
             />
           </div>
           {layers.length > 0 ? (
-            <ul className="mt-2.5 space-y-2">
-              {layers.map((l) => (
-                <li key={`${l.idx}:${l.muted}:${l.gain ?? "p"}`} className="flex items-center gap-3">
+            <ul className="mt-3 space-y-2.5">
+              {layers.map((l, i) => (
+                <li
+                  key={`${l.idx}:${l.muted}:${l.gain ?? "p"}`}
+                  style={{ "--i": i } as CSSProperties}
+                  className="animate-rise group flex items-center gap-3.5 rounded-xl px-1 py-0.5 transition hover:bg-white/[0.03]"
+                >
                   <button
                     onClick={() => toggleLayerMute(l.idx)}
                     title={
                       l.muted
-                        ? "Unmute — the layer steps back in"
-                        : "Mute this layer (the line keeps its place)"
+                        ? "Unmute — the voice steps back in on the next phrase"
+                        : "Mute this voice (its line stays, silenced)"
                     }
                     aria-label={l.muted ? `Unmute ${l.label}` : `Mute ${l.label}`}
-                    className={`flex h-7 w-8 shrink-0 items-center justify-center rounded-full text-[13px] transition active:scale-[.92] ${
-                      l.muted
-                        ? "text-muted/40 hover:text-foreground"
-                        : "text-accent-strong drop-shadow-[0_0_8px_rgba(224,49,156,.8)]"
-                    }`}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition active:scale-[.9]"
                   >
-                    {l.muted ? "○" : "●"}
+                    <span
+                      className={`rounded-full transition-all duration-300 ${
+                        l.muted
+                          ? "h-2 w-2 border border-white/30 bg-transparent"
+                          : "h-2.5 w-2.5 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_14px_rgba(224,49,156,.9)]"
+                      }`}
+                    />
                   </button>
                   <span
-                    className={`w-24 shrink-0 truncate text-[12px] sm:w-28 ${
-                      l.muted ? "text-muted/40 line-through" : "text-foreground/80"
+                    className={`w-24 shrink-0 truncate text-[13px] transition sm:w-32 ${
+                      l.muted ? "text-muted/40 line-through" : "text-foreground/90"
                     }`}
                     title={l.label}
                   >
@@ -1303,15 +1338,11 @@ export default function ZaltzIDE() {
               ))}
             </ul>
           ) : (
-            <p className="mt-2.5 text-[12px] leading-relaxed text-muted/50">
+            <p className="mt-3 text-[12.5px] leading-relaxed text-muted/60">
               Write a <span className="font-mono text-accent-strong/80">$:</span>{" "}
-              layer and it grows a fader here.
+              line and it grows a fader here — every voice under a finger.
             </p>
           )}
-          <p className="mt-3 text-[11px] leading-relaxed text-muted/40">
-            The dials write the code itself — ● mutes a line, a fader rewrites
-            its .gain — and land in the running mix on the next phrase.
-          </p>
         </div>
       )}
 

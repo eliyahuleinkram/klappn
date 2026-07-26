@@ -148,23 +148,27 @@ export function cleanCompletion(raw: string, before: string): string {
 
 // ── TWEAKS — one-tap next moves, generated after a CLEAN run ─────────────────
 
-export const TWEAKS_SYSTEM = `You suggest one-tap TWEAKS for a live-coded loop (a Strudel music pane + a Hydra visual pane; either may be empty). Given the panes, return JSON ONLY:
-{"tweaks":[{"name":"<1-3 words>","ask":"<the change, imperative, ≤120 chars>"}]}
-4 or 5 tweaks. Each is a DISTINCT move a live coder would actually reach for next — groove, texture, energy, space, light. At least ONE tweak is for the VISUAL: reshape the hydra pane when it has code, or introduce a visual when it's empty (say so in the ask). Names a non-musician reads at a glance; asks concrete enough to execute. Never a tweak that just undoes another.`;
+export const TWEAKS_SYSTEM = `You are given a live-coded loop (a Strudel music pane + a Hydra visual pane; either may be empty). Return JSON ONLY:
+{"tweaks":[{"name":"<1-3 words>","ask":"<the change, imperative, ≤120 chars>"}],
+ "layers":[{"n":<1-based position of the \`$:\` line>,"name":"<what this voice IS, 1-3 words a non-musician reads: "Deep kick", "Acid bass", "Shimmer hats">"}]}
+TWEAKS: 4 or 5, each a DISTINCT move a live coder would actually reach for next — groove, texture, energy, space, light. At least ONE is for the VISUAL: reshape the hydra pane when it has code, or introduce a visual when it's empty (say so in the ask). Names a non-musician reads at a glance; asks concrete enough to execute. Never a tweak that just undoes another.
+LAYERS: one entry per \`$:\` (or muted \`_$:\`) line of the STRUDEL pane, in order — name what it sounds like, never the code.`;
 
 export interface Tweak {
   name: string;
   ask: string;
 }
 
-/** Tolerant parse of the tweaks JSON (fences, stray prose around it). */
-export function parseTweaks(raw: string): Tweak[] {
+/** Tolerant parse of the tweaks JSON (fences, stray prose around it). Also
+ *  carries the AI's human NAMES for each `$:` layer, in pane order — the
+ *  dials wear these so a non-musician knows what every fader IS. */
+export function parseTweaks(raw: string): { tweaks: Tweak[]; layerNames: string[] } {
+  const none = { tweaks: [], layerNames: [] };
   const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) return [];
+  if (!m) return none;
   try {
-    const d = JSON.parse(m[0]) as { tweaks?: unknown };
-    if (!Array.isArray(d.tweaks)) return [];
-    return d.tweaks
+    const d = JSON.parse(m[0]) as { tweaks?: unknown; layers?: unknown };
+    const tweaks = (Array.isArray(d.tweaks) ? d.tweaks : [])
       .filter(
         (t): t is Tweak =>
           !!t &&
@@ -173,7 +177,18 @@ export function parseTweaks(raw: string): Tweak[] {
       )
       .slice(0, 5)
       .map((t) => ({ name: t.name.trim().slice(0, 40), ask: t.ask.trim().slice(0, 160) }));
+    const byN = new Map<number, string>();
+    for (const l of Array.isArray(d.layers) ? d.layers : []) {
+      const e = l as { n?: unknown; name?: unknown };
+      if (typeof e.n === "number" && typeof e.name === "string" && e.name.trim())
+        byN.set(e.n, e.name.trim().slice(0, 28));
+    }
+    const layerNames: string[] = [];
+    for (let i = 1; i <= byN.size + 8 && layerNames.length < 24; i++) {
+      if (byN.has(i)) layerNames[i - 1] = byN.get(i)!;
+    }
+    return { tweaks, layerNames };
   } catch {
-    return [];
+    return none;
   }
 }

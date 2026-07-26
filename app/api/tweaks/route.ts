@@ -58,7 +58,8 @@ ${hydra.trim() ? hydra : "(empty)"}`,
         trace: { kind: "ide-tweaks" },
       },
     );
-    return Response.json({ tweaks: parseTweaks(raw) });
+    const { tweaks, layerNames } = parseTweaks(raw);
+    return Response.json({ tweaks, layerNames });
   } catch (e) {
     console.error("[klappn] tweaks failed:", e);
     return Response.json({ tweaks: [] }); // chips just don't appear
