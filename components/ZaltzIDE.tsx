@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -16,6 +17,7 @@ import { authClient } from "@/lib/auth-client";
 import { attachHydraBlock } from "@/lib/hydra-embed";
 import { openDeep } from "@/lib/seal";
 import {
+  fadeMaster,
   pausePlayback,
   playPart,
   resumePlayback,
@@ -633,7 +635,15 @@ export default function ZaltzIDE() {
           method: "POST",
           signal: ac.signal,
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ pane, before: ctx.before, after: ctx.after }),
+          body: JSON.stringify({
+            pane,
+            before: ctx.before,
+            after: ctx.after,
+            // The other pane rides along — a hydra ghost should know the loop
+            // it lights; a strudel ghost, the light it moves under.
+            context:
+              pane === "strudel" ? stateRef.current.hydra : stateRef.current.strudel,
+          }),
         });
         if (!res.ok) return; // 402/429 → quiet; the meter chip tells the story
         const d = openDeep((await res.json().catch(() => ({}))) as { ghost?: string });
@@ -663,6 +673,76 @@ export default function ZaltzIDE() {
     ghostSeq.current++;
     setGhost(null);
   }, []);
+
+  // ── THE DIALS — zero-AI live control over the code itself ────────────────
+  // Each `$:` line is a fader row: mute rewrites the prefix to `_$:` (the
+  // language's own mute), the slider rewrites that line's .gain(n). Commits
+  // re-eval mid-play, so the change crossfades into the running mix like any
+  // live edit. Master is engine-level (fadeMaster) and moves DURING the drag.
+  const [dialsOpen, setDialsOpen] = useState(false);
+  const [master, setMaster] = useState(1);
+
+  interface LayerDial {
+    idx: number;
+    muted: boolean;
+    label: string;
+    /** null = patterned gain ("0.3 0.42") — the fader steps aside for it. */
+    gain: number | null;
+  }
+  const layers = useMemo<LayerDial[]>(() => {
+    let n = 0;
+    return strudel
+      .split("\n")
+      .map((line, idx) => ({ line, idx }))
+      .filter((x) => /^\s*_?\$:/.test(x.line))
+      .map((x) => {
+        n++;
+        const muted = /^\s*_\$:/.test(x.line);
+        const sound = x.line.match(/\.s\(\s*["'`]([\w:]+)["'`]/)?.[1];
+        const drum = x.line
+          .match(/\bs\(\s*["'`]([^"'`]+)["'`]/)?.[1]
+          ?.split(/[\s*!,<>[\]()~]+/)
+          .filter(Boolean)[0];
+        const bank = x.line.match(/\.bank\(\s*["'`](\w+)["'`]/)?.[1];
+        const label = (sound ?? drum ?? bank ?? `layer ${n}`)
+          .replace(/^gm_/, "")
+          .replace(/_/g, " ")
+          .slice(0, 16);
+        const num = x.line.match(/\.gain\(\s*([0-9.]+)\s*\)/);
+        const patterned = /\.gain\(\s*["'`]/.test(x.line);
+        return {
+          idx: x.idx,
+          muted,
+          label,
+          gain: num ? parseFloat(num[1]) : patterned ? null : 0.8,
+        };
+      });
+  }, [strudel]);
+
+  const applyLine = useCallback(
+    (idx: number, fn: (line: string) => string) => {
+      const lines = stateRef.current.strudel.split("\n");
+      if (idx < 0 || idx >= lines.length) return;
+      lines[idx] = fn(lines[idx]);
+      setStrudel(lines.join("\n"));
+      markDirty();
+      // Mid-set, the turn lands in the running mix (same-owner crossfade).
+      if (stateRef.current.playing) setTimeout(() => void runMusic(), 40);
+    },
+    [markDirty, runMusic],
+  );
+  const toggleLayerMute = (idx: number) =>
+    applyLine(idx, (l) =>
+      /^\s*_\$:/.test(l) ? l.replace("_$:", "$:") : l.replace("$:", "_$:"),
+    );
+  const commitLayerGain = (idx: number, v: number) => {
+    const g = Math.round(v * 100) / 100;
+    applyLine(idx, (l) =>
+      /\.gain\(\s*[0-9.]+\s*\)/.test(l)
+        ? l.replace(/\.gain\(\s*[0-9.]+\s*\)/, `.gain(${g})`)
+        : l.replace(/\s*$/, `.gain(${g})`),
+    );
+  };
 
   function toggleCopilot() {
     setCopilot((on) => {
@@ -1163,7 +1243,79 @@ export default function ZaltzIDE() {
         </div>
       )}
 
-      {/* ── transport + the machine's next moves (offered, never applied) ── */}
+      {/* ── the dials — hands on the running code, no AI in the loop ────── */}
+      {dialsOpen && (
+        <div className="mt-2 max-h-[34dvh] overflow-y-auto rounded-2xl border border-white/[0.08] bg-black/60 p-3.5 backdrop-blur-2xl">
+          <div className="flex items-center gap-3">
+            <span className="w-8 shrink-0 text-center text-[13px] text-accent-strong/80">
+              ∞
+            </span>
+            <span className="w-24 shrink-0 truncate text-[12px] font-medium text-foreground/85 sm:w-28">
+              master
+            </span>
+            <Dial
+              value={master}
+              max={1}
+              onLive={(v) => {
+                setMaster(v);
+                try {
+                  fadeMaster(v, 0.05);
+                } catch {
+                  /* engine not up yet — the dial still remembers */
+                }
+              }}
+            />
+          </div>
+          {layers.length > 0 ? (
+            <ul className="mt-2.5 space-y-2">
+              {layers.map((l) => (
+                <li key={`${l.idx}:${l.muted}:${l.gain ?? "p"}`} className="flex items-center gap-3">
+                  <button
+                    onClick={() => toggleLayerMute(l.idx)}
+                    title={
+                      l.muted
+                        ? "Unmute — the layer steps back in"
+                        : "Mute this layer (the line keeps its place)"
+                    }
+                    aria-label={l.muted ? `Unmute ${l.label}` : `Mute ${l.label}`}
+                    className={`flex h-7 w-8 shrink-0 items-center justify-center rounded-full text-[13px] transition active:scale-[.92] ${
+                      l.muted
+                        ? "text-muted/40 hover:text-foreground"
+                        : "text-accent-strong drop-shadow-[0_0_8px_rgba(224,49,156,.8)]"
+                    }`}
+                  >
+                    {l.muted ? "○" : "●"}
+                  </button>
+                  <span
+                    className={`w-24 shrink-0 truncate text-[12px] sm:w-28 ${
+                      l.muted ? "text-muted/40 line-through" : "text-foreground/80"
+                    }`}
+                    title={l.label}
+                  >
+                    {l.label}
+                  </span>
+                  <Dial
+                    value={l.gain ?? 0.8}
+                    disabled={l.muted || l.gain === null}
+                    onCommit={(v) => commitLayerGain(l.idx, v)}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2.5 text-[12px] leading-relaxed text-muted/50">
+              Write a <span className="font-mono text-accent-strong/80">$:</span>{" "}
+              layer and it grows a fader here.
+            </p>
+          )}
+          <p className="mt-3 text-[11px] leading-relaxed text-muted/40">
+            The dials write the code itself — ● mutes a line, a fader rewrites
+            its .gain — and land in the running mix on the next phrase.
+          </p>
+        </div>
+      )}
+
+      {/* ── the rail: transport · the machine's moves · your hands ──────── */}
       <footer className="mt-2.5 flex items-center gap-2.5">
         <button
           onClick={
@@ -1190,56 +1342,54 @@ export default function ZaltzIDE() {
             ■
           </button>
         )}
-        {tweaks.length > 0 && !proposal ? (
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-1">
-            <span
-              className="shrink-0 text-[12px] text-accent-strong/80"
-              title="One tap asks for the change — the take still lands on your table first"
-            >
-              ✦
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-1">
+          {asking ? (
+            <span className="shimmer-text truncate text-[12.5px] text-accent-strong/80">
+              the machine is taking a pass…
             </span>
-            {tweaks.map((t) => (
-              <button
-                key={t.name + t.ask}
-                onClick={() => void conjure(t.ask)}
-                disabled={!!asking}
-                title={t.ask}
-                className={`shrink-0 rounded-full border border-accent/25 bg-accent/[0.07] px-3 py-1.5 text-[12.5px] text-foreground/90 backdrop-blur-xl transition hover:bg-accent/[0.16] hover:text-accent-strong active:scale-[.97] disabled:opacity-40 ${
-                  asking === t.ask ? "border-accent/50 text-accent-strong" : ""
-                }`}
-              >
-                {asking === t.ask ? (
-                  <span className="shimmer-text">{t.name}…</span>
-                ) : (
-                  t.name
-                )}
-              </button>
-            ))}
-            <button
-              onClick={() => setTweaks([])}
-              className="shrink-0 px-1.5 text-[12px] text-muted/50 transition hover:text-foreground"
-              aria-label="Hide tweaks"
-            >
-              ✕
-            </button>
-          </div>
-        ) : (
-          <p className="min-w-0 flex-1 truncate text-[12px] text-muted/40">
-            {asking ? (
-              <span className="shimmer-text text-accent-strong/80">
-                the machine is taking a pass…
-              </span>
-            ) : (
-              // BUTTONS FIRST, everywhere — ▶ run, ✦ complete and ⇥ take exist
-              // on every device; key chords are a keyboard-only postscript.
+          ) : (
+            tweaks.length > 0 &&
+            !proposal && (
               <>
-                ✦ complete conjures a ghost — ⇥ take drops it in. Play it clean
-                and tweaks appear.
-                {!touch && <span className="text-muted/30"> (keys: ⇥ · ⌥\ · ⌘↵)</span>}
+                <span
+                  className="shrink-0 text-[12px] text-accent-strong/80"
+                  title="One tap asks for the change — the take still lands on your table first"
+                >
+                  ✦
+                </span>
+                {tweaks.map((t) => (
+                  <button
+                    key={t.name + t.ask}
+                    onClick={() => void conjure(t.ask)}
+                    disabled={!!asking}
+                    title={t.ask}
+                    className="h-8 shrink-0 rounded-full border border-accent/25 bg-accent/[0.07] px-3 text-[12.5px] leading-8 text-foreground/90 backdrop-blur-xl transition hover:bg-accent/[0.16] hover:text-accent-strong active:scale-[.97] disabled:opacity-40"
+                  >
+                    {t.name}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setTweaks([])}
+                  className="shrink-0 px-1.5 text-[12px] text-muted/50 transition hover:text-foreground"
+                  aria-label="Hide tweaks"
+                >
+                  ✕
+                </button>
               </>
-            )}
-          </p>
-        )}
+            )
+          )}
+        </div>
+        <button
+          onClick={() => setDialsOpen((o) => !o)}
+          className={`shrink-0 rounded-full px-3.5 py-2 text-[12.5px] transition active:scale-[.97] ${
+            dialsOpen
+              ? "bg-accent/[0.16] text-accent-strong ring-1 ring-inset ring-accent/40"
+              : "bg-white/[0.06] text-muted backdrop-blur-xl hover:text-foreground"
+          }`}
+          title="Faders on every layer — your hands on the running code"
+        >
+          dials
+        </button>
       </footer>
 
       {/* ── sheets ──────────────────────────────────────────────────────── */}
@@ -1485,6 +1635,47 @@ export default function ZaltzIDE() {
         </div>
       )}
     </main>
+  );
+}
+
+/** One machined fader — the door's pink-filled range, wired for live hands:
+ *  onLive fires every movement (master rides it), onCommit on release (layer
+ *  gains rewrite code once, not per pixel). */
+function Dial({
+  value,
+  max = 1.2,
+  disabled = false,
+  onLive,
+  onCommit,
+}: {
+  value: number;
+  max?: number;
+  disabled?: boolean;
+  onLive?: (v: number) => void;
+  onCommit?: (v: number) => void;
+}) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  return (
+    <input
+      type="range"
+      className="door-range min-w-0 flex-1 disabled:opacity-30"
+      min={0}
+      max={max}
+      step={0.01}
+      value={v}
+      disabled={disabled}
+      style={{ "--p": `${(v / max) * 100}%` } as CSSProperties}
+      onChange={(e) => {
+        const nv = Number(e.target.value);
+        setV(nv);
+        onLive?.(nv);
+      }}
+      onPointerUp={() => onCommit?.(v)}
+      onKeyUp={(e) => {
+        if (e.key.startsWith("Arrow")) onCommit?.(v);
+      }}
+    />
   );
 }
 

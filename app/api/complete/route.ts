@@ -4,24 +4,33 @@ import { makeCallSink } from "@/lib/call-trace";
 import { complete } from "@/lib/llm";
 import { sealDeep } from "@/lib/seal";
 import { clientIp, rateLimit, tooMany } from "@/lib/rate-limit";
+import { hydraServerErrors } from "@/lib/hydra-eval";
 import {
   cleanCompletion,
   COMPLETE_HYDRA_SYSTEM,
   COMPLETE_STRUDEL_SYSTEM,
+  completeUserText,
 } from "@/lib/zaltz-assist";
 
 export const dynamic = "force-dynamic";
 
 /**
- * THE COPILOT'S FAST LANE — one small ghost-text completion at the caret.
- * Sonnet 5 with thinking DISABLED (latency is the product here; the Ask path
- * keeps Opus for the big takes) and a tight output cap. Throttled twice: the
- * client debounces the caret, and this per-IP gate stops a runaway loop.
+ * THE COPILOT'S FAST LANE — one ghost-text completion at the caret. Runs on
+ * OPUS 5 with thinking DISABLED (2026-07-26 switch from Sonnet after wrong
+ * hydra ghosts shipped — `.out().brightness()` crashed live; no-thinking keeps
+ * the latency, Opus keeps the dialect straight) with the OTHER pane as
+ * read-only context — a hydra ghost should know the loop it lights.
+ *
+ * And the Copilot/Cursor lesson applied: the model is only half the product —
+ * the other half is FILTERING. Every ghost is gated by the same static checks
+ * the assist path uses, DIFFERENTIALLY (only errors the ghost would ADD count
+ * — the coder's own unfinished pane is allowed to be unfinished). A ghost that
+ * fails gets ONE fast repair pass, then dies silently: no ghost beats a wrong
+ * ghost.
  *
  * Quota: assertQuota (the cheap pre-flight), not a reservation — a completion
- * is ~1-2k weighted units and the rate limit bounds parallel abuse; holding a
- * 30k reservation per keystroke would thrash the ledger for nothing. Spend is
- * metered for real via addTokenUsage, trajectories captured like every call.
+ * is ~1-2k weighted units and the rate limit bounds parallel abuse. Spend is
+ * metered via addTokenUsage, trajectories captured like every call.
  */
 export async function POST(req: Request) {
   const userId = await getUserId(req);
@@ -37,39 +46,94 @@ export async function POST(req: Request) {
     pane?: unknown;
     before?: unknown;
     after?: unknown;
+    context?: unknown;
   } | null;
   const pane = body?.pane === "hydra" ? "hydra" : "strudel";
   const before = typeof body?.before === "string" ? body.before.slice(-6000) : "";
   const after = typeof body?.after === "string" ? body.after.slice(0, 2000) : "";
+  const context =
+    typeof body?.context === "string" ? body.context.slice(0, 4000) : "";
   if (!before.trim()) return Response.json({ ghost: "" });
 
   const gate = await assertQuota(userId);
   if (gate) return gate;
 
+  const system = pane === "hydra" ? COMPLETE_HYDRA_SYSTEM : COMPLETE_STRUDEL_SYSTEM;
+  const userText = completeUserText(
+    before,
+    after,
+    context,
+    pane === "hydra" ? "STRUDEL PANE" : "HYDRA PANE",
+  );
   const sink = makeCallSink();
   try {
-    const raw = await complete(
-      pane === "hydra" ? COMPLETE_HYDRA_SYSTEM : COMPLETE_STRUDEL_SYSTEM,
-      `BEFORE (cursor at the end of this):
-${before}
-AFTER:
-${after || "(end of file)"}`,
-      {
-        model: "sonnet",
-        onUsage: (t: number) => void addTokenUsage(userId, t),
-        onCall: sink.onCall,
-      },
-      {
-        thinking: false,
-        maxTokens: 400,
+    const cfg = {
+      model: "opus",
+      onUsage: (t: number) => void addTokenUsage(userId, t),
+      onCall: sink.onCall,
+    };
+    const opts = { thinking: false, maxTokens: 400 } as const;
+    let ghost = cleanCompletion(
+      await complete(system, userText, cfg, {
+        ...opts,
         trace: { kind: "ide-complete" },
-      },
+      }),
+      before,
     );
-    return Response.json(sealDeep({ ghost: cleanCompletion(raw, before) }));
+    // THE FILTER: a ghost may not introduce errors the pane didn't already
+    // have. One fast repair pass, then silence — no ghost beats a wrong ghost.
+    let issues = await ghostIssues(pane, before, after, ghost);
+    if (issues.length) {
+      try {
+        ghost = cleanCompletion(
+          await complete(
+            system,
+            `${userText}
+
+YOUR PREVIOUS COMPLETION:
+${ghost}
+
+GATE — it breaks the pane; fix exactly these and output only the corrected insertion:
+${issues.map((e) => `- ${e}`).join("\n")}`,
+            cfg,
+            { ...opts, trace: { kind: "ide-complete", attempt: 1 } },
+          ),
+          before,
+        );
+        issues = await ghostIssues(pane, before, after, ghost);
+      } catch {
+        issues = ["repair failed"];
+      }
+      if (issues.length) {
+        console.log(`[klappn] ghost dropped (${pane}): ${issues[0]}`);
+        return Response.json({ ghost: "" });
+      }
+    }
+    return Response.json(sealDeep({ ghost }));
   } catch (e) {
     console.error("[klappn] complete failed:", e);
     return Response.json({ ghost: "" }); // a missing ghost is not an error state
   } finally {
     await sink.flush();
   }
+}
+
+/** Errors the ghost would ADD to the pane (differential — the coder's own
+ *  unfinished code is allowed to be unfinished). */
+async function ghostIssues(
+  pane: "strudel" | "hydra",
+  before: string,
+  after: string,
+  ghost: string,
+): Promise<string[]> {
+  if (!ghost.trim()) return [];
+  const whole = before + ghost + after;
+  const base = before + after;
+  if (pane === "hydra") {
+    const had = new Set(hydraServerErrors(base));
+    return hydraServerErrors(whole).filter((e) => !had.has(e));
+  }
+  const { validateStrudel } = await import("@/lib/strudel-validate");
+  const had = new Set(validateStrudel(base).errors);
+  return validateStrudel(whole).errors.filter((e) => !had.has(e));
 }

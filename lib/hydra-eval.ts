@@ -76,6 +76,14 @@ export function hydraServerErrors(code: string): string[] {
   if (!/\.out\s*\(/.test(s))
     errors.push("no .out() — the final chain must end with .out() or nothing renders");
 
+  // .out() returns undefined — chaining after it throws "Cannot read properties
+  // of undefined" at eval (seen live: `.out().brightness(...)`). The chain ENDS
+  // at .out().
+  if (/\.out\s*\([^)]*\)\s*\./.test(s))
+    errors.push(
+      ".out() ends a chain and returns nothing — calling anything after it throws; put the transform BEFORE .out()",
+    );
+
   const unknown = new Set<string>();
   const bare = new Set<string>();
   walk(ast, (node) => {

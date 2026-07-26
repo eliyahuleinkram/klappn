@@ -96,15 +96,33 @@ const COMPLETE_CONTRACT = `You are inline code-completion in a live-coding IDE. 
 
 export const COMPLETE_STRUDEL_SYSTEM = `${COMPLETE_CONTRACT}
 
-The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer. Stay in the file's key and grid; add layers that serve the loop (never double an existing voice).
+The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer. Stay in the file's key and grid; add layers that serve the loop (never double an existing voice). A HYDRA pane may be given as read-only context — never emit hydra code here.
 
 ${STRUDEL_SPEC}`;
 
 export const COMPLETE_HYDRA_SYSTEM = `${COMPLETE_CONTRACT}
 
-The file is a Hydra sketch for this IDE: chains ending in .out(), hydra's own clocks frozen, all motion via H(<strudel signal>).
+The file is a Hydra sketch for this IDE: chains ending in .out() (NOTHING chains after .out()), hydra's own clocks frozen, all motion via H(<strudel signal>). The STRUDEL pane may be given as read-only context — read its loop length and energy so every H() period divides the loop; never emit strudel code here.
 
 ${HYDRA_SPEC}`;
+
+/** The user block for one completion call — the other pane rides along as
+ *  read-only context (a hydra ghost should know the music it lights). */
+export function completeUserText(
+  before: string,
+  after: string,
+  context: string,
+  contextLabel: string,
+): string {
+  return `${
+    context.trim()
+      ? `${contextLabel} (read-only context):\n${context}\n\n`
+      : ""
+  }BEFORE (cursor at the end of this):
+${before}
+AFTER:
+${after || "(end of file)"}`;
+}
 
 /** Clean a raw completion: strip fences, drop overlap with what's already
  *  typed, kill trailing junk. Empty string = nothing to show. */
