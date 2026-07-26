@@ -10,9 +10,9 @@ import { HYDRA_SPEC } from "./hydra-spec";
  *  1. THE COPILOT — ghost completion at the caret (/api/complete). Opus 5
  *     thinking-DISABLED: dialect accuracy at no-thinking latency. The other
  *     pane rides along as read-only context.
- *  2. THE NAMER — after a clean run (/api/names), every `$:` line gets a
- *     human name ("Deep kick", "Acid bass") so the dials read like a desk,
- *     not a stack trace. Sonnet 5 no-thinking — naming is cheap.
+ *  (A NAMER — AI names on the mixer faders — lived here briefly; it died
+ *  2026-07-26 when the mixer became the Sets deck: deterministic channel
+ *  kills + master-chain dials need no names. Git history keeps it.)
  */
 
 // ── THE COPILOT ──────────────────────────────────────────────────────────────
@@ -69,30 +69,4 @@ export function cleanCompletion(raw: string, before: string): string {
   const lastLine = before.slice(before.lastIndexOf("\n") + 1);
   if (s && !s.startsWith("\n") && /^\s*\/\//.test(lastLine)) s = "\n" + s;
   return s;
-}
-
-// ── THE NAMER — human names for the dials, after a clean run ─────────────────
-
-export const NAMES_SYSTEM = `You are given a live-coded Strudel loop — one \`$:\` (or muted \`_$:\`) line per voice. Return JSON ONLY:
-{"layers":[{"n":<1-based position of the line>,"name":"<what this voice IS, 1-3 words a non-musician reads at a glance: "Deep kick", "Acid bass", "Shimmer hats">"}]}
-One entry per line, in order. Name what it SOUNDS like, never the code. Two similar voices get distinguishing names ("Low hats" / "Bright hats").`;
-
-/** Tolerant parse of the namer's JSON → names by 0-based layer position. */
-export function parseNames(raw: string): string[] {
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) return [];
-  try {
-    const d = JSON.parse(m[0]) as { layers?: unknown };
-    const byN = new Map<number, string>();
-    for (const l of Array.isArray(d.layers) ? d.layers : []) {
-      const e = l as { n?: unknown; name?: unknown };
-      if (typeof e.n === "number" && typeof e.name === "string" && e.name.trim())
-        byN.set(e.n, e.name.trim().slice(0, 28));
-    }
-    const names: string[] = [];
-    for (const [n, name] of byN) if (n >= 1 && n <= 24) names[n - 1] = name;
-    return names;
-  } catch {
-    return [];
-  }
 }

@@ -17,8 +17,11 @@ import { authClient } from "@/lib/auth-client";
 import { attachHydraBlock } from "@/lib/hydra-embed";
 import { openDeep } from "@/lib/seal";
 import {
+  applyOrbitGains,
+  ensurePerfFx,
   fadeMaster,
   playPart,
+  setLivePerf,
   setExplicitVisualsDrive,
   setHydraErrorSink,
   setStrudelErrorSink,
@@ -29,6 +32,13 @@ import {
 } from "@/lib/strudel-client";
 import { useKeyboardInset } from "@/lib/use-keyboard-inset";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import {
+  assignChannelOrbits,
+  CHANNELS,
+  channelOfOrbit,
+  filterDisplay,
+  type Channel,
+} from "@/lib/set-live";
 import {
   cardFeeCents,
   CREDIT_PACK_USD,
@@ -152,25 +162,8 @@ $: note("<[e3,g3,b3] [c3,e3,g3] [g2,b2,d3] [a2,c3,e3]>").s("triangle").attack(2)
 
 const DRAFT_KEY = "zaltz-ide-draft-v1";
 
-/** The hydra params worth a fader — curated so every row means something and
- *  ranges stay musical. First numeric arg of each call becomes the dial. */
-const VISUAL_PARAMS: Record<string, { label: string; min: number; max: number }> = {
-  kaleid: { label: "facets", min: 1, max: 12 },
-  contrast: { label: "contrast", min: 0.2, max: 3 },
-  saturate: { label: "saturation", min: 0, max: 3 },
-  brightness: { label: "brightness", min: -0.5, max: 0.5 },
-  luma: { label: "luma cut", min: 0, max: 1 },
-  thresh: { label: "threshold", min: 0, max: 1 },
-  pixelate: { label: "pixelate", min: 2, max: 200 },
-  colorama: { label: "colorama", min: 0, max: 2 },
-  posterize: { label: "posterize", min: 2, max: 12 },
-  hue: { label: "hue shift", min: 0, max: 1 },
-};
 
-/** A layer line's identity for the AI-name map: mute-prefix and whitespace
- *  don't change what the voice IS; any other edit does (name falls back until
- *  the next clean run re-hears it). */
-const layerSig = (line: string) => line.trim().replace(/^_/, "").slice(0, 120);
+
 
 /** Earlier placeholder copy leaked into some saved buffers as real comments —
  *  and it named keyboard chords, which lied on phones. Scrub the known legacy
@@ -228,10 +221,6 @@ export default function ZaltzIDE() {
   const strudelPane = useRef<CodePaneHandle>(null);
   const hydraPane = useRef<CodePaneHandle>(null);
 
-  // THE NAMER — after a clean run, every `$:` line gets its human name.
-  const namesMeta = useRef({ lastCode: "", at: 0, inflight: false });
-  // runMusic (declared above the namer) calls through this ref.
-  const namesAfterRun = useRef<() => Promise<void> | void>(() => {});
 
   const [sheet, setSheet] = useState<null | "sketches" | "tokens" | "signin">(null);
   const [mobilePane, setMobilePane] = useState<PaneId>("strudel");
@@ -295,6 +284,16 @@ export default function ZaltzIDE() {
       }
       setStrudelErrorSink(null);
       setHydraErrorSink(null);
+      // Never leave a dead bus, a hot dial or a tinted canvas behind for the
+      // next surface (the deck's own leave-clean law).
+      try {
+        applyOrbitGains((orbit) => (channelOfOrbit(orbit) ? 1 : undefined));
+        setLivePerf({ filter: 0, echo: 0, punch: 0, space: 0 });
+      } catch {
+        /* engine already gone */
+      }
+      const canvas = document.getElementById("hydra-canvas");
+      if (canvas) canvas.style.filter = "";
       setVisuals(false);
       setExplicitVisualsDrive(false);
     };
@@ -390,7 +389,10 @@ export default function ZaltzIDE() {
     ghostSeq.current++;
     setGhost(null); // the send outranks any whisper
     try {
-      await playPart("zaltz-ide", code, "zaltz-ide");
+      // THE DECK'S ROUTING, applied at play time only — the pane's code is
+      // never touched. Every layer lands on its channel's orbit decade, so
+      // the kills have buses to bite.
+      await playPart("zaltz-ide", assignChannelOrbits(code), "zaltz-ide");
       if (runId.current !== id) {
         try {
           stop();
@@ -400,9 +402,16 @@ export default function ZaltzIDE() {
         return;
       }
       setPlaying(true);
+      // The deck's posture survives every re-eval: kills back on their buses,
+      // perf dials back on the master chain.
+      try {
+        applyOrbitGains(killGainFor);
+        ensurePerfFx();
+        setLivePerf(perfRef.current);
+      } catch {
+        /* deck re-asserts on the 200ms loop */
+      }
       if (sketch.trim()) void updateVisuals(hydraProgram(sketch));
-      // It runs clean — let the machine name some next moves (throttled).
-      setTimeout(() => void namesAfterRun.current(), 1500);
     } catch (e) {
       if (runId.current === id) setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -418,8 +427,6 @@ export default function ZaltzIDE() {
     const program = hydraProgram(sketch);
     if (live) void updateVisuals(program);
     else void startIdleVisual(program);
-    // A repaint is a run too — the light deserves its own tweak round.
-    setTimeout(() => void namesAfterRun.current(), 1500);
   }, []);
 
   const halt = useCallback(() => {
@@ -633,134 +640,88 @@ export default function ZaltzIDE() {
     setGhost(null);
   }, []);
 
-  // ── THE DIALS — zero-AI live control over the code itself ────────────────
-  // Each `$:` line is a fader row: mute rewrites the prefix to `_$:` (the
-  // language's own mute), the slider rewrites that line's .gain(n). Commits
-  // re-eval mid-play, so the change crossfades into the running mix like any
-  // live edit. Master is engine-level (fadeMaster) and moves DURING the drag.
+  // ── THE DECK — the Sets deck's machinery, verbatim concepts (lib/set-live):
+  // deterministic, ephemeral, zero AI. Layers are re-bused onto channel orbit
+  // DECADES at PLAY TIME (the pane's code is never touched); kills are Web
+  // Audio gain ramps on those buses — instant, tails included; the perf dials
+  // ride the master FX chain (setLivePerf) live, no recompile. The light page
+  // is video-DJ: CSS filters on the canvas itself.
   const [master, setMaster] = useState(1);
-  // Collapsed by default — the desk is a slim handle you pull up, never a
-  // wall. Two pages under one roof: music (voices) and light (the sketch's
-  // own numbers, grown into faders).
   const [mixerOpen, setMixerOpen] = useState(false);
   const [mixerTab, setMixerTab] = useState<"music" | "light">("music");
-  // AI names per layer (line-signature → "Deep kick"), refreshed by the namer.
-  const [layerNames, setLayerNames] = useState<Map<string, string>>(new Map());
+  const [kills, setKills] = useState<Record<Channel, boolean>>({
+    drums: false,
+    bass: false,
+    melody: false,
+  });
+  const killsRef = useRef(kills);
+  killsRef.current = kills;
+  const [perf, setPerf] = useState({ filter: 0, echo: 0, punch: 0, space: 0 });
+  const perfRef = useRef(perf);
+  perfRef.current = perf;
+  const [light, setLight] = useState({ hue: 0, sat: 1, contrast: 1, bright: 1 });
 
-  interface LayerDial {
-    idx: number;
-    muted: boolean;
-    label: string;
-    /** null = patterned gain ("0.3 0.42") — the fader steps aside for it. */
-    gain: number | null;
-  }
-  const layers = useMemo<LayerDial[]>(() => {
-    let n = 0;
-    return strudel
-      .split("\n")
-      .map((line, idx) => ({ line, idx }))
-      .filter((x) => /^\s*_?\$:/.test(x.line))
-      .map((x) => {
-        n++;
-        const muted = /^\s*_\$:/.test(x.line);
-        const sound = x.line.match(/\.s\(\s*["'`]([\w:]+)["'`]/)?.[1];
-        const drum = x.line
-          .match(/\bs\(\s*["'`]([^"'`]+)["'`]/)?.[1]
-          ?.split(/[\s*!,<>[\]()~]+/)
-          .filter(Boolean)[0];
-        const bank = x.line.match(/\.bank\(\s*["'`](\w+)["'`]/)?.[1];
-        const label = (sound ?? drum ?? bank ?? `layer ${n}`)
-          .replace(/^gm_/, "")
-          .replace(/_/g, " ")
-          .slice(0, 16);
-        const num = x.line.match(/\.gain\(\s*([0-9.]+)\s*\)/);
-        const patterned = /\.gain\(\s*["'`]/.test(x.line);
-        return {
-          idx: x.idx,
-          muted,
-          // The machine's human name when it has heard this exact line;
-          // the code sniff only until then.
-          label: layerNames.get(layerSig(x.line)) ?? label,
-          gain: num ? parseFloat(num[1]) : patterned ? null : 0.8,
-        };
-      });
-  }, [strudel, layerNames]);
-
-  const applyLine = useCallback(
-    (idx: number, fn: (line: string) => string) => {
-      const lines = stateRef.current.strudel.split("\n");
-      if (idx < 0 || idx >= lines.length) return;
-      lines[idx] = fn(lines[idx]);
-      setStrudel(lines.join("\n"));
-      markDirty();
-      // Mid-set, the turn lands in the running mix (same-owner crossfade).
-      if (stateRef.current.playing) setTimeout(() => void runMusic(), 40);
+  const killGainFor = useCallback(
+    (orbit: number): number | undefined => {
+      const ch = channelOfOrbit(orbit);
+      return ch ? (killsRef.current[ch] ? 0 : 1) : undefined;
     },
-    [markDirty, runMusic],
+    [],
   );
-  const toggleLayerMute = (idx: number) =>
-    applyLine(idx, (l) =>
-      /^\s*_\$:/.test(l) ? l.replace("_$:", "$:") : l.replace("$:", "_$:"),
-    );
-  const commitLayerGain = (idx: number, v: number) => {
-    const g = Math.round(v * 100) / 100;
-    applyLine(idx, (l) =>
-      /\.gain\(\s*[0-9.]+\s*\)/.test(l)
-        ? l.replace(/\.gain\(\s*[0-9.]+\s*\)/, `.gain(${g})`)
-        : l.replace(/\s*$/, `.gain(${g})`),
-    );
+  const toggleKill = (ch: Channel) => {
+    const next = { ...killsRef.current, [ch]: !killsRef.current[ch] };
+    killsRef.current = next;
+    setKills(next);
+    try {
+      applyOrbitGains(killGainFor); // instant — the ramp lands mid-note
+    } catch {
+      /* engine not up — the pads still remember */
+    }
+  };
+  // Orbit buses are born lazily (first hap), so a kill must be RE-ASSERTED
+  // while playing — the deck's own 200ms no-op-when-at-target loop.
+  useEffect(() => {
+    if (!playing) return;
+    const t = setInterval(() => {
+      try {
+        applyOrbitGains(killGainFor);
+      } catch {
+        /* engine gone */
+      }
+    }, 200);
+    return () => clearInterval(t);
+  }, [playing, killGainFor]);
+
+  const movePerf = (patch: Partial<typeof perf>) => {
+    const next = { ...perfRef.current, ...patch };
+    perfRef.current = next;
+    setPerf(next);
+    try {
+      ensurePerfFx(); // the master dial chain — spliced once, post-limiter
+      setLivePerf(next);
+    } catch {
+      /* engine not up — the dial still remembers; runMusic re-asserts */
+    }
   };
 
-  // THE LIGHT PAGE — the hydra sketch's own numbers, grown into faders. Live
-  // during the drag: the rewrite repaints through updateVisuals' 120ms
-  // coalescer, so the picture follows the finger without a single flash.
-  interface LightDial {
-    method: string;
-    occ: number;
-    value: number;
-    label: string;
-    min: number;
-    max: number;
-  }
-  const lightDials = useMemo<LightDial[]>(() => {
-    const rows: LightDial[] = [];
-    for (const [method, meta] of Object.entries(VISUAL_PARAMS)) {
-      const re = new RegExp(`\\.${method}\\(\\s*(-?[0-9.]+)`, "g");
-      let m: RegExpExecArray | null;
-      let occ = 0;
-      while ((m = re.exec(hydra)) && rows.length < 10) {
-        rows.push({
-          method,
-          occ,
-          value: parseFloat(m[1]),
-          label: occ ? `${meta.label} ${occ + 1}` : meta.label,
-          min: meta.min,
-          max: meta.max,
-        });
-        occ++;
-      }
-    }
-    return rows;
-  }, [hydra]);
+  // VIDEO DJ — deterministic, ephemeral, instant: CSS filters on the canvas.
+  // (The build scrub renames "hydra-canvas" consistently in prod chunks, so
+  // this literal finds the canvas on both dev and prod.)
+  const moveLight = (patch: Partial<typeof light>) => {
+    const next = { ...light, ...patch };
+    setLight(next);
+    const el = document.getElementById("hydra-canvas");
+    if (!el) return;
+    const f: string[] = [];
+    if (next.hue) f.push(`hue-rotate(${Math.round(next.hue)}deg)`);
+    if (next.sat !== 1) f.push(`saturate(${next.sat})`);
+    if (next.contrast !== 1) f.push(`contrast(${next.contrast})`);
+    if (next.bright !== 1) f.push(`brightness(${next.bright})`);
+    el.style.filter = f.join(" ");
+  };
 
-  const setVisualParam = useCallback(
-    (method: string, occ: number, v: number) => {
-      const g = Math.round(v * 100) / 100;
-      const re = new RegExp(`(\\.${method}\\(\\s*)(-?[0-9.]+)`, "g");
-      let i = -1;
-      const next = stateRef.current.hydra.replace(re, (all, pre: string) => {
-        i++;
-        return i === occ ? `${pre}${g}` : all;
-      });
-      if (next === stateRef.current.hydra) return;
-      setHydra(next);
-      markDirty();
-      const program = hydraProgram(next);
-      if (stateRef.current.playing) void updateVisuals(program);
-      else void startIdleVisual(program);
-    },
-    [markDirty],
-  );
+  // Does the pane have voices to mix at all? (The handle hides on an empty bench.)
+  const hasVoices = useMemo(() => /^\s*_?\$:/m.test(strudel), [strudel]);
 
   function toggleCopilot() {
     setCopilot((on) => {
@@ -775,50 +736,6 @@ export default function ZaltzIDE() {
     });
   }
 
-  // ── the namer — human names on the faders, after a clean run ───────────────
-  // The mixer stays CONSISTENT across edits: names key on the line itself
-  // (layerSig), so untouched lines keep their names and only changed lines
-  // fall back to the code sniff until the next clean run re-hears them.
-  const maybeNames = useCallback(async () => {
-    const { strudel: s } = stateRef.current;
-    const meta = namesMeta.current;
-    if (meta.inflight || s === meta.lastCode) return;
-    if (Date.now() - meta.at < 30_000) return;
-    const m = meRef.current;
-    if (!m?.signedIn) return; // names wait for a session; never mint one for this
-    if (!m.owner && (m.remainingTokens ?? 0) <= 0) return;
-    meta.inflight = true;
-    try {
-      const res = await fetch("/api/names", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ strudel: s }),
-      });
-      if (!res.ok) return;
-      const d = (await res.json().catch(() => ({}))) as { layerNames?: string[] };
-      if (Array.isArray(d.layerNames) && d.layerNames.length) {
-        meta.lastCode = s;
-        meta.at = Date.now();
-        const sigs = s
-          .split("\n")
-          .filter((l) => /^\s*_?\$:/.test(l))
-          .map(layerSig);
-        setLayerNames((prev) => {
-          const next = new Map(prev);
-          sigs.forEach((sig, i) => {
-            const name = d.layerNames?.[i];
-            if (name) next.set(sig, name);
-          });
-          return next;
-        });
-      }
-    } catch {
-      /* the sniffed labels carry on */
-    } finally {
-      meta.inflight = false;
-    }
-  }, []);
-  namesAfterRun.current = maybeNames;
 
   // ── tokens ─────────────────────────────────────────────────────────────────
   const [buying, setBuying] = useState<number | null>(null);
@@ -1176,10 +1093,10 @@ export default function ZaltzIDE() {
       )}
 
 
-      {/* ── the mixer — a slim handle you pull up; never a wall. Rides the
-          copilot (manual mode = no machine hands at all). Two pages: music
-          (the voices) and light (the sketch's numbers, grown into faders). */}
-      {copilot && (layers.length > 0 || lightDials.length > 0) && (
+      {/* ── the mixer — the Sets deck, moved into the IDE: kills on orbit
+          buses, perf on the master chain, video FX on the canvas. Ephemeral
+          gestures, deterministic, zero AI — the pane's code never changes. */}
+      {(hasVoices || hydra.trim()) && (
         <div className="mt-2 shrink-0">
           <button
             onClick={() => setMixerOpen((o) => !o)}
@@ -1198,11 +1115,11 @@ export default function ZaltzIDE() {
               mixer
             </span>
             <span className="flex items-center gap-1" aria-hidden>
-              {layers.slice(0, 8).map((l) => (
+              {CHANNELS.map((ch) => (
                 <span
-                  key={l.idx}
+                  key={ch}
                   className={`rounded-full transition-all duration-300 ${
-                    l.muted
+                    kills[ch]
                       ? "h-1 w-1 bg-white/20"
                       : "h-1.5 w-1.5 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_8px_rgba(224,49,156,.8)]"
                   }`}
@@ -1215,10 +1132,10 @@ export default function ZaltzIDE() {
           </button>
           <div
             className={`overflow-hidden transition-all duration-300 ease-out ${
-              mixerOpen ? "mt-2 max-h-[36dvh] opacity-100" : "max-h-0 opacity-0"
+              mixerOpen ? "mt-2 max-h-[38dvh] opacity-100" : "max-h-0 opacity-0"
             }`}
           >
-            <div className="max-h-[36dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/75 to-black/55 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+            <div className="max-h-[38dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/75 to-black/55 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
               <div className="mb-3 flex items-center gap-1.5">
                 {(["music", "light"] as const).map((t) => (
                   <button
@@ -1236,12 +1153,32 @@ export default function ZaltzIDE() {
               </div>
               {mixerTab === "music" ? (
                 <>
-                  <div className="flex items-center gap-3.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden>
-                      <span className="h-2 w-2 rounded-full bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_16px_rgba(224,49,156,.9)]" />
-                    </span>
-                    <span className="wordmark text-gradient w-24 shrink-0 truncate text-[15px] sm:w-32">
-                      master
+                  {/* the three kill switches — instant, tails included, like
+                      the kill EQ on a real mixer */}
+                  <div className="flex items-center gap-2">
+                    {CHANNELS.map((ch, i) => (
+                      <button
+                        key={ch}
+                        onClick={() => toggleKill(ch)}
+                        style={{ "--i": i } as CSSProperties}
+                        title={
+                          kills[ch]
+                            ? `Bring the ${ch} back — mid-note, like un-killing an EQ band`
+                            : `Kill the ${ch} — instant, tails and all`
+                        }
+                        className={`animate-rise flex-1 rounded-xl border px-3 py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.18em] transition active:scale-[.97] ${
+                          kills[ch]
+                            ? "border-white/[0.08] bg-white/[0.02] text-muted/40"
+                            : "border-accent/35 bg-accent/[0.1] text-accent-strong shadow-[0_0_34px_-12px_rgba(224,49,156,.7)]"
+                        }`}
+                      >
+                        {ch}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3.5 flex items-center gap-3.5">
+                    <span className="w-20 shrink-0 truncate text-[12px] text-foreground/90 sm:w-24">
+                      <span className="wordmark text-gradient text-[14px]">master</span>
                     </span>
                     <Dial
                       value={master}
@@ -1256,87 +1193,66 @@ export default function ZaltzIDE() {
                       }}
                     />
                   </div>
-                  {layers.length > 0 ? (
-                    <ul className="mt-3 space-y-2.5">
-                      {layers.map((l, i) => (
-                        <li
-                          key={`${l.idx}:${l.muted}:${l.gain ?? "p"}`}
-                          style={{ "--i": i } as CSSProperties}
-                          className="animate-rise group flex items-center gap-3.5 rounded-xl px-1 py-0.5 transition hover:bg-white/[0.03]"
+                  <ul className="mt-2 space-y-2">
+                    {(
+                      [
+                        { k: "filter", label: "filter", min: -100, max: 100, title: filterDisplay(perf.filter) },
+                        { k: "echo", label: "echo", min: 0, max: 0.7 },
+                        { k: "punch", label: "punch", min: 0, max: 0.5 },
+                        { k: "space", label: "space", min: 0, max: 0.6 },
+                      ] as const
+                    ).map((d, i) => (
+                      <li
+                        key={d.k}
+                        style={{ "--i": i } as CSSProperties}
+                        className="animate-rise flex items-center gap-3.5 rounded-xl px-0.5 py-0.5 transition hover:bg-white/[0.03]"
+                      >
+                        <span
+                          className="w-20 shrink-0 truncate text-[12.5px] text-foreground/85 sm:w-24"
+                          title={"title" in d ? d.title : undefined}
                         >
-                          <button
-                            onClick={() => toggleLayerMute(l.idx)}
-                            title={
-                              l.muted
-                                ? "Unmute — the voice steps back in on the next phrase"
-                                : "Mute this voice (its line stays, silenced)"
-                            }
-                            aria-label={l.muted ? `Unmute ${l.label}` : `Mute ${l.label}`}
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition active:scale-[.9]"
-                          >
-                            <span
-                              className={`rounded-full transition-all duration-300 ${
-                                l.muted
-                                  ? "h-2 w-2 border border-white/30 bg-transparent"
-                                  : "h-2.5 w-2.5 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_14px_rgba(224,49,156,.9)]"
-                              }`}
-                            />
-                          </button>
-                          <span
-                            className={`w-24 shrink-0 truncate text-[13px] transition sm:w-32 ${
-                              l.muted ? "text-muted/40 line-through" : "text-foreground/90"
-                            }`}
-                            title={l.label}
-                          >
-                            {l.label}
-                          </span>
-                          <Dial
-                            value={l.gain ?? 0.8}
-                            disabled={l.muted || l.gain === null}
-                            onCommit={(v) => commitLayerGain(l.idx, v)}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-3 text-[12.5px] leading-relaxed text-muted/60">
-                      Write a <span className="font-mono text-accent-strong/80">$:</span>{" "}
-                      line and it grows a fader here — every voice under a finger.
-                    </p>
-                  )}
+                          {d.label}
+                        </span>
+                        <Dial
+                          value={perf[d.k]}
+                          min={d.min}
+                          max={d.max}
+                          onLive={(v) => movePerf({ [d.k]: v })}
+                        />
+                      </li>
+                    ))}
+                  </ul>
                 </>
-              ) : lightDials.length > 0 ? (
-                <ul className="space-y-2.5">
-                  {lightDials.map((d, i) => (
+              ) : (
+                <ul className="space-y-2">
+                  {(
+                    [
+                      { k: "hue", label: "hue", min: 0, max: 360 },
+                      { k: "sat", label: "saturation", min: 0, max: 3 },
+                      { k: "contrast", label: "contrast", min: 0.4, max: 2.5 },
+                      { k: "bright", label: "glow", min: 0.4, max: 2 },
+                    ] as const
+                  ).map((d, i) => (
                     <li
-                      key={`${d.method}:${d.occ}`}
+                      key={d.k}
                       style={{ "--i": i } as CSSProperties}
-                      className="animate-rise flex items-center gap-3.5 rounded-xl px-1 py-0.5 transition hover:bg-white/[0.03]"
+                      className="animate-rise flex items-center gap-3.5 rounded-xl px-0.5 py-0.5 transition hover:bg-white/[0.03]"
                     >
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden>
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center" aria-hidden>
                         <span className="h-2 w-2 rotate-45 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_12px_rgba(224,49,156,.9)]" />
                       </span>
-                      <span
-                        className="w-24 shrink-0 truncate text-[13px] text-foreground/90 sm:w-32"
-                        title={`.${d.method}()`}
-                      >
+                      <span className="w-20 shrink-0 truncate text-[12.5px] text-foreground/85 sm:w-24">
                         {d.label}
                       </span>
                       <Dial
-                        value={d.value}
+                        value={light[d.k]}
                         min={d.min}
                         max={d.max}
-                        onLive={(v) => setVisualParam(d.method, d.occ, v)}
-                        onCommit={(v) => setVisualParam(d.method, d.occ, v)}
+                        onLive={(v) => moveLight({ [d.k]: v })}
                       />
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <p className="text-[12.5px] leading-relaxed text-muted/60">
-                  Paint something in the light pane — its numbers grow faders
-                  here, live under your finger.
-                </p>
               )}
             </div>
           </div>
