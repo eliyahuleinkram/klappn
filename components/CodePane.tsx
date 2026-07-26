@@ -177,7 +177,8 @@ const CodePane = forwardRef<
     [onCaretIdle],
   );
   // Any caret activity — typing, a click, an arrow — re-arms one timer; 600ms
-  // of stillness with focus and the copilot looks over your shoulder. This is
+  // of stillness with focus and the copilot looks over your shoulder. 450ms —
+  // Copilot-eager; the parent's per-spot dedupe + LRU keep the spend sane. This is
   // what makes "just complete what's sitting there" work: click at the end,
   // wait a beat, the ghost arrives. The parent dedupes repeat cues per spot.
   const cueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -185,7 +186,7 @@ const CodePane = forwardRef<
     if (cueTimer.current) clearTimeout(cueTimer.current);
     cueTimer.current = setTimeout(() => {
       if (document.activeElement === taRef.current) summonGhost();
-    }, 600);
+    }, 450);
   }, [summonGhost]);
   useEffect(
     () => () => {

@@ -152,6 +152,21 @@ $: note("<[e3,g3,b3] [c3,e3,g3] [g2,b2,d3] [a2,c3,e3]>").s("triangle").attack(2)
 
 const DRAFT_KEY = "zaltz-ide-draft-v1";
 
+/** The hydra params worth a fader — curated so every row means something and
+ *  ranges stay musical. First numeric arg of each call becomes the dial. */
+const VISUAL_PARAMS: Record<string, { label: string; min: number; max: number }> = {
+  kaleid: { label: "facets", min: 1, max: 12 },
+  contrast: { label: "contrast", min: 0.2, max: 3 },
+  saturate: { label: "saturation", min: 0, max: 3 },
+  brightness: { label: "brightness", min: -0.5, max: 0.5 },
+  luma: { label: "luma cut", min: 0, max: 1 },
+  thresh: { label: "threshold", min: 0, max: 1 },
+  pixelate: { label: "pixelate", min: 2, max: 200 },
+  colorama: { label: "colorama", min: 0, max: 2 },
+  posterize: { label: "posterize", min: 2, max: 12 },
+  hue: { label: "hue shift", min: 0, max: 1 },
+};
+
 /** A layer line's identity for the AI-name map: mute-prefix and whitespace
  *  don't change what the voice IS; any other edit does (name falls back until
  *  the next clean run re-hears it). */
@@ -207,6 +222,9 @@ export default function ZaltzIDE() {
   // One cue per SPOT: a caret parked on the same unchanged code never re-asks
   // after the machine already came back empty there.
   const lastCue = useRef({ key: "", empty: false });
+  // Copilot-speed trick #2: an LRU of recent completions — revisiting a spot
+  // (dismissed ghost, caret wander-and-return) re-shows instantly, no call.
+  const ghostLRU = useRef(new Map<string, string>());
   const strudelPane = useRef<CodePaneHandle>(null);
   const hydraPane = useRef<CodePaneHandle>(null);
 
@@ -550,6 +568,18 @@ export default function ZaltzIDE() {
         mintTried.current = true;
         if (!(await ensureSession())) return;
       }
+      const cacheKey = `${pane}|${ctx.before.slice(-240)}|${ctx.after.slice(0, 80)}`;
+      const cached = ghostLRU.current.get(cacheKey);
+      if (cached !== undefined) {
+        lastCue.current = { key: cueKey, empty: !cached.trim() };
+        let g = cached;
+        if (!ctx.atEnd) {
+          const lines = g.split("\n");
+          g = lines[0] || (lines[1] !== undefined ? "\n" + lines[1] : "");
+        }
+        if (g.trim()) setGhost({ pane, text: g });
+        return;
+      }
       const seq = ++ghostSeq.current;
       ghostAbort.current?.abort();
       const ac = new AbortController();
@@ -572,6 +602,11 @@ export default function ZaltzIDE() {
         if (!res.ok) return; // 402/429 → quiet; the meter chip tells the story
         const d = openDeep((await res.json().catch(() => ({}))) as { ghost?: string });
         let g = d.ghost ?? "";
+        ghostLRU.current.set(cacheKey, g);
+        if (ghostLRU.current.size > 16) {
+          const oldest = ghostLRU.current.keys().next().value;
+          if (oldest !== undefined) ghostLRU.current.delete(oldest);
+        }
         if (!ctx.atEnd) {
           // Alignment law (see CodePane): mid-file, the ghost may not push
           // later lines around — keep ONE line. But a completion that OPENS
@@ -604,6 +639,11 @@ export default function ZaltzIDE() {
   // re-eval mid-play, so the change crossfades into the running mix like any
   // live edit. Master is engine-level (fadeMaster) and moves DURING the drag.
   const [master, setMaster] = useState(1);
+  // Collapsed by default — the desk is a slim handle you pull up, never a
+  // wall. Two pages under one roof: music (voices) and light (the sketch's
+  // own numbers, grown into faders).
+  const [mixerOpen, setMixerOpen] = useState(false);
+  const [mixerTab, setMixerTab] = useState<"music" | "light">("music");
   // AI names per layer (line-signature → "Deep kick"), refreshed by the namer.
   const [layerNames, setLayerNames] = useState<Map<string, string>>(new Map());
 
@@ -670,6 +710,57 @@ export default function ZaltzIDE() {
         : l.replace(/\s*$/, `.gain(${g})`),
     );
   };
+
+  // THE LIGHT PAGE — the hydra sketch's own numbers, grown into faders. Live
+  // during the drag: the rewrite repaints through updateVisuals' 120ms
+  // coalescer, so the picture follows the finger without a single flash.
+  interface LightDial {
+    method: string;
+    occ: number;
+    value: number;
+    label: string;
+    min: number;
+    max: number;
+  }
+  const lightDials = useMemo<LightDial[]>(() => {
+    const rows: LightDial[] = [];
+    for (const [method, meta] of Object.entries(VISUAL_PARAMS)) {
+      const re = new RegExp(`\\.${method}\\(\\s*(-?[0-9.]+)`, "g");
+      let m: RegExpExecArray | null;
+      let occ = 0;
+      while ((m = re.exec(hydra)) && rows.length < 10) {
+        rows.push({
+          method,
+          occ,
+          value: parseFloat(m[1]),
+          label: occ ? `${meta.label} ${occ + 1}` : meta.label,
+          min: meta.min,
+          max: meta.max,
+        });
+        occ++;
+      }
+    }
+    return rows;
+  }, [hydra]);
+
+  const setVisualParam = useCallback(
+    (method: string, occ: number, v: number) => {
+      const g = Math.round(v * 100) / 100;
+      const re = new RegExp(`(\\.${method}\\(\\s*)(-?[0-9.]+)`, "g");
+      let i = -1;
+      const next = stateRef.current.hydra.replace(re, (all, pre: string) => {
+        i++;
+        return i === occ ? `${pre}${g}` : all;
+      });
+      if (next === stateRef.current.hydra) return;
+      setHydra(next);
+      markDirty();
+      const program = hydraProgram(next);
+      if (stateRef.current.playing) void updateVisuals(program);
+      else void startIdleVisual(program);
+    },
+    [markDirty],
+  );
 
   function toggleCopilot() {
     setCopilot((on) => {
@@ -1084,78 +1175,171 @@ export default function ZaltzIDE() {
         </div>
       )}
 
-      {/* ── the mixer — always at hand: every voice a fader, no AI in the
-          loop. It re-reads the code on every edit; names persist per line. */}
-      {layers.length > 0 && (
-        <div className="animate-rise mt-2 max-h-[38dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/75 to-black/55 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
-          <div className="flex items-center gap-3.5">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden>
-              <span className="h-2 w-2 rounded-full bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_16px_rgba(224,49,156,.9)]" />
+
+      {/* ── the mixer — a slim handle you pull up; never a wall. Rides the
+          copilot (manual mode = no machine hands at all). Two pages: music
+          (the voices) and light (the sketch's numbers, grown into faders). */}
+      {copilot && (layers.length > 0 || lightDials.length > 0) && (
+        <div className="mt-2 shrink-0">
+          <button
+            onClick={() => setMixerOpen((o) => !o)}
+            className={`group flex w-full items-center justify-center gap-2.5 rounded-full border px-4 py-1.5 backdrop-blur-xl transition active:scale-[.99] ${
+              mixerOpen
+                ? "border-accent/35 bg-black/60 shadow-[0_0_44px_-16px_rgba(224,49,156,.5)]"
+                : "border-white/[0.07] bg-black/45 hover:border-accent/30"
+            }`}
+            aria-expanded={mixerOpen}
+          >
+            <span
+              className={`text-[10.5px] font-semibold uppercase tracking-[0.24em] transition ${
+                mixerOpen ? "text-accent-strong" : "text-muted/60 group-hover:text-accent-strong"
+              }`}
+            >
+              mixer
             </span>
-            <span className="wordmark text-gradient w-24 shrink-0 truncate text-[15px] sm:w-32">
-              master
-            </span>
-            <Dial
-              value={master}
-              max={1}
-              onLive={(v) => {
-                setMaster(v);
-                try {
-                  fadeMaster(v, 0.05);
-                } catch {
-                  /* engine not up yet — the dial still remembers */
-                }
-              }}
-            />
-          </div>
-          {layers.length > 0 ? (
-            <ul className="mt-3 space-y-2.5">
-              {layers.map((l, i) => (
-                <li
-                  key={`${l.idx}:${l.muted}:${l.gain ?? "p"}`}
-                  style={{ "--i": i } as CSSProperties}
-                  className="animate-rise group flex items-center gap-3.5 rounded-xl px-1 py-0.5 transition hover:bg-white/[0.03]"
-                >
-                  <button
-                    onClick={() => toggleLayerMute(l.idx)}
-                    title={
-                      l.muted
-                        ? "Unmute — the voice steps back in on the next phrase"
-                        : "Mute this voice (its line stays, silenced)"
-                    }
-                    aria-label={l.muted ? `Unmute ${l.label}` : `Mute ${l.label}`}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition active:scale-[.9]"
-                  >
-                    <span
-                      className={`rounded-full transition-all duration-300 ${
-                        l.muted
-                          ? "h-2 w-2 border border-white/30 bg-transparent"
-                          : "h-2.5 w-2.5 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_14px_rgba(224,49,156,.9)]"
-                      }`}
-                    />
-                  </button>
-                  <span
-                    className={`w-24 shrink-0 truncate text-[13px] transition sm:w-32 ${
-                      l.muted ? "text-muted/40 line-through" : "text-foreground/90"
-                    }`}
-                    title={l.label}
-                  >
-                    {l.label}
-                  </span>
-                  <Dial
-                    value={l.gain ?? 0.8}
-                    disabled={l.muted || l.gain === null}
-                    onCommit={(v) => commitLayerGain(l.idx, v)}
-                  />
-                </li>
+            <span className="flex items-center gap-1" aria-hidden>
+              {layers.slice(0, 8).map((l) => (
+                <span
+                  key={l.idx}
+                  className={`rounded-full transition-all duration-300 ${
+                    l.muted
+                      ? "h-1 w-1 bg-white/20"
+                      : "h-1.5 w-1.5 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_8px_rgba(224,49,156,.8)]"
+                  }`}
+                />
               ))}
-            </ul>
-          ) : (
-            <p className="mt-3 text-[12.5px] leading-relaxed text-muted/60">
-              Write a <span className="font-mono text-accent-strong/80">$:</span>{" "}
-              line and it grows a fader here — every voice under a finger.
-            </p>
-          )}
+            </span>
+            <span className="text-[10px] text-muted/40" aria-hidden>
+              {mixerOpen ? "▾" : "▴"}
+            </span>
+          </button>
+          <div
+            className={`overflow-hidden transition-all duration-300 ease-out ${
+              mixerOpen ? "mt-2 max-h-[36dvh] opacity-100" : "max-h-0 opacity-0"
+            }`}
+          >
+            <div className="max-h-[36dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/75 to-black/55 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+              <div className="mb-3 flex items-center gap-1.5">
+                {(["music", "light"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setMixerTab(t)}
+                    className={`rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.18em] transition active:scale-[.96] ${
+                      mixerTab === t
+                        ? "bg-accent/20 text-accent-strong ring-1 ring-inset ring-accent/40"
+                        : "bg-white/[0.04] text-muted/60 hover:text-foreground"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              {mixerTab === "music" ? (
+                <>
+                  <div className="flex items-center gap-3.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden>
+                      <span className="h-2 w-2 rounded-full bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_16px_rgba(224,49,156,.9)]" />
+                    </span>
+                    <span className="wordmark text-gradient w-24 shrink-0 truncate text-[15px] sm:w-32">
+                      master
+                    </span>
+                    <Dial
+                      value={master}
+                      max={1}
+                      onLive={(v) => {
+                        setMaster(v);
+                        try {
+                          fadeMaster(v, 0.05);
+                        } catch {
+                          /* engine not up yet — the dial still remembers */
+                        }
+                      }}
+                    />
+                  </div>
+                  {layers.length > 0 ? (
+                    <ul className="mt-3 space-y-2.5">
+                      {layers.map((l, i) => (
+                        <li
+                          key={`${l.idx}:${l.muted}:${l.gain ?? "p"}`}
+                          style={{ "--i": i } as CSSProperties}
+                          className="animate-rise group flex items-center gap-3.5 rounded-xl px-1 py-0.5 transition hover:bg-white/[0.03]"
+                        >
+                          <button
+                            onClick={() => toggleLayerMute(l.idx)}
+                            title={
+                              l.muted
+                                ? "Unmute — the voice steps back in on the next phrase"
+                                : "Mute this voice (its line stays, silenced)"
+                            }
+                            aria-label={l.muted ? `Unmute ${l.label}` : `Mute ${l.label}`}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition active:scale-[.9]"
+                          >
+                            <span
+                              className={`rounded-full transition-all duration-300 ${
+                                l.muted
+                                  ? "h-2 w-2 border border-white/30 bg-transparent"
+                                  : "h-2.5 w-2.5 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_14px_rgba(224,49,156,.9)]"
+                              }`}
+                            />
+                          </button>
+                          <span
+                            className={`w-24 shrink-0 truncate text-[13px] transition sm:w-32 ${
+                              l.muted ? "text-muted/40 line-through" : "text-foreground/90"
+                            }`}
+                            title={l.label}
+                          >
+                            {l.label}
+                          </span>
+                          <Dial
+                            value={l.gain ?? 0.8}
+                            disabled={l.muted || l.gain === null}
+                            onCommit={(v) => commitLayerGain(l.idx, v)}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-[12.5px] leading-relaxed text-muted/60">
+                      Write a <span className="font-mono text-accent-strong/80">$:</span>{" "}
+                      line and it grows a fader here — every voice under a finger.
+                    </p>
+                  )}
+                </>
+              ) : lightDials.length > 0 ? (
+                <ul className="space-y-2.5">
+                  {lightDials.map((d, i) => (
+                    <li
+                      key={`${d.method}:${d.occ}`}
+                      style={{ "--i": i } as CSSProperties}
+                      className="animate-rise flex items-center gap-3.5 rounded-xl px-1 py-0.5 transition hover:bg-white/[0.03]"
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden>
+                        <span className="h-2 w-2 rotate-45 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_12px_rgba(224,49,156,.9)]" />
+                      </span>
+                      <span
+                        className="w-24 shrink-0 truncate text-[13px] text-foreground/90 sm:w-32"
+                        title={`.${d.method}()`}
+                      >
+                        {d.label}
+                      </span>
+                      <Dial
+                        value={d.value}
+                        min={d.min}
+                        max={d.max}
+                        onLive={(v) => setVisualParam(d.method, d.occ, v)}
+                        onCommit={(v) => setVisualParam(d.method, d.occ, v)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12.5px] leading-relaxed text-muted/60">
+                  Paint something in the light pane — its numbers grow faders
+                  here, live under your finger.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1410,12 +1594,14 @@ export default function ZaltzIDE() {
  *  gains rewrite code once, not per pixel). */
 function Dial({
   value,
+  min = 0,
   max = 1.2,
   disabled = false,
   onLive,
   onCommit,
 }: {
   value: number;
+  min?: number;
   max?: number;
   disabled?: boolean;
   onLive?: (v: number) => void;
@@ -1427,12 +1613,12 @@ function Dial({
     <input
       type="range"
       className="door-range min-w-0 flex-1 disabled:opacity-30"
-      min={0}
+      min={min}
       max={max}
       step={0.01}
       value={v}
       disabled={disabled}
-      style={{ "--p": `${(v / max) * 100}%` } as CSSProperties}
+      style={{ "--p": `${((v - min) / (max - min)) * 100}%` } as CSSProperties}
       onChange={(e) => {
         const nv = Number(e.target.value);
         setV(nv);

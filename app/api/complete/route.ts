@@ -49,10 +49,10 @@ export async function POST(req: Request) {
     context?: unknown;
   } | null;
   const pane = body?.pane === "hydra" ? "hydra" : "strudel";
-  const before = typeof body?.before === "string" ? body.before.slice(-6000) : "";
+  const before = typeof body?.before === "string" ? body.before.slice(-4000) : "";
   const after = typeof body?.after === "string" ? body.after.slice(0, 2000) : "";
   const context =
-    typeof body?.context === "string" ? body.context.slice(0, 4000) : "";
+    typeof body?.context === "string" ? body.context.slice(0, 2500) : "";
   if (!before.trim()) return Response.json({ ghost: "" });
 
   const gate = await assertQuota(userId);
@@ -72,7 +72,9 @@ export async function POST(req: Request) {
       onUsage: (t: number) => void addTokenUsage(userId, t),
       onCall: sink.onCall,
     };
-    const opts = { thinking: false, maxTokens: 400 } as const;
+    // NO fast mode (2× price for 2.5× tok/s — not worth it here): thinking-off
+    // + a tight cap IS the latency lever; a ghost is ~3 lines, 300 tokens is roomy.
+    const opts = { thinking: false, maxTokens: 300 } as const;
     let ghost = cleanCompletion(
       await complete(system, userText, cfg, {
         ...opts,
