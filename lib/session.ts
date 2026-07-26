@@ -23,6 +23,25 @@ export async function getUserEmail(req: Request): Promise<string | null> {
   return session?.user?.email ?? null;
 }
 
+export interface SessionUser {
+  id: string;
+  email: string | null;
+  /** True for a guest minted by the anonymous plugin (no real email yet). */
+  isAnonymous: boolean;
+}
+
+/** The whole session identity in one read — for routes that treat guests
+ *  differently (checkout needs a claimed account; everything else doesn't). */
+export async function getSessionUser(req: Request): Promise<SessionUser | null> {
+  await warmPool();
+  const session = await getAuth().api.getSession({ headers: req.headers });
+  const u = session?.user as
+    | { id: string; email?: string | null; isAnonymous?: boolean | null }
+    | undefined;
+  if (!u?.id) return null;
+  return { id: u.id, email: u.email ?? null, isAnonymous: !!u.isAnonymous };
+}
+
 export function unauthorized(): Response {
   return Response.json({ error: "unauthorized" }, { status: 401 });
 }

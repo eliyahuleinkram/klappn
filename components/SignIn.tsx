@@ -14,9 +14,34 @@ import DoorGallery, { type DoorSong } from "@/components/DoorGallery";
  * Below the form: THE DOOR — owner-curated songs that play right here, whole,
  * before any account exists. The proof is the pitch.
  */
-export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
+export default function SignIn({
+  door = [],
+  claim = false,
+}: {
+  door?: DoorSong[];
+  /** Claim mode (/claim): a GUEST attaching an email — same code flow, but on
+   *  success we land home and the copy says what actually happens (their work
+   *  rides onto the account via the server-side merge). */
+  claim?: boolean;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
+  // WALK IN (2026-07-26): the door opens without an email — a guest session is
+  // minted and the app is theirs; the taste is claimed at the first compose,
+  // same pool, same gate. Eve hands the apple over BEFORE asking for a name.
+  const [walking, setWalking] = useState(false);
+  async function walkIn() {
+    if (walking) return;
+    setWalking(true);
+    try {
+      const { error } = await authClient.signIn.anonymous();
+      if (error) throw new Error(String(error.message ?? "anonymous sign-in failed"));
+      router.refresh();
+    } catch {
+      setWalking(false);
+      setState("error");
+    }
+  }
   // A playing song's own picture is up — the ambient glow steps aside for it
   // (same yield as home's aura).
   const [visualUp, setVisualUp] = useState(false);
@@ -85,6 +110,7 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
       setTimeout(() => codeRef.current?.focus(), 50);
       return;
     }
+    if (claim) router.push("/");
     router.refresh();
   }
 
@@ -200,6 +226,17 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
                   Type a sentence. Klappn writes all of this —{" "}
                   <span className="text-foreground/85">yours to keep.</span>
                 </p>
+                <button
+                  onClick={() => void walkIn()}
+                  disabled={walking}
+                  className="mt-2 select-none text-left text-[13px] text-accent-strong/90 transition hover:text-accent-strong disabled:opacity-60"
+                >
+                  {walking ? (
+                    <span className="shimmer-text">Opening the door…</span>
+                  ) : (
+                    <>Walk straight in — no email, the first taste&rsquo;s on the house →</>
+                  )}
+                </button>
                 <form onSubmit={send} className="mt-3 flex flex-col gap-2.5 sm:mt-3.5 sm:flex-row sm:gap-2">
                   <input
                     type="email"
@@ -286,7 +323,9 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
           className="animate-rise mt-5 text-[16px] leading-relaxed text-muted"
           style={{ "--i": 2 } as React.CSSProperties}
         >
-          Build a track, one loop at a time.
+          {claim
+            ? "One email — and everything you've made walks in with you: loops, sketches, tokens, all of it."
+            : "Build a track, one loop at a time."}
         </p>
 
         {gateUp ? (
@@ -365,6 +404,20 @@ export default function SignIn({ door = [] }: { door?: DoorSong[] }) {
               <p className="text-[13px] text-red-400">
                 Couldn&rsquo;t send the code. Try again.
               </p>
+            )}
+            {!claim && (
+              <button
+                type="button"
+                onClick={() => void walkIn()}
+                disabled={walking}
+                className="w-full text-left text-[13px] text-accent-strong/90 transition hover:text-accent-strong disabled:opacity-60"
+              >
+                {walking ? (
+                  <span className="shimmer-text">Opening the door…</span>
+                ) : (
+                  <>Walk straight in — no email, the first taste&rsquo;s on the house →</>
+                )}
+              </button>
             )}
             <p className="pt-1 text-[12px] leading-relaxed text-muted/50">
               A 6-digit code lands in your inbox — no password, no setup.

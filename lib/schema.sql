@@ -8,6 +8,12 @@
 
 create extension if not exists "pgcrypto";
 
+-- Better Auth's ANONYMOUS plugin column (2026-07-26, try-before-any-account).
+-- Better Auth owns the "user" table, but its CLI can't read our per-request
+-- factory config (lib/auth.ts getAuth), so the one column the plugin needs is
+-- added here, idempotently, in the plugin's own camelCase convention.
+alter table "user" add column if not exists "isAnonymous" boolean;
+
 create table if not exists songs (
   id            uuid primary key default gen_random_uuid(),
   user_id       text not null references "user"(id) on delete cascade,
@@ -116,6 +122,21 @@ alter table parts add column if not exists tracks jsonb;
 -- NULL = not generated yet (or a twin was rejected as invalid → mobile uses `strudel`).
 -- Regenerated when `strudel` changes (the twin is stale otherwise). See lib/mobilize.ts.
 alter table parts add column if not exists strudel_mobile text;
+
+-- SKETCHES (2026-07-26): the zaltz IDE's saved work — two panes of hand-written
+-- code (Strudel music + Hydra visuals), owned like everything else. Guests are
+-- REAL user rows (Better Auth anonymous plugin), so their sketches live here
+-- too and ride along when the account is claimed (lib/guest.ts merge).
+create table if not exists sketches (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    text not null references "user"(id) on delete cascade,
+  title      text not null default 'untitled sketch',
+  strudel    text not null default '',
+  hydra      text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists sketches_user_idx on sketches (user_id, updated_at desc);
 
 -- billing -------------------------------------------------------------------
 
@@ -242,6 +263,11 @@ create trigger parts_set_updated_at
 drop trigger if exists sets_set_updated_at on sets;
 create trigger sets_set_updated_at
   before update on sets
+  for each row execute function set_updated_at();
+
+drop trigger if exists sketches_set_updated_at on sketches;
+create trigger sketches_set_updated_at
+  before update on sketches
   for each row execute function set_updated_at();
 
 -- Any change to a parts row bumps its parent song's updated_at, so the client's

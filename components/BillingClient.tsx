@@ -81,8 +81,14 @@ export default function BillingClient({
       const d = (await res.json().catch(() => ({}))) as {
         url?: string;
         error?: string;
+        code?: string;
       };
       if (!res.ok || !d.url) {
+        // A guest hit the register — money needs a name on the door first.
+        if (d.code === "account_required") {
+          window.location.href = "/claim";
+          return;
+        }
         setError(d.error || "Something went wrong — try again.");
         setBusy(null);
         return;

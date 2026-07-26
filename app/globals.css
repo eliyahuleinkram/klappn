@@ -759,3 +759,72 @@ input[type="range"].slider.knob-flex {
   background-clip: text;
   color: transparent;
 }
+
+/* ── THE ZALTZ IDE ────────────────────────────────────────────────────────────
+   The picture IS the room: on /engine the hydra canvas burns near-full and the
+   code floats over it on glass. Same law as the door — scrims and blur keep
+   the type readable, never opaque panels. */
+body.ide-stage #hydra-canvas,
+body.ide-stage #k1-canvas {
+  opacity: 0.85;
+}
+
+/* The two layers of a CodePane must be BYTE-ALIGNED twins: same font, same
+   size, same leading, same padding, same soft-wrap. Touch one, touch both. */
+.code-layer {
+  margin: 0;
+  padding: 14px 16px 40px;
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 21px;
+  font-variant-ligatures: none;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+@media (max-width: 640px) {
+  /* iOS zoom floor is 16px — both twins move together. */
+  .code-layer {
+    font-size: 16px;
+    line-height: 24px;
+  }
+}
+.code-input {
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--accent-strong);
+  overflow: hidden;
+}
+.code-input::selection {
+  background: rgba(224, 49, 156, 0.28);
+  color: transparent;
+}
+.code-pane pre {
+  color: #b9bcc6;
+}
+/* Monochrome + the one pink: the pattern strings ARE the music, so they carry
+   the accent; everything else stays quiet steel. */
+.tok-s { color: var(--accent-strong); }
+.tok-l { color: var(--accent); font-weight: 600; }
+.tok-m { color: #8f93a0; }
+.tok-n { color: #e8e9ee; }
+.tok-c { color: #565964; font-style: italic; }
+
+/* Eval flash — you SEE the send land (live-coding ritual). */
+@keyframes pane-flash {
+  0% { background: rgba(224, 49, 156, 0.16); }
+  100% { background: transparent; }
+}
+.pane-flash {
+  animation: pane-flash 0.5s ease-out 1;
+}
+
+/* The copilot's ghost — a whisper, never the voice: quiet grey, no pink. */
+.tok-ghost {
+  color: #6a6d78;
+  opacity: 0.85;
+}

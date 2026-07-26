@@ -65,6 +65,7 @@ const CODE_KEYS = new Set([
   "hydra",
   "vcontrols",
   "vlooks",
+  "ghost", // the IDE copilot's completion — code, so it travels sealed too
 ]);
 const CODE_MAP_KEYS = new Set(["variants"]);
 const SEAL_KEY_RENAMES: Record<string, string> = {

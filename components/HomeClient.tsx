@@ -78,9 +78,13 @@ function Aura({ dim }: { dim: boolean }) {
 export default function HomeClient({
   initialSongs,
   userEmail,
+  isGuest = false,
 }: {
   initialSongs: SongRowRich[];
   userEmail?: string | null;
+  /** An anonymous walk-in — same app, but the account menu offers CLAIM
+   *  instead of sign-out (signing a guest out would orphan their work). */
+  isGuest?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -541,8 +545,18 @@ export default function HomeClient({
             </svg>
             Events
           </Link>
+          {isGuest && (
+            <Link
+              href="/claim"
+              className="hidden shrink-0 items-center rounded-full border border-accent/30 bg-accent/[0.08] px-3 py-1.5 text-[13px] text-accent-strong shadow-[0_0_30px_-14px_rgba(224,49,156,.6)] transition hover:bg-accent/[0.15] sm:flex"
+              title="One email — everything you've made becomes yours forever"
+            >
+              ✦ Claim your work
+            </Link>
+          )}
           <AccountMenu
             email={userEmail}
+            isGuest={isGuest}
             onSignOut={() => signOut().then(() => router.refresh())}
           />
         </div>
@@ -1036,20 +1050,26 @@ export default function HomeClient({
 // click, so the address isn't sitting in the open for anyone glancing over.
 function AccountMenu({
   email,
+  isGuest = false,
   onSignOut,
 }: {
   email?: string | null;
+  isGuest?: boolean;
   onSignOut: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const initial = (email?.trim()?.[0] || "?").toUpperCase();
+  const initial = isGuest ? "✦" : (email?.trim()?.[0] || "?").toUpperCase();
   return (
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
         title="Account"
         aria-label="Account"
-        className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.06] text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.1] hover:text-foreground"
+        className={`flex h-8 w-8 items-center justify-center rounded-full text-[13px] font-medium transition ${
+          isGuest
+            ? "bg-accent/[0.12] text-accent-strong hover:bg-accent/[0.2]"
+            : "bg-white/[0.06] text-foreground/80 hover:bg-white/[0.1] hover:text-foreground"
+        }`}
       >
         {initial}
       </button>
@@ -1061,13 +1081,20 @@ function AccountMenu({
             aria-hidden
           />
           <div className="absolute right-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
-            {email && (
-              <div
-                className="truncate px-3 py-2 text-[12px] text-muted/70"
-                title={email}
-              >
-                {email}
+            {isGuest ? (
+              <div className="px-3 py-2 text-[12px] leading-relaxed text-muted/70">
+                Walking in as a guest — your work lives in this browser until you
+                claim it.
               </div>
+            ) : (
+              email && (
+                <div
+                  className="truncate px-3 py-2 text-[12px] text-muted/70"
+                  title={email}
+                >
+                  {email}
+                </div>
+              )
             )}
             <Link
               href="/billing"
@@ -1075,12 +1102,21 @@ function AccountMenu({
             >
               Tokens &amp; usage
             </Link>
-            <button
-              onClick={onSignOut}
-              className="block w-full rounded-lg px-3 py-2 text-left text-[14px] text-foreground transition hover:bg-white/[0.06]"
-            >
-              Sign out
-            </button>
+            {isGuest ? (
+              <Link
+                href="/claim"
+                className="block w-full rounded-lg px-3 py-2 text-left text-[14px] text-accent-strong transition hover:bg-accent/[0.08]"
+              >
+                ✦ Claim your work
+              </Link>
+            ) : (
+              <button
+                onClick={onSignOut}
+                className="block w-full rounded-lg px-3 py-2 text-left text-[14px] text-foreground transition hover:bg-white/[0.06]"
+              >
+                Sign out
+              </button>
+            )}
           </div>
         </>
       )}

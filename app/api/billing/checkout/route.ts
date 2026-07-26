@@ -1,4 +1,4 @@
-import { getUserId, getUserEmail, unauthorized } from "@/lib/session";
+import { getSessionUser, unauthorized } from "@/lib/session";
 import {
   cardFeeCents,
   CREDIT_PACK_USD,
@@ -19,10 +19,32 @@ import {
  * lifetime credit meter must never mix. Cancel in the portal first.
  */
 export async function POST(req: Request) {
-  const userId = await getUserId(req);
-  if (!userId) return unauthorized();
+  const user = await getSessionUser(req);
+  if (!user) return unauthorized();
+  // Money needs a name on the door: a guest session has no real email, so the
+  // purchase would be chained to a cookie that can vanish. The client opens
+  // sign-in on this code; the guest's work and meters ride along on link.
+  if (user.isAnonymous) {
+    return Response.json(
+      {
+        error: "Sign in first so your tokens are yours forever, not this browser's.",
+        code: "account_required",
+      },
+      { status: 401 },
+    );
+  }
+  const userId = user.id;
 
-  const body = (await req.json().catch(() => null)) as { usd?: number } | null;
+  const body = (await req.json().catch(() => null)) as {
+    usd?: number;
+    back?: string;
+  } | null;
+  // Where to land after Stripe: a same-site PATH only (the IDE passes /engine
+  // so checkout returns to the session in progress). Anything else → /billing.
+  const back =
+    typeof body?.back === "string" && /^\/[a-z0-9/-]*$/i.test(body.back)
+      ? body.back
+      : "/billing";
   const usd = CREDIT_PACK_USD.find((v) => v === body?.usd);
   if (!usd) {
     return Response.json(
@@ -47,8 +69,7 @@ export async function POST(req: Request) {
 
   const origin = new URL(req.url).origin;
   try {
-    const email = await getUserEmail(req).catch(() => null);
-    const customer = await ensureCustomer(userId, email);
+    const customer = await ensureCustomer(userId, user.email);
     const session = await stripeFetch("/checkout/sessions", {
       mode: "payment",
       customer,
@@ -70,8 +91,8 @@ export async function POST(req: Request) {
       "metadata[kind]": "token_credits",
       "metadata[userId]": userId,
       "metadata[tokens]": String(tokens),
-      success_url: `${origin}/billing?topped=1`,
-      cancel_url: `${origin}/billing`,
+      success_url: `${origin}${back}?topped=1`,
+      cancel_url: `${origin}${back}`,
     });
     return Response.json({ url: String(session.url) });
   } catch (e) {

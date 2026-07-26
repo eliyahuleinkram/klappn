@@ -14,11 +14,14 @@ export default async function Home() {
   // sign-in screen rather than crashing the whole page.
   let userId: string | null = null;
   let email: string | null | undefined = null;
+  let isGuest = false;
   try {
     await warmPool(); // Kysely reserve() hangs cold on Hyperdrive — see lib/db.ts
     const session = await getAuth().api.getSession({ headers: await headers() });
     userId = session?.user?.id ?? null;
     email = session?.user?.email;
+    isGuest = !!(session?.user as { isAnonymous?: boolean | null } | undefined)
+      ?.isAnonymous;
   } catch {
     userId = null;
   }
@@ -43,5 +46,11 @@ export default async function Home() {
     songs = [];
   }
 
-  return <HomeClient initialSongs={sealDeep(songs)} userEmail={email} />;
+  return (
+    <HomeClient
+      initialSongs={sealDeep(songs)}
+      userEmail={isGuest ? null : email}
+      isGuest={isGuest}
+    />
+  );
 }

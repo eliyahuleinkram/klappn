@@ -1,9 +1,10 @@
 import { betterAuth } from "better-auth";
-import { emailOTP, magicLink } from "better-auth/plugins";
+import { anonymous, emailOTP, magicLink } from "better-auth/plugins";
 import { Kysely } from "kysely";
 import { PostgresJSDialect } from "kysely-postgres-js";
 import { getSql, hasConnectionString } from "./db";
 import { emailConfigured, magicLinkEmail, otpCodeEmail, sendEmail } from "./email";
+import { mergeGuestAccount } from "./guest";
 
 /**
  * Better Auth server instance — built PER REQUEST via getAuth().
@@ -51,6 +52,26 @@ function createAuth() {
       : {}),
     secret: process.env.BETTER_AUTH_SECRET,
     plugins: [
+      // TRY BEFORE ANY ACCOUNT (2026-07-26): a visitor who starts making gets a
+      // real (anonymous) user row + session — the quota gate, the taste pool and
+      // every owned table work unchanged. When they later sign in with an email,
+      // the merge below carries their work + meters onto the account BEFORE the
+      // plugin deletes the anonymous row (whose FKs cascade). A merge failure
+      // THROWS so the sign-in fails loudly instead of silently losing work.
+      anonymous({
+        emailDomainName: "guest.klappn.com",
+        onLinkAccount: async ({ anonymousUser, newUser }) => {
+          try {
+            await mergeGuestAccount(anonymousUser.user.id, newUser.user.id);
+          } catch (e) {
+            console.error(
+              `[klappn] guest merge FAILED (${anonymousUser.user.id} → ${newUser.user.id}) — aborting link so nothing is lost:`,
+              e,
+            );
+            throw e;
+          }
+        },
+      }),
       magicLink({
         sendMagicLink: async ({ email, url }) => {
           // Production: send via the Cloudflare Email Service (REST). Local dev

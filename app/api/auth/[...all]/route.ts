@@ -13,8 +13,14 @@ async function gate(req: Request): Promise<Response | null> {
     path.endsWith("/email-otp/send-verification-otp") ||
     path.endsWith("/sign-in/magic-link");
   const verifies = path.endsWith("/sign-in/email-otp");
-  if (!sends && !verifies) return null;
+  const anon = path.endsWith("/sign-in/anonymous");
+  if (!sends && !verifies && !anon) return null;
   const ip = clientIp(req);
+  if (anon) {
+    // Guest minting burns real rows and can reach for the free-taste pool —
+    // one household never needs more than a handful of fresh guests a day.
+    return (await rateLimit(`auth-anon:ip:${ip}`, 10, 86_400)) ? null : tooMany();
+  }
   if (sends) {
     const body = (await req
       .clone()
