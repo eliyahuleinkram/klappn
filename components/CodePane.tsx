@@ -80,7 +80,8 @@ const CodePane = forwardRef<
     /** Increment to fire the eval flash (live-coding convention: you SEE the send). */
     flash?: number;
     autoFocus?: boolean;
-    /** A completion is in flight — the caret wears a breathing ✦. */
+    /** A completion is in flight — the caret itself breathes (a pulsing bar,
+     *  zero-width so the twin stays byte-aligned; no glyph in the text). */
     pondering?: boolean;
     /** The copilot's suggestion, rendered at the caret. Parent owns its lifecycle. */
     ghost?: string | null;
@@ -120,7 +121,7 @@ const CodePane = forwardRef<
         ghostCaretRef.current >= 0 ? ghostCaretRef.current : value.length;
       const marker = ghost
         ? `<span class="tok-ghost">${esc(ghost)}</span>`
-        : `<span class="tok-pondering">✦</span>`;
+        : `<span class="tok-pondering"></span>`;
       return (
         highlightCore(value.slice(0, at)) +
         marker +
