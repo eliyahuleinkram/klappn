@@ -3574,7 +3574,15 @@ async function buildProgram(code: string): Promise<string> {
   const music = stripHydraBlock(code);
   if (explicitVisualsDrive) return music;
   if (visualsEnabled && hydra && (await ensureHydra())) {
-    return `${hydra}\n\n${music}`;
+    // PAGE-SCOPE VISUALS (2026-07-26): the sketch used to be concatenated into
+    // the MUSIC program and evaluated in the Strudel scope — where dozens of
+    // control names (shape, noise, speed, …) shadow Hydra's globals, so any
+    // idiomatic sketch touching one died (osc().rotate / noise().rotate /
+    // t.set "is not a function"). Run it through updateVisuals instead — the
+    // same page-scope `new Function` drive the door and sets always used,
+    // where Hydra's globals are unshadowed. The music eval stays pure, and a
+    // broken sketch can no longer touch the audio path at all.
+    void updateVisuals(code);
   }
   return music;
 }
