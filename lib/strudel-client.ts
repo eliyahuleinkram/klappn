@@ -3306,11 +3306,19 @@ export async function updateVisuals(code: string): Promise<void> {
     visualsQueued = null;
     if (!queued) return;
     const hydra = extractHydra(queued);
+    if (debugConsoleWanted())
+      console.log(
+        `[klappn/vis] updateVisuals fire: hydra=${!!hydra} enabled=${visualsEnabled}` +
+          (hydra ? `\n[klappn/vis] sketch:\n${hydra.slice(0, 700)}` : ""),
+      );
     if (!visualsEnabled || !hydra) return;
-    if (!(await ensureHydra())) return;
+    const ok = await ensureHydra();
+    if (debugConsoleWanted()) console.log(`[klappn/vis] ensureHydra=${ok}`);
+    if (!ok) return;
     try {
       assertHydraGlobals(); // strudel's evalScope may have overwritten shape/noise/… since init
       new Function(hydra)();
+      if (debugConsoleWanted()) console.log("[klappn/vis] sketch ran clean");
     } catch (e) {
       console.error("[klappn] visual tweak failed; keeping previous look", e);
       reportHydraError(e instanceof Error ? e.message : String(e));
@@ -3326,6 +3334,8 @@ export async function updateVisuals(code: string): Promise<void> {
 // hits its memory ceiling and reload-crashes the tab. Instead we keep the ONE
 // context alive and just blank + hide it; the next ensureHydra() re-shows it.
 function clearVisuals(): void {
+  if (debugConsoleWanted())
+    console.log("[klappn/vis] clearVisuals\n" + new Error().stack?.split("\n").slice(2, 5).join("\n"));
   try {
     hydraInstance?.hush?.(); // paint the outputs transparent — no stale picture
   } catch {
