@@ -3109,6 +3109,15 @@ function assertHydraGlobals(): void {
   if (!hydraGlobals) return;
   const g = globalThis as Record<string, unknown>;
   for (const k of Object.keys(hydraGlobals)) g[k] = hydraGlobals[k];
+  // hydra reads its user-settable sandbox globals BACK from the page every
+  // tick — and strudel's evalScope stamps its `speed` CONTROL FUNCTION over
+  // hydra's numeric speed at play-start. hydra then computes
+  // time += dt * <function> = NaN: every time-driven source (osc/noise/…)
+  // renders BLACK while solid() still paints — the exact "visuals go away
+  // when I hit play" signature. Restore numbers, and scrub a NaN time so an
+  // already-poisoned session heals instead of sticking black forever.
+  if (typeof g.speed !== "number" || !Number.isFinite(g.speed as number)) g.speed = 1;
+  if (typeof g.time !== "number" || !Number.isFinite(g.time as number)) g.time = 0;
 }
 let resizeBound = false;
 let resizeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3321,6 +3330,12 @@ export async function preloadHydra(): Promise<void> {
  *  frame running. */
 let visualsTimer: ReturnType<typeof setTimeout> | null = null;
 let visualsQueued: string | null = null;
+// The sketch currently PAINTING on the canvas. Re-running the IDENTICAL sketch
+// is never free: a mid-transport re-eval rebuilds the whole chain and blanks
+// the picture (the "visuals go away when I hit play" class — songs whose play
+// path re-ran the same sketch went dark; songs that skipped it kept painting).
+// Identical sketch → leave the running one alone.
+let mountedSketch: string | null = null;
 export async function updateVisuals(code: string): Promise<void> {
   visualsQueued = code;
   if (visualsTimer) return; // an eval is already scheduled — it'll take the latest
@@ -3339,9 +3354,18 @@ export async function updateVisuals(code: string): Promise<void> {
     const ok = await ensureHydra();
     if (debugConsoleWanted()) console.log(`[klappn/vis] ensureHydra=${ok}`);
     if (!ok) return;
+    // ALWAYS heal the globals first — even when the sketch is already mounted:
+    // the running sketch goes black the moment strudel's evalScope poisons
+    // hydra's `speed` global, whether or not we re-run any code.
+    assertHydraGlobals();
+    if (hydra === mountedSketch) {
+      // Already painting this exact sketch — a re-eval would only blank it.
+      if (debugConsoleWanted()) console.log("[klappn/vis] identical sketch — kept running");
+      return;
+    }
     try {
-      assertHydraGlobals(); // strudel's evalScope may have overwritten shape/noise/… since init
       new Function(hydra)();
+      mountedSketch = hydra;
       if (debugConsoleWanted()) console.log("[klappn/vis] sketch ran clean");
     } catch (e) {
       console.error("[klappn] visual tweak failed; keeping previous look", e);
@@ -3360,6 +3384,7 @@ export async function updateVisuals(code: string): Promise<void> {
 function clearVisuals(): void {
   if (debugConsoleWanted())
     console.log("[klappn/vis] clearVisuals\n" + new Error().stack?.split("\n").slice(2, 5).join("\n"));
+  mountedSketch = null; // the hush wipes the picture — the next run must repaint
   try {
     hydraInstance?.hush?.(); // paint the outputs transparent — no stale picture
   } catch {
@@ -3460,6 +3485,7 @@ function armVisualYield(): void {
       yieldWatcherRunning = false; // canvas is down — re-armed by the next ensureHydra
       return;
     }
+    healHydraTimebase(); // undo any evalScope speed/time poisoning within one frame
     // Inside a grace window (a re-eval / navigation just happened): the stall is
     // expected and transient, never sustained jank. Forget it and keep watching.
     if (now < visualYieldGraceUntil) {
@@ -3507,8 +3533,10 @@ function setHydraSpeed(v: number): void {
     if (inst?.synth && typeof inst.synth.speed === "number")
       inst.synth.speed = v;
     // hydra also mirrors sketch globals on window (makeGlobal) — keep in sync.
+    // ALWAYS overwrite: strudel's evalScope stamps its `speed` control
+    // FUNCTION here, and the old number-only guard left the poison in place.
     const g = globalThis as Record<string, unknown>;
-    if (typeof g.speed === "number") g.speed = v;
+    g.speed = v;
   } catch {
     /* visuals are cosmetic — never let this throw into the audio path */
   }
@@ -3589,6 +3617,29 @@ function armVisualClock(): void {
   visLastMs = perfNow();
   visLastSched = schedulerCycle();
   mod?.setTime?.(visualClock);
+  healHydraTimebase();
+}
+
+/** Heal hydra's timebase after ANY evaluate. The eval that just ran may have
+ *  stamped strudel's `speed` CONTROL FUNCTION over hydra's numeric sandbox
+ *  global (evalScope does this on every eval) — hydra then computes
+ *  time += dt * <function> = NaN and every time-driven source (osc/noise/…)
+ *  renders BLACK while solid() still paints: the "visuals go away when I hit
+ *  play" signature. Restore numbers on the page AND inside the instance —
+ *  an internal NaN time never recovers on its own. */
+function healHydraTimebase(): void {
+  try {
+    const g = globalThis as Record<string, unknown>;
+    if (typeof g.speed !== "number" || !Number.isFinite(g.speed as number)) g.speed = 1;
+    if (typeof g.time !== "number" || !Number.isFinite(g.time as number)) g.time = 0;
+    const synth = (hydraInstance as { synth?: { speed?: number; time?: number } } | null)?.synth;
+    if (synth) {
+      if (typeof synth.speed !== "number" || !Number.isFinite(synth.speed)) synth.speed = 1;
+      if (typeof synth.time !== "number" || !Number.isFinite(synth.time)) synth.time = 0;
+    }
+  } catch {
+    /* visuals are cosmetic — never throw into the play path */
+  }
 }
 
 /** Render + gently animate a song's visual WITHOUT playing audio. Mounts the @hydra block on
@@ -3607,8 +3658,10 @@ export async function startIdleVisual(code: string): Promise<void> {
     // etc.) would have re-pointed setTime back to scheduler.now(). With nothing playing,
     // transportActive is false, so this makes the idle drift take effect immediately.
     if (!transportActive) armVisualClock();
-    assertHydraGlobals(); // strudel's evalScope may have overwritten shape/noise/… since init
+    assertHydraGlobals(); // heal speed/time even when the sketch is already mounted
+    if (hydra === mountedSketch) return; // already painting this exact sketch
     new Function(hydra)();
+    mountedSketch = hydra;
   } catch (e) {
     console.error("[klappn] idle visual failed to start", e);
   }
