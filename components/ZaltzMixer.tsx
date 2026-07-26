@@ -121,7 +121,12 @@ export default function ZaltzMixer({
         >
           mixer
         </span>
-        <span className="text-[10px] text-muted/40" aria-hidden>
+        <span
+          className={`text-[15px] leading-none transition ${
+            open ? "text-accent-strong/80" : "text-muted/70 group-hover:text-accent-strong"
+          }`}
+          aria-hidden
+        >
           {open ? "▾" : "▴"}
         </span>
       </button>

@@ -124,9 +124,10 @@ const CodePane = forwardRef<
   const contentRef = useRef<HTMLDivElement>(null);
   const ghostCaretRef = useRef<number>(-1);
 
-  // THE TAKE PILL SITS AT THE GHOST (user 07-27: a corner button read as
-  // unrelated) — measured off the ghost's last rendered line, clamped inside
-  // the pane, so the button visibly belongs to the grey text it takes.
+  // THE TAKE PILL SITS AT THE GHOST (user 07-27, twice): measured off the
+  // ghost's LAST rendered line and placed in the empty air just PAST its end
+  // — never below it, where it sat on top of the real code underneath. Only
+  // when the line runs out of room does it drop under, hugging the left.
   const [pillPos, setPillPos] = useState<{ top: number; left: number } | null>(null);
   useLayoutEffect(() => {
     if (!ghost) {
@@ -146,10 +147,20 @@ const CodePane = forwardRef<
       return;
     }
     const box = content.getBoundingClientRect();
-    setPillPos({
-      top: last.bottom - box.top + 6,
-      left: Math.max(8, Math.min(last.left - box.left, content.clientWidth - 104)),
-    });
+    const PILL_W = 88;
+    const PILL_H = 28;
+    const fitsBeside = last.right - box.left + 10 + PILL_W <= content.clientWidth - 4;
+    setPillPos(
+      fitsBeside
+        ? {
+            top: last.top - box.top + (last.height - PILL_H) / 2,
+            left: last.right - box.left + 10,
+          }
+        : {
+            top: last.bottom - box.top + 4,
+            left: Math.max(8, Math.min(last.left - box.left, content.clientWidth - PILL_W - 8)),
+          },
+    );
   }, [ghost, value]);
 
   // With a ghost up, the twin renders before + ghost + after; the textarea

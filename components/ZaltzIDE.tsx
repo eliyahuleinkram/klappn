@@ -439,7 +439,10 @@ export default function ZaltzIDE() {
     const { strudel: code, hydra: sketch } = stateRef.current;
     if (!code.trim()) {
       // No music yet — let the pane speak for itself; run visuals if present.
-      if (sketch.trim()) void startIdleVisual(hydraProgram(sketch));
+      if (sketch.trim()) {
+        void startIdleVisual(hydraProgram(sketch));
+        setVisualsLive(true);
+      }
       return;
     }
     if (busy) return;
@@ -482,7 +485,15 @@ export default function ZaltzIDE() {
       } catch {
         /* deck re-asserts on the 200ms loop */
       }
-      if (sketch.trim()) void updateVisuals(hydraProgram(sketch));
+      if (sketch.trim()) {
+        try {
+          setVisuals(true); // a play re-arms a stopped picture
+        } catch {
+          /* engine settles it */
+        }
+        void updateVisuals(hydraProgram(sketch));
+        setVisualsLive(true);
+      }
     } catch (e) {
       if (runId.current === id) setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -490,14 +501,32 @@ export default function ZaltzIDE() {
     }
   }, [busy]);
 
+  // The visuals get their own transport too (user 07-27: "hydra should also
+  // have a stop") — run paints, stop goes dark; either always re-arms the
+  // global visuals gate first so a stop never sticks.
+  const [visualsLive, setVisualsLive] = useState(false);
   const runVisuals = useCallback(() => {
     const { hydra: sketch, playing: live } = stateRef.current;
     setErr(null);
     setHFlash((f) => f + 1);
     if (!sketch.trim()) return;
+    try {
+      setVisuals(true);
+    } catch {
+      /* engine not up yet */
+    }
     const program = hydraProgram(sketch);
     if (live) void updateVisuals(program);
     else void startIdleVisual(program);
+    setVisualsLive(true);
+  }, []);
+  const stopVisuals = useCallback(() => {
+    try {
+      setVisuals(false); // soft-hide — the canvas stays, the paint stops
+    } catch {
+      /* already dark */
+    }
+    setVisualsLive(false);
   }, []);
 
   const halt = useCallback(() => {
@@ -1163,7 +1192,7 @@ export default function ZaltzIDE() {
         {label}
       </span>
       <span className="flex-1" />
-      {!touch && (
+      {!touch && hint && (
         <span className="hidden text-[11px] text-muted/45 sm:inline">{hint}</span>
       )}
       {extra}
@@ -1174,7 +1203,7 @@ export default function ZaltzIDE() {
             ? "bg-accent/[0.16] text-accent-strong ring-1 ring-inset ring-accent/40 hover:bg-accent/[0.24]"
             : "bg-white/[0.06] text-foreground/85 hover:bg-accent/20 hover:text-accent-strong"
         }`}
-        title={stop && active ? "Stop (⌘.)" : "Evaluate this pane (⌘↵)"}
+        title={stop && active ? "Stop" : "Run this pane"}
       >
         {stop && active ? "■ stop" : waking ? "waking…" : "▶ run"}
       </button>
@@ -1244,12 +1273,12 @@ export default function ZaltzIDE() {
           title="Ghosts as you type — ⇥ takes them, ⌥\ summons one, Esc bins them"
         >
           <CopilotMark on={copilot} />
-          copilot
+          Copilot
         </button>
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="hidden shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-muted transition hover:text-foreground active:scale-[.97] sm:inline-flex"
-        >Jams</button>
+        >Grains</button>
         {/* (The header's own ⛶ died 2026-07-27 — two fullscreen glyphs read
             as confusion. ONE ⛶ lives on the visuals pane: solo the picture.) */}
         {/* ONE door for the person (user 07-27: the token pill was "a bit
@@ -1293,7 +1322,7 @@ export default function ZaltzIDE() {
                 : "bg-white/[0.04] text-muted/70"
             }`}
           >
-            {p === "strudel" ? "music" : "visuals"}
+            {p === "strudel" ? "strudel" : "visuals"}
           </button>
         ))}
         <span className="flex-1" />
@@ -1306,12 +1335,12 @@ export default function ZaltzIDE() {
           }`}
         >
           <CopilotMark on={copilot} />
-          copilot
+          Copilot
         </button>
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted transition active:scale-[.97]"
-        >Jams</button>
+        >Grains</button>
       </div>
       )}
 
@@ -1323,8 +1352,8 @@ export default function ZaltzIDE() {
           }`}
         >
           {paneHeader(
-            "music · strudel",
-            ghost?.pane === "strudel" ? "⇥ takes the ghost" : "⌘↵ plays it",
+            "strudel",
+            ghost?.pane === "strudel" ? "⇥ takes the ghost" : "",
             () => void runMusic(),
             playing,
             halt,
@@ -1362,11 +1391,11 @@ export default function ZaltzIDE() {
           }`}
         >
           {paneHeader(
-            "visuals · hydra",
-            ghost?.pane === "hydra" ? "⇥ takes the ghost" : "⌘↵ paints it",
+            "visuals",
+            ghost?.pane === "hydra" ? "⇥ takes the ghost" : "",
             runVisuals,
-            playing && !!hydra.trim(),
-            undefined,
+            visualsLive && !!hydra.trim(),
+            stopVisuals,
             // SOLO — the VJ posture: just the picture and this pane.
             <button
               key="solo"
@@ -1507,7 +1536,7 @@ export default function ZaltzIDE() {
             {sheet === "sketches" && (
               <>
                 <div className="flex items-center justify-between">
-                  <h2 className="text-[15px] font-medium text-foreground">Jams</h2>
+                  <h2 className="text-[15px] font-medium text-foreground">Grains</h2>
                   <button
                     onClick={newSketch}
                     className="rounded-full bg-accent/[0.14] px-3 py-1.5 text-[12.5px] text-foreground transition hover:bg-accent/[0.22] active:scale-[.97]"
@@ -1539,7 +1568,7 @@ export default function ZaltzIDE() {
                   </ul>
                 ) : (
                   <p className="mt-3 text-[13px] leading-relaxed text-muted">
-                    No jams yet — play, and what you make keeps itself here.
+                    No grains yet — play, and what you make keeps itself here.
                     {me?.signedIn && me.isGuest
                       ? " Guest work stays with this browser until you claim it."
                       : ""}
