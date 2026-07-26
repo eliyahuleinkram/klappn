@@ -874,14 +874,21 @@ body.ide-stage #k1-canvas {
   position: relative;
   display: inline-block;
   width: 0;
+  /* GEOMETRY IS LOAD-BEARING: an EMPTY inline-block has ZERO height and its
+     baseline is its own bottom edge — so a bare zero-size box sits with its top
+     ON the text baseline, and any absolute bar drawn downward from it lands a
+     full line BELOW the text (shipped once; seen on prod). Give the box the
+     caret's own height and sink it to caret depth instead, then fill it. */
+  height: 1.2em;
+  vertical-align: -0.25em;
 }
 .tok-pondering::after {
   content: "";
   position: absolute;
   left: -1px;
-  top: 0.08em;
+  top: 0;
+  bottom: 0;
   width: 2px;
-  height: 1.15em;
   border-radius: 1px;
   background: var(--accent-strong);
   animation: ghost-ponder 1.1s ease-in-out infinite;
