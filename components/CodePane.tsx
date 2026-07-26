@@ -17,10 +17,14 @@ import {
  * editor dependency.
  *
  * THE COPILOT'S GHOST (2026-07-26): a completion renders as grey ghost text at
- * the caret — ⇥ takes it, Esc (or just typing on) dismisses it. The ghost
- * lives only in the <pre>, never in the textarea, so alignment law: a ghost is
- * only shown where it can't shift real text under the caret — the parent
- * truncates to one line unless the caret sits at the end of the file.
+ * the caret — ⇥ takes it, Esc (or just typing on) dismisses it. Ghosts may be
+ * MULTI-LINE anywhere in the file: the ghost lives only in the <pre>, and
+ * since the <pre> is ALL the visible text (the textarea's own text is
+ * transparent), a mid-file ghost pushes the picture down exactly like VS Code
+ * — while the caret and clicks keep answering to the real buffer, and any
+ * keystroke or caret move dismisses the ghost and snaps the picture back.
+ * On an EMPTY pane, ⇥ takes the placeholder hint instead (onTakeHint) — grey
+ * text is grey text: ⇥ always means "make what's grey mine".
  *
  * The palette is the house monochrome + one pink: pattern STRINGS carry the
  * accent (they are the music), methods and numbers sit quiet, comments recede.
@@ -88,6 +92,9 @@ const CodePane = forwardRef<
     ghost?: string | null;
     onGhostAccept?: () => void;
     onGhostDismiss?: () => void;
+    /** ⇥ on an EMPTY pane takes the placeholder hint (parent seeds the code —
+     *  free, deterministic — then lets the copilot carry on). */
+    onTakeHint?: () => void;
     /** Fired when the caret PARKS (typing pause or a click that settles) and by
      *  summon()/⌥\ — the copilot's cue. */
     onCaretIdle?: (ctx: CaretContext) => void;
@@ -105,6 +112,7 @@ const CodePane = forwardRef<
     ghost,
     onGhostAccept,
     onGhostDismiss,
+    onTakeHint,
     onCaretIdle,
   },
   handleRef,
@@ -273,6 +281,10 @@ const CodePane = forwardRef<
       if (ghost) {
         insertText(ghost);
         onGhostAccept?.();
+      } else if (!value.trim() && placeholder && onTakeHint) {
+        // Grey text is grey text: on an empty pane, ⇥ takes the hint the same
+        // way it takes a ghost — the placeholder's code becomes the buffer.
+        onTakeHint();
       } else {
         insertText("  ");
       }

@@ -637,12 +637,7 @@ export default function ZaltzIDE() {
       const cached = ctx.forced && cached0 !== undefined && !cached0.trim() ? undefined : cached0;
       if (cached !== undefined) {
         lastCue.current = { key: cueKey, empty: !cached.trim(), at: Date.now() };
-        let g = cached;
-        if (!ctx.atEnd) {
-          const lines = g.split("\n");
-          g = lines[0] || (lines[1] !== undefined ? "\n" + lines[1] : "");
-        }
-        if (g.trim()) setGhost({ pane, text: g });
+        if (cached.trim()) setGhost({ pane, text: cached });
         return;
       }
       const seq = ++ghostSeq.current;
@@ -685,14 +680,12 @@ export default function ZaltzIDE() {
           const oldest = ghostLRU.current.keys().next().value;
           if (oldest !== undefined) ghostLRU.current.delete(oldest);
         }
-        if (!ctx.atEnd) {
-          // Alignment law (see CodePane): mid-file, the ghost may not push
-          // later lines around — keep ONE line. But a completion that OPENS
-          // with a newline (the comment-to-code move: "// acid line" → "\n$:
-          // …") would truncate to nothing, so keep newline + first real line.
-          const lines = g.split("\n");
-          g = lines[0] || (lines[1] !== undefined ? "\n" + lines[1] : "");
-        }
+        // Multi-line ghosts render ANYWHERE (2026-07-26, user: hydra writes
+        // one word per line — a one-line ghost said nothing): all visible
+        // text lives in the <pre> (the textarea's text is transparent), so a
+        // mid-file ghost pushes the picture down exactly like VS Code, while
+        // the caret and every click keep answering to the REAL buffer — and
+        // any keystroke or caret move dismisses the ghost and snaps back.
         lastCue.current = { key: cueKey, empty: !g.trim(), at: Date.now() };
         if (!g.trim()) return;
         if (seq !== ghostSeq.current) return; // superseded by newer typing
@@ -974,26 +967,30 @@ export default function ZaltzIDE() {
   const MUSIC_SEED = 'setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n';
   const VISUALS_SEED =
     "osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n";
+  // The SEED is free and deterministic, so ⇥-on-the-hint lands it even for a
+  // spent account (only the summon that follows costs anything — and a spent
+  // summon goes quiet on its own). ✦ complete still routes the broke to the
+  // register first.
+  const seedMusic = () => {
+    setStrudel(MUSIC_SEED);
+    markDirty();
+    setSFlash((f) => f + 1); // you SEE the hint land
+    setTimeout(() => strudelPane.current?.summon(), 90);
+  };
+  const seedVisuals = () => {
+    setHydra(VISUALS_SEED);
+    markDirty();
+    setHFlash((f) => f + 1);
+    setTimeout(() => hydraPane.current?.summon(), 90);
+  };
   const completeMusic = () => {
     if (spent) return setSheet("tokens");
-    if (!stateRef.current.strudel.trim()) {
-      setStrudel(MUSIC_SEED);
-      markDirty();
-      setSFlash((f) => f + 1); // you SEE the hint land
-      setTimeout(() => strudelPane.current?.summon(), 90);
-      return;
-    }
+    if (!stateRef.current.strudel.trim()) return seedMusic();
     strudelPane.current?.summon();
   };
   const completeVisuals = () => {
     if (spent) return setSheet("tokens");
-    if (!stateRef.current.hydra.trim()) {
-      setHydra(VISUALS_SEED);
-      markDirty();
-      setHFlash((f) => f + 1);
-      setTimeout(() => hydraPane.current?.summon(), 90);
-      return;
-    }
+    if (!stateRef.current.hydra.trim()) return seedVisuals();
     hydraPane.current?.summon();
   };
   const tokenChip = !me
@@ -1218,9 +1215,10 @@ export default function ZaltzIDE() {
               if (stateRef.current.playing) setTimeout(() => void runMusic(), 60);
             }}
             onGhostDismiss={killGhost}
+            onTakeHint={seedMusic}
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
             placeholder={`setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then hit ▶ run — the room hears you\n// stuck? ✦ complete writes the next line${
-              touch ? "" : "\n// on keys: ⌘↵ runs · ⇥ takes a ghost"
+              touch ? "" : "\n// on keys: ⌘↵ runs · ⇥ takes what's grey — this starter too"
             }`}
           />
         </section>
@@ -1255,8 +1253,11 @@ export default function ZaltzIDE() {
               setTimeout(() => runVisuals(), 60);
             }}
             onGhostDismiss={killGhost}
+            onTakeHint={seedVisuals}
             onCaretIdle={(ctx) => void requestGhost("hydra", ctx)}
-            placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them`}
+            placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them${
+              touch ? "" : "\n// ⇥ takes what's grey — this starter too"
+            }`}
           />
         </section>
       </div>
