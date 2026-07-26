@@ -209,8 +209,7 @@ export default function ZaltzIDE() {
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [ask, setAsk] = useState("");
-  const [asking, setAsking] = useState<string | null>(null); // the ask in flight
+  const [asking, setAsking] = useState<string | null>(null); // the tweak-ask in flight
   const [proposal, setProposal] = useState<Proposal | null>(null);
 
   // THE COPILOT — ghost completions at the caret (Tab takes, Esc bins).
@@ -403,6 +402,8 @@ export default function ZaltzIDE() {
     const program = hydraProgram(sketch);
     if (live) void updateVisuals(program);
     else void startIdleVisual(program);
+    // A repaint is a run too — the light deserves its own tweak round.
+    setTimeout(() => void tweaksAfterRun.current(), 1500);
   }, []);
 
   const halt = useCallback(() => {
@@ -640,7 +641,6 @@ export default function ZaltzIDE() {
         return;
       }
       setProposal({ strudel: d.strudel, hydra: d.hydra, note: d.note, issues: d.issues });
-      if (ask.trim() === asked) setAsk("");
       void refreshMe(); // the meter moved
     } catch {
       setNotice("Network hiccup — ask again.");
@@ -847,7 +847,7 @@ export default function ZaltzIDE() {
               ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
               : "bg-white/[0.05] text-muted/60 hover:text-foreground"
           }`}
-          title="Ghost completions as you type — ⇥ takes them, Esc bins them"
+          title="Ghosts as you type — ⇥ takes them, ⌥\ summons one, Esc bins them"
         >
           copilot
         </button>
@@ -1026,75 +1026,61 @@ export default function ZaltzIDE() {
         </div>
       )}
 
-      {/* ── tweak chips — the machine's next moves, offered never applied ── */}
-      {tweaks.length > 0 && !proposal && (
-        <div className="mt-2 flex items-center gap-1.5 overflow-x-auto">
-          <span className="shrink-0 text-[12px] text-accent-strong/80" title="One tap asks for the change — you still take it or leave it">
-            ✦
-          </span>
-          {tweaks.map((t) => (
-            <button
-              key={t.name + t.ask}
-              onClick={() => void conjure(t.ask)}
-              disabled={!!asking}
-              title={t.ask}
-              className={`shrink-0 rounded-full border border-accent/25 bg-accent/[0.07] px-3 py-1.5 text-[12.5px] text-foreground/90 transition hover:bg-accent/[0.16] hover:text-accent-strong active:scale-[.97] disabled:opacity-40 ${
-                asking === t.ask ? "border-accent/50 text-accent-strong" : ""
-              }`}
-            >
-              {asking === t.ask ? (
-                <span className="shimmer-text">{t.name}…</span>
-              ) : (
-                t.name
-              )}
-            </button>
-          ))}
-          <button
-            onClick={() => setTweaks([])}
-            className="shrink-0 px-1.5 text-[12px] text-muted/50 transition hover:text-foreground"
-            aria-label="Hide tweaks"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* ── transport + the ask bar ─────────────────────────────────────── */}
+      {/* ── transport + the machine's next moves (offered, never applied) ── */}
       <footer className="mt-2.5 flex items-center gap-2.5">
         <button
           onClick={playing ? halt : () => void runMusic()}
           disabled={busy}
-          className={`btn-primary min-w-[5.5rem] rounded-full px-5 py-2.5 text-[14px] font-medium transition active:scale-[.97] ${
+          className={`btn-primary min-w-[5.5rem] shrink-0 rounded-full px-5 py-2.5 text-[14px] font-medium transition active:scale-[.97] ${
             waking ? "opacity-60" : ""
           }`}
         >
           {waking ? "Waking…" : playing ? "Stop" : "Play"}
         </button>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void conjure(ask);
-          }}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.1] bg-black/45 py-1 pl-4 pr-1 backdrop-blur-xl transition focus-within:border-accent/40 focus-within:shadow-[0_0_44px_-16px_rgba(224,49,156,.55)]"
-        >
-          <input
-            value={ask}
-            onChange={(e) => setAsk(e.target.value)}
-            placeholder="or ask in your own words — it proposes a take, you take it or leave it"
-            className="min-w-0 flex-1 bg-transparent text-[13.5px] text-foreground outline-none placeholder:text-muted/45"
-          />
-          <button
-            type="submit"
-            disabled={!!asking || !ask.trim()}
-            className="shrink-0 rounded-full bg-gradient-to-r from-[#ff63c1] via-[#e0319c] to-[#b3126f] px-4 py-1.5 text-[13px] font-medium text-white transition active:scale-[.97] disabled:opacity-40"
-          >
-            {asking && asking === ask.trim() ? (
-              <span className="shimmer-text">Asking…</span>
+        {tweaks.length > 0 && !proposal ? (
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-1">
+            <span
+              className="shrink-0 text-[12px] text-accent-strong/80"
+              title="One tap asks for the change — the take still lands on your table first"
+            >
+              ✦
+            </span>
+            {tweaks.map((t) => (
+              <button
+                key={t.name + t.ask}
+                onClick={() => void conjure(t.ask)}
+                disabled={!!asking}
+                title={t.ask}
+                className={`shrink-0 rounded-full border border-accent/25 bg-accent/[0.07] px-3 py-1.5 text-[12.5px] text-foreground/90 backdrop-blur-xl transition hover:bg-accent/[0.16] hover:text-accent-strong active:scale-[.97] disabled:opacity-40 ${
+                  asking === t.ask ? "border-accent/50 text-accent-strong" : ""
+                }`}
+              >
+                {asking === t.ask ? (
+                  <span className="shimmer-text">{t.name}…</span>
+                ) : (
+                  t.name
+                )}
+              </button>
+            ))}
+            <button
+              onClick={() => setTweaks([])}
+              className="shrink-0 px-1.5 text-[12px] text-muted/50 transition hover:text-foreground"
+              aria-label="Hide tweaks"
+            >
+              ✕
+            </button>
+          </div>
+        ) : (
+          <p className="min-w-0 flex-1 truncate text-[12px] text-muted/40">
+            {asking ? (
+              <span className="shimmer-text text-accent-strong/80">
+                the machine is taking a pass…
+              </span>
             ) : (
-              "✦ Ask"
+              "ghosts land as you type — ⇥ takes one, ⌥\\ summons one. Play it clean and the machine offers tweaks."
             )}
-          </button>
-        </form>
+          </p>
+        )}
       </footer>
 
       {/* ── sheets ──────────────────────────────────────────────────────── */}

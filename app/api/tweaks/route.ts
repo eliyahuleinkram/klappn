@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     typeof body?.strudel === "string" ? body.strudel.slice(0, SKETCH_CODE_MAX) : "";
   const hydra =
     typeof body?.hydra === "string" ? body.hydra.slice(0, SKETCH_CODE_MAX) : "";
-  if (!strudel.trim()) return Response.json({ tweaks: [] });
+  if (!strudel.trim() && !hydra.trim()) return Response.json({ tweaks: [] });
 
   const gate = await assertQuota(userId);
   if (gate) return gate;

@@ -136,27 +136,29 @@ export default function CodePane({
   }, [value]);
   useEffect(followCaret, [followCaret]);
 
-  // ── the copilot's cue: typing pauses, caret at a line end ────────────────
+  // ── the copilot's cue: typing pauses (anywhere), or ⌃Space summons ───────
+  const summonGhost = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta || !onCaretIdle) return;
+    const caret = ta.selectionStart ?? 0;
+    if (caret !== (ta.selectionEnd ?? 0)) return; // a selection, not a caret
+    ghostCaretRef.current = caret;
+    onCaretIdle({
+      before: value.slice(0, caret),
+      after: value.slice(caret),
+      atEnd: caret === value.length,
+    });
+  }, [value, onCaretIdle]);
   const typedRef = useRef(false);
   useEffect(() => {
     if (!typedRef.current || !onCaretIdle) return;
     const t = setTimeout(() => {
       typedRef.current = false;
-      const ta = taRef.current;
-      if (!ta || document.activeElement !== ta) return;
-      const caret = ta.selectionStart ?? 0;
-      if (caret !== (ta.selectionEnd ?? 0)) return; // a selection, not a caret
-      const nextCh = value[caret];
-      if (nextCh !== undefined && nextCh !== "\n") return; // mid-line — stay quiet
-      ghostCaretRef.current = caret;
-      onCaretIdle({
-        before: value.slice(0, caret),
-        after: value.slice(caret),
-        atEnd: caret === value.length,
-      });
-    }, 700);
+      if (document.activeElement !== taRef.current) return;
+      summonGhost();
+    }, 500);
     return () => clearTimeout(t);
-  }, [value, onCaretIdle]);
+  }, [value, onCaretIdle, summonGhost]);
 
   // Any caret drift away from where the ghost was minted kills it.
   const checkGhostStale = useCallback(() => {
@@ -183,6 +185,16 @@ export default function CodePane({
     if (mod && e.key === "Enter") {
       e.preventDefault();
       onRun();
+      return;
+    }
+    // ⌥\ or ⌃Space — summon a ghost on demand (the copilot's doorbell).
+    // Both listed because macOS itself often eats ⌃Space (input sources).
+    if (
+      (e.altKey && e.code === "Backslash") ||
+      (e.ctrlKey && !e.metaKey && (e.key === " " || e.code === "Space"))
+    ) {
+      e.preventDefault();
+      summonGhost();
       return;
     }
     if (mod && (e.key === "s" || e.key === "S")) {
@@ -221,41 +233,58 @@ export default function CodePane({
   }
 
   return (
-    <div ref={scrollRef} className="code-pane relative flex-1 overflow-y-auto overscroll-contain">
-      <div ref={flashRef} aria-hidden className="pointer-events-none absolute inset-0 z-[2]" />
-      <div className="relative min-h-full">
-        <pre
-          aria-hidden
-          className="code-layer pointer-events-none relative"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-        {!value && placeholder && (
-          <pre className="code-layer pointer-events-none absolute inset-0 text-muted/35">
-            {placeholder}
-          </pre>
-        )}
-        <textarea
-          ref={taRef}
-          value={value}
-          onChange={(e) => {
-            typedRef.current = true;
-            onChange(e.target.value);
-          }}
-          onKeyDown={onKeyDown}
-          onKeyUp={checkGhostStale}
-          onClick={() => {
-            followCaret();
-            checkGhostStale();
-          }}
-          onBlur={() => ghost && onGhostDismiss?.()}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoComplete="off"
-          autoCorrect="off"
-          autoFocus={autoFocus}
-          className="code-layer code-input absolute inset-0 h-full w-full"
-        />
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div ref={scrollRef} className="code-pane relative flex-1 overflow-y-auto overscroll-contain">
+        <div ref={flashRef} aria-hidden className="pointer-events-none absolute inset-0 z-[2]" />
+        <div className="relative min-h-full">
+          <pre
+            aria-hidden
+            className="code-layer pointer-events-none relative"
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+          {!value && placeholder && (
+            <pre className="code-layer pointer-events-none absolute inset-0 text-muted/35">
+              {placeholder}
+            </pre>
+          )}
+          <textarea
+            ref={taRef}
+            value={value}
+            onChange={(e) => {
+              typedRef.current = true;
+              onChange(e.target.value);
+            }}
+            onKeyDown={onKeyDown}
+            onKeyUp={checkGhostStale}
+            onClick={() => {
+              followCaret();
+              checkGhostStale();
+            }}
+            onBlur={() => ghost && onGhostDismiss?.()}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            autoFocus={autoFocus}
+            className="code-layer code-input absolute inset-0 h-full w-full"
+          />
+        </div>
       </div>
+      {/* The ghost's handle — a real button, because phones have no ⇥.
+          pointerDown (not click) so the textarea never blurs first, which
+          would dismiss the very ghost being taken. */}
+      {ghost && (
+        <button
+          onPointerDown={(e) => {
+            e.preventDefault();
+            insertText(ghost);
+            onGhostAccept?.();
+          }}
+          className="absolute bottom-2.5 right-2.5 z-[3] rounded-full border border-accent/40 bg-black/70 px-3 py-1.5 text-[12.5px] text-accent-strong shadow-[0_0_30px_-10px_rgba(224,49,156,.7)] backdrop-blur-xl transition active:scale-[.96]"
+        >
+          ⇥ take
+        </button>
+      )}
     </div>
   );
 }

@@ -92,7 +92,7 @@ ASK: ${ask}`;
 // thinking DISABLED (the latency win; same pin as every no-thinking utility
 // call). Small, throttled, metered like everything else.
 
-const COMPLETE_CONTRACT = `You are inline code-completion in a live-coding IDE. You get the code BEFORE the cursor and the code AFTER it. Output ONLY the raw text to insert at the cursor — no prose, no fences, never repeat text that is already there. Match the file's own style and vocabulary; finish the current line, or add the next line(s) that most belong. Stop at a natural point (at most ~3 lines). If nothing worth suggesting, output nothing.`;
+const COMPLETE_CONTRACT = `You are inline code-completion in a live-coding IDE. You get the code BEFORE the cursor and the code AFTER it. Output ONLY the raw text to insert at the cursor — no prose, no fences, never repeat text that is already there. Match the file's own style and vocabulary; finish the current line, or add the next line(s) that most belong. When text follows the cursor ON THE SAME LINE, complete only what fits between — finish the expression there, never start a new line. Stop at a natural point (at most ~3 lines). If nothing worth suggesting, output nothing.`;
 
 export const COMPLETE_STRUDEL_SYSTEM = `${COMPLETE_CONTRACT}
 
@@ -125,9 +125,9 @@ export function cleanCompletion(raw: string, before: string): string {
 
 // ── TWEAKS — one-tap next moves, generated after a CLEAN run ─────────────────
 
-export const TWEAKS_SYSTEM = `You suggest one-tap TWEAKS for a live-coded loop (Strudel music + optional Hydra visual). Given the panes, return JSON ONLY:
+export const TWEAKS_SYSTEM = `You suggest one-tap TWEAKS for a live-coded loop (a Strudel music pane + a Hydra visual pane; either may be empty). Given the panes, return JSON ONLY:
 {"tweaks":[{"name":"<1-3 words>","ask":"<the change, imperative, ≤120 chars>"}]}
-3 to 5 tweaks. Each is a DISTINCT move a live coder would actually reach for next — groove, texture, energy, space, one may be visual. Names a non-musician reads at a glance; asks concrete enough to execute. Never a tweak that just undoes another.`;
+4 or 5 tweaks. Each is a DISTINCT move a live coder would actually reach for next — groove, texture, energy, space, light. At least ONE tweak is for the VISUAL: reshape the hydra pane when it has code, or introduce a visual when it's empty (say so in the ask). Names a non-musician reads at a glance; asks concrete enough to execute. Never a tweak that just undoes another.`;
 
 export interface Tweak {
   name: string;
