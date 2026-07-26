@@ -612,7 +612,10 @@ export default function ZaltzIDE() {
       if (stateRef.current.busyWithTake) return; // never whisper over a take
       if (ghostRef.current) return; // one ghost at a time — take it or bin it
       const cueKey = `${pane}:${ctx.before.length}:${ctx.after.length}:${ctx.before.slice(-40)}`;
-      if (lastCue.current.key === cueKey && lastCue.current.empty) return;
+      // An explicit ✦/⌥\ summon is a direct order — it re-asks even where an
+      // auto-cue already came back empty.
+      if (!ctx.forced && lastCue.current.key === cueKey && lastCue.current.empty)
+        return;
       // Nothing left to spend → the copilot goes quiet instead of 402-spamming.
       const m = meRef.current;
       if (m?.signedIn && !m.owner && (m.remainingTokens ?? 0) <= 0) return;
@@ -635,7 +638,14 @@ export default function ZaltzIDE() {
         if (!res.ok) return; // 402/429 → quiet; the meter chip tells the story
         const d = openDeep((await res.json().catch(() => ({}))) as { ghost?: string });
         let g = d.ghost ?? "";
-        if (!ctx.atEnd) g = g.split("\n")[0]; // alignment law — see CodePane
+        if (!ctx.atEnd) {
+          // Alignment law (see CodePane): mid-file, the ghost may not push
+          // later lines around — keep ONE line. But a completion that OPENS
+          // with a newline (the comment-to-code move: "// acid line" → "\n$:
+          // …") would truncate to nothing, so keep newline + first real line.
+          const lines = g.split("\n");
+          g = lines[0] || (lines[1] !== undefined ? "\n" + lines[1] : "");
+        }
         lastCue.current = { key: cueKey, empty: !g.trim() };
         if (!g.trim()) return;
         if (seq !== ghostSeq.current) return; // superseded by newer typing

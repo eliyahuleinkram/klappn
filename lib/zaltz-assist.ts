@@ -92,7 +92,7 @@ ASK: ${ask}`;
 // thinking DISABLED (the latency win; same pin as every no-thinking utility
 // call). Small, throttled, metered like everything else.
 
-const COMPLETE_CONTRACT = `You are inline code-completion in a live-coding IDE. You get the code BEFORE the cursor and the code AFTER it. Output ONLY the raw text to insert at the cursor — no prose, no fences, never repeat text that is already there. Match the file's own style and vocabulary; finish the current line, or add the next line(s) that most belong. When text follows the cursor ON THE SAME LINE, complete only what fits between — finish the expression there, never start a new line. Stop at a natural point (at most ~3 lines). If nothing worth suggesting, output nothing.`;
+const COMPLETE_CONTRACT = `You are inline code-completion in a live-coding IDE. You get the code BEFORE the cursor and the code AFTER it. Output ONLY the raw text to insert at the cursor — no prose, no fences, never repeat text that is already there. Match the file's own style and vocabulary; finish the current line, or add the next line(s) that most belong. A comment stating an intent ("// rolling acid bassline") is an ASK — write the code that fulfils it on the following line(s). When text follows the cursor ON THE SAME LINE, complete only what fits between — finish the expression there, never start a new line. Stop at a natural point (at most ~3 lines). Only output nothing when the code is already complete as it stands.`;
 
 export const COMPLETE_STRUDEL_SYSTEM = `${COMPLETE_CONTRACT}
 
@@ -120,7 +120,12 @@ export function cleanCompletion(raw: string, before: string): string {
       break;
     }
   }
-  return s.replace(/^\r?\n(?=\S)/, "\n");
+  s = s.replace(/^\r?\n(?=\S)/, "\n");
+  // Completing at the end of a COMMENT line: without a leading newline the
+  // taken code lands INSIDE the comment and falls silent. Deterministic guard.
+  const lastLine = before.slice(before.lastIndexOf("\n") + 1);
+  if (s && !s.startsWith("\n") && /^\s*\/\//.test(lastLine)) s = "\n" + s;
+  return s;
 }
 
 // ── TWEAKS — one-tap next moves, generated after a CLEAN run ─────────────────

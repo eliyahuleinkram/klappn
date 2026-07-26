@@ -57,6 +57,9 @@ export interface CaretContext {
   after: string;
   /** Caret sits at the very end of the file (a multi-line ghost is safe). */
   atEnd: boolean;
+  /** An explicit summon (✦ complete / ⌥\) — overrules the parent's
+   *  "this spot already came back empty" dedupe. */
+  forced?: boolean;
 }
 
 /** The parent's handle on a pane — one verb: summon a ghost right now. */
@@ -149,19 +152,30 @@ const CodePane = forwardRef<
   }, [value]);
   useEffect(followCaret, [followCaret]);
 
-  // ── the copilot's cue: typing pauses (anywhere), or ⌃Space summons ───────
-  const summonGhost = useCallback(() => {
-    const ta = taRef.current;
-    if (!ta || !onCaretIdle) return;
-    const caret = ta.selectionStart ?? 0;
-    if (caret !== (ta.selectionEnd ?? 0)) return; // a selection, not a caret
-    ghostCaretRef.current = caret;
-    onCaretIdle({
-      before: value.slice(0, caret),
-      after: value.slice(caret),
-      atEnd: caret === value.length,
-    });
-  }, [value, onCaretIdle]);
+  // ── the copilot's cue: typing pauses (anywhere), or a summon ─────────────
+  // READ THE DOM, NEVER THE PROP: the cue timer is armed inside onChange,
+  // whose closure still holds the PREVIOUS render's `value` — one character
+  // stale. That off-by-one made every typing-cued caret look mid-line, the
+  // single-line truncation then emptied every "\n"-leading completion, and
+  // the comment-to-code case (the copilot's signature move) silently never
+  // fired. ta.value is always the truth.
+  const summonGhost = useCallback(
+    (forced = false) => {
+      const ta = taRef.current;
+      if (!ta || !onCaretIdle) return;
+      const v = ta.value;
+      const caret = ta.selectionStart ?? 0;
+      if (caret !== (ta.selectionEnd ?? 0)) return; // a selection, not a caret
+      ghostCaretRef.current = caret;
+      onCaretIdle({
+        before: v.slice(0, caret),
+        after: v.slice(caret),
+        atEnd: caret === v.length,
+        forced,
+      });
+    },
+    [onCaretIdle],
+  );
   // Any caret activity — typing, a click, an arrow — re-arms one timer; 600ms
   // of stillness with focus and the copilot looks over your shoulder. This is
   // what makes "just complete what's sitting there" work: click at the end,
@@ -190,12 +204,12 @@ const CodePane = forwardRef<
         if (!ta) return;
         if (document.activeElement !== ta) {
           ta.focus();
-          ta.setSelectionRange(value.length, value.length);
+          ta.setSelectionRange(ta.value.length, ta.value.length);
         }
-        summonGhost();
+        summonGhost(true);
       },
     }),
-    [summonGhost, value],
+    [summonGhost],
   );
 
   // Any caret drift away from where the ghost was minted kills it.
@@ -232,7 +246,7 @@ const CodePane = forwardRef<
       (e.ctrlKey && !e.metaKey && (e.key === " " || e.code === "Space"))
     ) {
       e.preventDefault();
-      summonGhost();
+      summonGhost(true);
       return;
     }
     if (mod && (e.key === "s" || e.key === "S")) {
