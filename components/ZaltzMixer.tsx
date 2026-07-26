@@ -1,13 +1,51 @@
 "use client";
 
+import { useId } from "react";
 import { CHANNELS, filterDisplay, type Channel } from "@/lib/set-live";
 import DeckSlider from "./DeckSlider";
 
+/** THE SALT SHAKER — the mixer's door, drawn not written: zaltz is salt, and
+ *  this is where you salt the sound. Tilted mid-shake, grains falling; the
+ *  body takes the house gradient while the music plays. Gradient id is
+ *  per-instance (the shared-id/display:none trap — see CopilotMark). */
+function SaltShaker({ lit }: { lit: boolean }) {
+  const uid = useId();
+  const g = `shaker-${uid.replace(/[^a-zA-Z0-9]/g, "")}`;
+  const fill = lit ? `url(#${g})` : "currentColor";
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden>
+      <defs>
+        <linearGradient id={g} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#ff63c1" />
+          <stop offset="55%" stopColor="#e0319c" />
+          <stop offset="100%" stopColor="#b3126f" />
+        </linearGradient>
+      </defs>
+      {/* the shaker, tilted mid-pour (cap toward the lower right) */}
+      <g transform="rotate(130 11 11)">
+        <path
+          d="M8.7 7.6 L15.3 7.6 L16.4 17.1 C16.55 18.55 15.4 19.8 13.95 19.8 L10.05 19.8 C8.6 19.8 7.45 18.55 7.6 17.1 Z"
+          fill={fill}
+          opacity="0.95"
+        />
+        <rect x="8.2" y="3.4" width="7.6" height="3.1" rx="1.5" fill={fill} opacity="0.75" />
+      </g>
+      {/* the falling grains — alive while the music plays */}
+      <g className={lit ? "animate-pulse" : ""} fill={fill}>
+        <circle cx="17.6" cy="15.2" r="1" opacity="0.9" />
+        <circle cx="19.6" cy="18.4" r="0.85" opacity="0.7" />
+        <circle cx="16.4" cy="19.6" r="0.7" opacity="0.55" />
+      </g>
+    </svg>
+  );
+}
+
 /**
- * SEASON TO TASTE — the zaltz IDE's performance desk (the Sets deck's own
+ * THE MIXER — the zaltz IDE's performance desk (the Sets deck's own
  * machinery, worn by the instrument): channel kills on orbit buses, momentary
  * pads, master-chain dials, video FX on the canvas. Ephemeral, deterministic,
- * zero AI — the pane's code is never touched.
+ * zero AI — the pane's code is never touched. Its door is the SALT SHAKER,
+ * one circle in the corner; the desk floats up over the panes.
  *
  * This is a pure view: every value and every move belongs to the parent
  * (ZaltzIDE owns the audio wiring); the desk only shows and asks.
@@ -93,49 +131,17 @@ export default function ZaltzMixer({
   onLight: (patch: Partial<LightDials>) => void;
 }) {
   return (
-    <div className="mt-2 shrink-0">
-      {/* OPEN, THE HANDLE IS THE PANEL'S TOP EDGE — same border, same glass,
-          no seam: rounded top, flat bottom, the desk continues beneath. The
-          word is the club's own: MIXER — plain, honest, zero cleverness
-          (user 07-27: "season to taste" read cute-weird; the salt lives in
-          the brand, not in the furniture) — warming while the music plays. */}
-      <button
-        onClick={onToggle}
-        title="The mixer — kills, pads, dials"
-        className={`group mx-auto flex items-center justify-center gap-2.5 border px-4 py-1.5 backdrop-blur-xl transition-all active:scale-[.99] ${
-          open
-            ? "w-full rounded-t-[22px] rounded-b-none border-b-0 border-accent/25 bg-black/75 shadow-[0_0_44px_-16px_rgba(224,49,156,.5)]"
-            : // Closed on wide glass it is a HANDLE, not a runway — a centred
-              // capsule that hugs its word; open it grows into the panel's
-              // full-width top edge.
-              "w-full rounded-full border-white/[0.07] bg-black/45 hover:border-accent/30 sm:w-auto sm:min-w-[16rem]"
-        }`}
-        aria-expanded={open}
-      >
-        <span
-          className={`text-[10.5px] font-semibold uppercase tracking-[0.24em] transition ${
-            open || playing
-              ? "text-accent-strong"
-              : "text-muted/60 group-hover:text-accent-strong"
-          }`}
+    <>
+      {/* THE DESK — a glass slab floating up from the shaker's corner (user
+          07-27: the panes own the floor now; the mixer rises over them). */}
+      {open && (
+        <div
+          className="fixed inset-x-3 z-20 sm:inset-x-auto sm:right-4 sm:w-[620px]"
+          style={{
+            bottom: "calc(max(0.75rem, env(safe-area-inset-bottom)) + 3.9rem)",
+          }}
         >
-          mixer
-        </span>
-        <span
-          className={`text-[15px] leading-none transition ${
-            open ? "text-accent-strong/80" : "text-muted/70 group-hover:text-accent-strong"
-          }`}
-          aria-hidden
-        >
-          {open ? "▾" : "▴"}
-        </span>
-      </button>
-      <div
-        className={`overflow-hidden transition-all duration-300 ease-out ${
-          open ? "max-h-[38dvh] opacity-100" : "max-h-0 opacity-0"
-        }`}
-      >
-        <div className="max-h-[38dvh] overflow-y-auto rounded-b-[22px] border border-t-0 border-accent/25 bg-gradient-to-b from-black/75 to-black/55 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+          <div className="max-h-[56dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/80 to-black/60 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
           <div className="mb-3 flex items-center gap-1.5">
             {(["music", "light"] as const).map((t) => (
               <button
@@ -147,7 +153,7 @@ export default function ZaltzMixer({
                     : "bg-white/[0.04] text-muted/60 hover:text-foreground"
                 }`}
               >
-                {t === "light" ? "visuals" : t}
+                {t === "light" ? "hydra" : t}
               </button>
             ))}
           </div>
@@ -375,8 +381,34 @@ export default function ZaltzMixer({
               />
             </div>
           )}
+          </div>
         </div>
-      </div>
-    </div>
+      )}
+      {/* THE SHAKER — one circle in the corner, always in thumb's reach:
+          zaltz's own object as the door to the desk. Open, it becomes the ✕
+          (one glyph, one meaning). */}
+      <button
+        onClick={onToggle}
+        title={open ? "Close the mixer" : "The mixer — kills, pads, dials"}
+        aria-expanded={open}
+        className={`fixed z-20 flex h-12 w-12 items-center justify-center rounded-full border backdrop-blur-xl transition active:scale-[.94] ${
+          open
+            ? "border-accent/50 bg-black/70 text-accent-strong shadow-[0_0_44px_-10px_rgba(224,49,156,.8)]"
+            : playing
+              ? "border-accent/40 bg-black/55 text-accent-strong shadow-[0_0_36px_-10px_rgba(224,49,156,.7)] hover:border-accent/60"
+              : "border-white/[0.1] bg-black/50 text-muted/80 hover:border-accent/40 hover:text-accent-strong"
+        }`}
+        style={{
+          right: "max(0.75rem, env(safe-area-inset-right))",
+          bottom: "max(0.75rem, env(safe-area-inset-bottom))",
+        }}
+      >
+        {open ? (
+          <span className="text-[15px] leading-none">✕</span>
+        ) : (
+          <SaltShaker lit={playing} />
+        )}
+      </button>
+    </>
   );
 }

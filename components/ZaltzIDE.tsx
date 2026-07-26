@@ -1322,7 +1322,7 @@ export default function ZaltzIDE() {
                 : "bg-white/[0.04] text-muted/70"
             }`}
           >
-            {p === "strudel" ? "strudel" : "visuals"}
+            {p === "strudel" ? "strudel" : "hydra"}
           </button>
         ))}
         <span className="flex-1" />
@@ -1391,7 +1391,7 @@ export default function ZaltzIDE() {
           }`}
         >
           {paneHeader(
-            "visuals",
+            "hydra",
             ghost?.pane === "hydra" ? "⇥ takes the ghost" : "",
             runVisuals,
             visualsLive && !!hydra.trim(),
@@ -1403,7 +1403,7 @@ export default function ZaltzIDE() {
               title={
                 soloVisuals
                   ? "Back to the desk"
-                  : "Fullscreen visuals — just the picture (Esc leaves)"
+                  : "Just the picture, fullscreen — Esc brings the room back"
               }
               className={`rounded-full px-2.5 py-1 text-[11.5px] leading-none transition active:scale-[.96] ${
                 soloVisuals
@@ -1461,7 +1461,7 @@ export default function ZaltzIDE() {
                 : "bg-accent/[0.14] text-accent-strong"
             }`}
           >
-            {err ? (err.startsWith("hydra:") ? "visuals" : "music") : "✦"}
+            {err ? (err.startsWith("hydra:") ? "hydra" : "strudel") : "✦"}
           </span>
           <p
             className={`min-w-0 flex-1 truncate text-[12.5px] leading-snug ${
