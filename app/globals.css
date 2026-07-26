@@ -800,6 +800,11 @@ body.ide-stage #hydra-canvas,
 body.ide-stage #k1-canvas {
   opacity: 0.85;
 }
+/* SOLO — the picture alone owns the room: full brightness, nothing dimming. */
+body.ide-stage.ide-solo #hydra-canvas,
+body.ide-stage.ide-solo #k1-canvas {
+  opacity: 1;
+}
 
 /* The two layers of a CodePane must be BYTE-ALIGNED twins: same font, same
    size, same leading, same padding, same soft-wrap. Touch one, touch both. */

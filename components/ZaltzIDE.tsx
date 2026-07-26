@@ -888,10 +888,26 @@ export default function ZaltzIDE() {
     }
   };
 
-  // SOLO VISUALS — the VJ posture (user 07-27): just the picture and the
-  // hydra pane, everything else gone. Rides browser fullscreen where it
-  // exists; works in-page where it doesn't (iPhone).
+  // SOLO VISUALS — the VJ posture (user 07-27, twice: JUST the picture, not
+  // the pane): every panel vanishes and the canvas owns the room at full
+  // brightness. Esc leaves (a whisper of an ✕ for hands with no keys). Rides
+  // browser fullscreen where it exists; works in-page where it doesn't.
   const [soloVisuals, setSoloVisuals] = useState(false);
+  useEffect(() => {
+    if (!soloVisuals) return;
+    document.body.classList.add("ide-solo"); // canvas to full brightness
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSoloVisuals(false);
+        if (document.fullscreenElement) void document.exitFullscreen();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.classList.remove("ide-solo");
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [soloVisuals]);
   const toggleSoloVisuals = () => {
     setSoloVisuals((v) => {
       const next = !v;
@@ -1148,11 +1164,24 @@ export default function ZaltzIDE() {
       className="ide-safe relative flex h-dvh flex-col overflow-hidden"
       style={kbInset ? { paddingBottom: kbInset + 12 } : undefined}
     >
-      {/* legibility scrims — the picture burns behind; the words never sit on panels */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 -z-[1] bg-[linear-gradient(to_bottom,rgba(0,0,0,.42),transparent_22%,transparent_62%,rgba(0,0,0,.55))]"
-      />
+      {/* legibility scrims — the picture burns behind; the words never sit on
+          panels. Solo drops them: nothing may dim the picture. */}
+      {!soloVisuals && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 -z-[1] bg-[linear-gradient(to_bottom,rgba(0,0,0,.42),transparent_22%,transparent_62%,rgba(0,0,0,.55))]"
+        />
+      )}
+      {soloVisuals && (
+        <button
+          onClick={toggleSoloVisuals}
+          aria-label="Leave the picture"
+          title="Leave (Esc)"
+          className="fixed right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-30 flex h-9 w-9 items-center justify-center rounded-full bg-black/30 text-[14px] text-white/40 backdrop-blur-sm transition hover:bg-black/50 hover:text-white active:scale-[.95]"
+        >
+          ✕
+        </button>
+      )}
 
       {/* ── top bar (gone in solo — the picture owns the room) ──────────── */}
       {!soloVisuals && (
@@ -1270,13 +1299,11 @@ export default function ZaltzIDE() {
       </div>
       )}
 
-      {/* ── the panes ───────────────────────────────────────────────────── */}
-      <div className="flex min-h-0 flex-1 gap-3">
+      {/* ── the panes (all gone in solo — the picture alone) ────────────── */}
+      <div className={`min-h-0 flex-1 gap-3 ${soloVisuals ? "hidden" : "flex"}`}>
         <section
-          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] ${
-            soloVisuals
-              ? "!hidden"
-              : `sm:flex sm:w-[58%] ${mobilePane === "strudel" ? "flex w-full" : "hidden"}`
+          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex sm:w-[58%] ${
+            mobilePane === "strudel" ? "flex w-full" : "hidden"
           }`}
         >
           {paneHeader(
@@ -1314,10 +1341,8 @@ export default function ZaltzIDE() {
           />
         </section>
         <section
-          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.08] backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex ${
-            soloVisuals
-              ? "flex w-full bg-black/25"
-              : `bg-black/45 ${mobilePane === "hydra" ? "flex w-full" : "hidden"}`
+          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex ${
+            mobilePane === "hydra" ? "flex w-full" : "hidden"
           }`}
         >
           {paneHeader(
@@ -1333,7 +1358,7 @@ export default function ZaltzIDE() {
               title={
                 soloVisuals
                   ? "Back to the desk"
-                  : "Solo the visuals — just the picture and this pane"
+                  : "Fullscreen visuals — just the picture (Esc leaves)"
               }
               className={`rounded-full px-2.5 py-1 text-[11.5px] leading-none transition active:scale-[.96] ${
                 soloVisuals
