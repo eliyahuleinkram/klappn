@@ -14,7 +14,8 @@ import CodePane, {
   type CaretContext,
   type CodePaneHandle,
 } from "@/components/CodePane";
-import { authClient } from "@/lib/auth-client";
+import { authClient, signOut } from "@/lib/auth-client";
+import AccountMenu from "./AccountMenu";
 import { attachHydraBlock } from "@/lib/hydra-embed";
 import { openDeep } from "@/lib/seal";
 import {
@@ -1281,31 +1282,18 @@ export default function ZaltzIDE() {
         >Grains</button>
         {/* (The header's own ⛶ died 2026-07-27 — two fullscreen glyphs read
             as confusion. ONE ⛶ lives on the visuals pane: solo the picture.) */}
-        {/* ONE door for the person (user 07-27: the token pill was "a bit
-            much" — less is more): a profile orb, like klappn.com. Everything
-            about YOU — balance, top-ups, claim/sign-in — lives one tap deep
-            in the tokens sheet. When the tokens run dry the orb burns. */}
-        <button
-          onClick={() => setSheet(sheet === "tokens" ? null : "tokens")}
-          title={
-            spent
-              ? "The machine waits — feed it"
-              : me?.signedIn && !me.isGuest
-                ? (me.email ?? "You")
-                : "You — tokens, and claiming your work"
-          }
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12.5px] font-medium backdrop-blur-xl transition active:scale-[.95] ${
-            spent
-              ? "animate-pulse bg-accent/[0.18] text-accent-strong ring-2 ring-accent/60 shadow-[0_0_44px_-10px_rgba(224,49,156,.9)]"
-              : "bg-white/[0.06] text-foreground/85 ring-1 ring-inset ring-accent/30 hover:ring-accent/60"
-          }`}
-        >
-          {me?.signedIn && !me.isGuest && me.email ? (
-            <span className="uppercase">{me.email[0]}</span>
-          ) : (
-            <span className="text-[10px] lowercase text-muted/80">you</span>
-          )}
-        </button>
+        {/* ONE door for the person — klappn.com's own AccountMenu, worn
+            unchanged (user 07-27: "it must look the same"): email · Tokens &
+            usage · Sign out, the guest's claim path, or a sign-in door. The
+            avatar burns while the tokens are spent. */}
+        <AccountMenu
+          email={me?.email}
+          isGuest={!!me?.isGuest}
+          signedIn={!!me?.signedIn}
+          alert={spent}
+          onSignOut={() => void signOut().then(() => window.location.reload())}
+          onSignIn={() => setSheet("signin")}
+        />
       </header>
       )}
 

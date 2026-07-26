@@ -1,41 +1,48 @@
 "use client";
 
-import { useId } from "react";
+import { useState } from "react";
 import { CHANNELS, filterDisplay, type Channel } from "@/lib/set-live";
 import DeckSlider from "./DeckSlider";
 
-/** THE SALT SHAKER — the mixer's door, drawn not written: zaltz is salt, and
- *  this is where you salt the sound. Tilted mid-shake, grains falling; the
- *  body takes the house gradient while the music plays. Gradient id is
- *  per-instance (the shared-id/display:none trap — see CopilotMark). */
-function SaltShaker({ lit }: { lit: boolean }) {
-  const uid = useId();
-  const g = `shaker-${uid.replace(/[^a-zA-Z0-9]/g, "")}`;
-  const fill = lit ? `url(#${g})` : "currentColor";
+/** THE SALT SHAKER — the mixer's door, drawn not written: an UPRIGHT glass
+ *  shaker you'd recognise on any table (user 07-27: it must LITERALLY look
+ *  like one) — steel cap with punched holes, glass body with a settled bed
+ *  of salt and a few loose grains above it. Tapping it SHAKES it (the
+ *  .shaker-shaking keyframes ride the FAB's wrapper). */
+function SaltShaker() {
   return (
-    <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden>
-      <defs>
-        <linearGradient id={g} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#ff63c1" />
-          <stop offset="55%" stopColor="#e0319c" />
-          <stop offset="100%" stopColor="#b3126f" />
-        </linearGradient>
-      </defs>
-      {/* the shaker, tilted mid-pour (cap toward the lower right) */}
-      <g transform="rotate(130 11 11)">
-        <path
-          d="M8.7 7.6 L15.3 7.6 L16.4 17.1 C16.55 18.55 15.4 19.8 13.95 19.8 L10.05 19.8 C8.6 19.8 7.45 18.55 7.6 17.1 Z"
-          fill={fill}
-          opacity="0.95"
-        />
-        <rect x="8.2" y="3.4" width="7.6" height="3.1" rx="1.5" fill={fill} opacity="0.75" />
-      </g>
-      {/* the falling grains — alive while the music plays */}
-      <g className={lit ? "animate-pulse" : ""} fill={fill}>
-        <circle cx="17.6" cy="15.2" r="1" opacity="0.9" />
-        <circle cx="19.6" cy="18.4" r="0.85" opacity="0.7" />
-        <circle cx="16.4" cy="19.6" r="0.7" opacity="0.55" />
-      </g>
+    <svg viewBox="0 0 24 24" className="h-7 w-7" aria-hidden>
+      {/* cap — a steel dome, cinched to screw onto the neck */}
+      <path
+        d="M9 6.4 L9.35 3.7 C9.48 2.72 10.32 2 11.31 2 L12.69 2 C13.68 2 14.52 2.72 14.65 3.7 L15 6.4 Z"
+        fill="#c9ccd6"
+      />
+      <circle cx="12" cy="3.5" r="0.52" fill="#41444d" />
+      <circle cx="10.75" cy="4.8" r="0.52" fill="#41444d" />
+      <circle cx="13.25" cy="4.8" r="0.52" fill="#41444d" />
+      {/* the glass — flaring gently to a rounded foot */}
+      <path
+        d="M8.9 7.3 L15.1 7.3 L16.3 18.9 C16.46 20.45 15.25 21.8 13.7 21.8 L10.3 21.8 C8.75 21.8 7.54 20.45 7.7 18.9 Z"
+        fill="rgba(255,255,255,0.07)"
+        stroke="rgba(255,255,255,0.6)"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+      {/* the salt — a settled bed, and loose grains still in the air */}
+      <path
+        d="M8.4 13.8 L15.6 13.8 L16.05 18.9 C16.15 19.95 15.3 20.85 13.7 20.85 L10.3 20.85 C8.7 20.85 7.85 19.95 7.95 18.9 Z"
+        fill="rgba(255,255,255,0.92)"
+      />
+      <circle cx="10.5" cy="11.9" r="0.55" fill="rgba(255,255,255,0.85)" />
+      <circle cx="13.1" cy="10.7" r="0.5" fill="rgba(255,255,255,0.7)" />
+      <circle cx="11.9" cy="12.8" r="0.45" fill="rgba(255,255,255,0.6)" />
+      {/* one long glass highlight */}
+      <path
+        d="M9.75 8.4 L9.3 18.4"
+        stroke="rgba(255,255,255,0.35)"
+        strokeWidth="0.7"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -130,6 +137,9 @@ export default function ZaltzMixer({
   light: LightDials;
   onLight: (patch: Partial<LightDials>) => void;
 }) {
+  // The tap's shake — the shaker keeps shaking while the desk rises, and only
+  // then hands the circle over to the ✕.
+  const [shaking, setShaking] = useState(false);
   return (
     <>
       {/* THE DESK — a glass slab floating up from the shaker's corner (user
@@ -388,7 +398,15 @@ export default function ZaltzMixer({
           zaltz's own object as the door to the desk. Open, it becomes the ✕
           (one glyph, one meaning). */}
       <button
-        onClick={onToggle}
+        onClick={() => {
+          if (!open) {
+            setShaking(true); // a shaker SHAKES when you grab it
+            // Backstop: if the animation never runs (reduced-motion, a lost
+            // frame), the ✕ must still take over — never a stuck shaker.
+            setTimeout(() => setShaking(false), 700);
+          }
+          onToggle();
+        }}
         title={open ? "Close the mixer" : "The mixer — kills, pads, dials"}
         aria-expanded={open}
         className={`fixed z-20 flex h-12 w-12 items-center justify-center rounded-full border backdrop-blur-xl transition active:scale-[.94] ${
@@ -403,10 +421,15 @@ export default function ZaltzMixer({
           bottom: "max(0.75rem, env(safe-area-inset-bottom))",
         }}
       >
-        {open ? (
+        {open && !shaking ? (
           <span className="text-[15px] leading-none">✕</span>
         ) : (
-          <SaltShaker lit={playing} />
+          <span
+            className={shaking ? "shaker-shaking" : ""}
+            onAnimationEnd={() => setShaking(false)}
+          >
+            <SaltShaker />
+          </span>
         )}
       </button>
     </>

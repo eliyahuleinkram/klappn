@@ -883,6 +883,21 @@ body.ide-stage.ide-solo #k1-canvas {
   animation: fader-dance 0.9s ease-in-out infinite;
 }
 
+/* The salt shaker's SHAKE — tap it and it shakes like the real thing:
+   quick decaying wobbles about its foot. */
+@keyframes shaker-shake {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(-16deg); }
+  35% { transform: rotate(13deg); }
+  55% { transform: rotate(-9deg); }
+  75% { transform: rotate(5deg); }
+}
+.shaker-shaking {
+  display: inline-flex;
+  transform-origin: 50% 85%;
+  animation: shaker-shake 0.55s ease-in-out;
+}
+
 @keyframes caret-think {
   0%, 100% { caret-color: rgba(255, 99, 193, 0.35); }
   50% { caret-color: #ff63c1; }
