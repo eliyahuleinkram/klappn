@@ -8,7 +8,10 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import CodePane, { type CaretContext } from "@/components/CodePane";
+import CodePane, {
+  type CaretContext,
+  type CodePaneHandle,
+} from "@/components/CodePane";
 import { authClient } from "@/lib/auth-client";
 import { attachHydraBlock } from "@/lib/hydra-embed";
 import { openDeep } from "@/lib/seal";
@@ -223,9 +226,16 @@ export default function ZaltzIDE() {
   // THE COPILOT — ghost completions at the caret (Tab takes, Esc bins).
   const [copilot, setCopilot] = useState(true);
   const [ghost, setGhost] = useState<{ pane: PaneId; text: string } | null>(null);
+  const ghostRef = useRef<typeof ghost>(null);
+  ghostRef.current = ghost;
   const ghostSeq = useRef(0);
   const ghostAbort = useRef<AbortController | null>(null);
   const mintTried = useRef(false); // one silent guest-mint attempt per visit
+  // One cue per SPOT: a caret parked on the same unchanged code never re-asks
+  // after the machine already came back empty there.
+  const lastCue = useRef({ key: "", empty: false });
+  const strudelPane = useRef<CodePaneHandle>(null);
+  const hydraPane = useRef<CodePaneHandle>(null);
 
   // TWEAK CHIPS — offered after a clean run, never auto-applied.
   const [tweaks, setTweaks] = useState<Tweak[]>([]);
@@ -571,6 +581,9 @@ export default function ZaltzIDE() {
     async (pane: PaneId, ctx: CaretContext) => {
       if (!copilot) return;
       if (stateRef.current.busyWithTake) return; // never whisper over a take
+      if (ghostRef.current) return; // one ghost at a time — take it or bin it
+      const cueKey = `${pane}:${ctx.before.length}:${ctx.after.length}:${ctx.before.slice(-40)}`;
+      if (lastCue.current.key === cueKey && lastCue.current.empty) return;
       // Nothing left to spend → the copilot goes quiet instead of 402-spamming.
       const m = meRef.current;
       if (m?.signedIn && !m.owner && (m.remainingTokens ?? 0) <= 0) return;
@@ -594,6 +607,7 @@ export default function ZaltzIDE() {
         const d = openDeep((await res.json().catch(() => ({}))) as { ghost?: string });
         let g = d.ghost ?? "";
         if (!ctx.atEnd) g = g.split("\n")[0]; // alignment law — see CodePane
+        lastCue.current = { key: cueKey, empty: !g.trim() };
         if (!g.trim()) return;
         if (seq !== ghostSeq.current) return; // superseded by newer typing
         const cur = pane === "strudel" ? stateRef.current.strudel : stateRef.current.hydra;
@@ -832,6 +846,7 @@ export default function ZaltzIDE() {
     hint: string,
     run: () => void,
     active: boolean,
+    summon: () => void,
   ) => (
     <div className="flex items-center gap-2 border-b border-white/[0.06] px-3.5 py-2">
       <span
@@ -843,6 +858,15 @@ export default function ZaltzIDE() {
       </span>
       <span className="flex-1" />
       <span className="hidden text-[11px] text-muted/45 sm:inline">{hint}</span>
+      {/* THE button-shaped answer to "how do I complete this?" — works the
+          same on a phone, where no ⌥\ exists. */}
+      <button
+        onClick={summon}
+        className="rounded-full bg-accent/[0.12] px-2.5 py-1 text-[11.5px] text-accent-strong transition hover:bg-accent/[0.22] active:scale-[.96]"
+        title="Conjure a ghost at the caret — ⇥ (or the pill) takes it"
+      >
+        ✦ complete
+      </button>
       <button
         onClick={run}
         className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[11.5px] text-foreground/85 transition hover:bg-accent/20 hover:text-accent-strong active:scale-[.96]"
@@ -978,8 +1002,10 @@ export default function ZaltzIDE() {
             ghost?.pane === "strudel" ? "⇥ takes the ghost" : "⌘↵ plays it",
             () => void runMusic(),
             playing,
+            () => strudelPane.current?.summon(),
           )}
           <CodePane
+            ref={strudelPane}
             value={strudel}
             onChange={(v) => {
               if (ghost?.pane === "strudel") killGhost();
@@ -1006,8 +1032,10 @@ export default function ZaltzIDE() {
             ghost?.pane === "hydra" ? "⇥ takes the ghost" : "⌘↵ paints it",
             runVisuals,
             playing && !!hydra.trim(),
+            () => hydraPane.current?.summon(),
           )}
           <CodePane
+            ref={hydraPane}
             value={hydra}
             onChange={(v) => {
               if (ghost?.pane === "hydra") killGhost();
@@ -1161,11 +1189,12 @@ export default function ZaltzIDE() {
             ) : (
               <>
                 <span className="sm:hidden">
-                  ghosts land as you type — tap ⇥ take. Play it clean and tweaks appear.
+                  ✦ complete conjures a ghost — ⇥ take drops it in. Play it clean
+                  and tweaks appear.
                 </span>
                 <span className="hidden sm:inline">
-                  ghosts land as you type — ⇥ takes one, ⌥\ summons one. Play it
-                  clean and the machine offers tweaks.
+                  ghosts land as you type — ⇥ takes one, ✦ complete (or ⌥\)
+                  summons one. Play it clean and the machine offers tweaks.
                 </span>
               </>
             )}

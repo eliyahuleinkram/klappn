@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   type KeyboardEvent,
@@ -57,37 +59,48 @@ export interface CaretContext {
   atEnd: boolean;
 }
 
-export default function CodePane({
-  value,
-  onChange,
-  onRun,
-  onSave,
-  placeholder,
-  flash,
-  autoFocus,
-  ghost,
-  onGhostAccept,
-  onGhostDismiss,
-  onCaretIdle,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  /** ⌘↵ / ctrl↵ — evaluate THIS pane. */
-  onRun: () => void;
-  /** ⌘S — bubble up so the browser save dialog never appears. */
-  onSave?: () => void;
-  placeholder?: string;
-  /** Increment to fire the eval flash (live-coding convention: you SEE the send). */
-  flash?: number;
-  autoFocus?: boolean;
-  /** The copilot's suggestion, rendered at the caret. Parent owns its lifecycle. */
-  ghost?: string | null;
-  onGhostAccept?: () => void;
-  onGhostDismiss?: () => void;
-  /** Fired ~700ms after typing pauses with the caret at a line end — the
-   *  copilot's cue. Never fires from clicks or arrow keys alone. */
-  onCaretIdle?: (ctx: CaretContext) => void;
-}) {
+/** The parent's handle on a pane — one verb: summon a ghost right now. */
+export interface CodePaneHandle {
+  summon: () => void;
+}
+
+const CodePane = forwardRef<
+  CodePaneHandle,
+  {
+    value: string;
+    onChange: (v: string) => void;
+    /** ⌘↵ / ctrl↵ — evaluate THIS pane. */
+    onRun: () => void;
+    /** ⌘S — bubble up so the browser save dialog never appears. */
+    onSave?: () => void;
+    placeholder?: string;
+    /** Increment to fire the eval flash (live-coding convention: you SEE the send). */
+    flash?: number;
+    autoFocus?: boolean;
+    /** The copilot's suggestion, rendered at the caret. Parent owns its lifecycle. */
+    ghost?: string | null;
+    onGhostAccept?: () => void;
+    onGhostDismiss?: () => void;
+    /** Fired when the caret PARKS (typing pause or a click that settles) and by
+     *  summon()/⌥\ — the copilot's cue. */
+    onCaretIdle?: (ctx: CaretContext) => void;
+  }
+>(function CodePane(
+  {
+    value,
+    onChange,
+    onRun,
+    onSave,
+    placeholder,
+    flash,
+    autoFocus,
+    ghost,
+    onGhostAccept,
+    onGhostDismiss,
+    onCaretIdle,
+  },
+  handleRef,
+) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const ghostCaretRef = useRef<number>(-1);
@@ -149,16 +162,41 @@ export default function CodePane({
       atEnd: caret === value.length,
     });
   }, [value, onCaretIdle]);
-  const typedRef = useRef(false);
-  useEffect(() => {
-    if (!typedRef.current || !onCaretIdle) return;
-    const t = setTimeout(() => {
-      typedRef.current = false;
-      if (document.activeElement !== taRef.current) return;
-      summonGhost();
-    }, 500);
-    return () => clearTimeout(t);
-  }, [value, onCaretIdle, summonGhost]);
+  // Any caret activity — typing, a click, an arrow — re-arms one timer; 600ms
+  // of stillness with focus and the copilot looks over your shoulder. This is
+  // what makes "just complete what's sitting there" work: click at the end,
+  // wait a beat, the ghost arrives. The parent dedupes repeat cues per spot.
+  const cueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleCue = useCallback(() => {
+    if (cueTimer.current) clearTimeout(cueTimer.current);
+    cueTimer.current = setTimeout(() => {
+      if (document.activeElement === taRef.current) summonGhost();
+    }, 600);
+  }, [summonGhost]);
+  useEffect(
+    () => () => {
+      if (cueTimer.current) clearTimeout(cueTimer.current);
+    },
+    [],
+  );
+
+  // The one-verb handle — the ✦ complete button (the ONLY path on phones,
+  // where no ⌥\ exists) lands here. Unfocused pane → caret to the end first.
+  useImperativeHandle(
+    handleRef,
+    () => ({
+      summon: () => {
+        const ta = taRef.current;
+        if (!ta) return;
+        if (document.activeElement !== ta) {
+          ta.focus();
+          ta.setSelectionRange(value.length, value.length);
+        }
+        summonGhost();
+      },
+    }),
+    [summonGhost, value],
+  );
 
   // Any caret drift away from where the ghost was minted kills it.
   const checkGhostStale = useCallback(() => {
@@ -251,14 +289,18 @@ export default function CodePane({
             ref={taRef}
             value={value}
             onChange={(e) => {
-              typedRef.current = true;
               onChange(e.target.value);
+              scheduleCue();
             }}
             onKeyDown={onKeyDown}
-            onKeyUp={checkGhostStale}
+            onKeyUp={() => {
+              checkGhostStale();
+              scheduleCue();
+            }}
             onClick={() => {
               followCaret();
               checkGhostStale();
+              scheduleCue();
             }}
             onBlur={() => ghost && onGhostDismiss?.()}
             spellCheck={false}
@@ -287,4 +329,6 @@ export default function CodePane({
       )}
     </div>
   );
-}
+});
+
+export default CodePane;
