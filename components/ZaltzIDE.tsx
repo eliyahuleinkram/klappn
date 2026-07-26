@@ -56,8 +56,9 @@ import { ZALTZ_GITHUB_URL, ZALTZ_NPM_URL } from "@/lib/links";
  * crossfades to the new take, it never cuts.
  *
  * The AI is a bandmate, not an autocomplete: you type an ask, it proposes a
- * whole take, and NOTHING lands until you drop it in. Asks burn tokens
- * (prepaid, price in open code); the first taste is free — no account needed.
+ * whole take, and NOTHING lands until you drop it in. The instrument is free —
+ * no account needed; the machine's asks burn PREPAID tokens (price in open
+ * code; the launch taste pool closed 2026-07-26, holders grandfathered).
  * A guest session is minted the moment you need one, and everything you make
  * rides onto your email whenever you claim it.
  */
@@ -670,7 +671,7 @@ export default function ZaltzIDE() {
           if (!spentToldRef.current) {
             spentToldRef.current = true;
             setNotice(
-              "That was the taste \u2014 the ghosts went quiet. Feed the machine and they come back.",
+              "The tokens ran dry \u2014 the ghosts went quiet. Feed the machine and they come back.",
             );
           }
           void refreshMe(); // the chip flips to its burning 0
@@ -1001,9 +1002,7 @@ export default function ZaltzIDE() {
       ? "∞"
       : me.signedIn
         ? fmtTokens(Math.max(0, remaining ?? 0))
-        : me.poolOpen === false
-          ? "0"
-          : "free taste";
+        : "tokens";
 
   // The run button IS the transport (user's law: hit run, it turns into
   // stop, that is it): `stop` given + active → the same button reads ■ stop.
@@ -1127,7 +1126,7 @@ export default function ZaltzIDE() {
               ? "animate-pulse border-accent/60 bg-accent/[0.12] text-accent-strong shadow-[0_0_44px_-10px_rgba(224,49,156,.9)]"
               : "border-accent/25 bg-black/40 text-foreground/90 shadow-[0_0_30px_-14px_rgba(224,49,156,.6)] hover:border-accent/45"
           }`}
-          title={spent ? "The taste is spent — feed the machine" : "Tokens"}
+          title={spent ? "The machine waits — feed it" : "Tokens"}
         >
           <span className="mr-1 text-accent-strong">✦</span>
           {tokenChip}
@@ -1658,13 +1657,11 @@ export default function ZaltzIDE() {
                       ? "house account — unmetered"
                       : me?.signedIn
                         ? spent
-                        ? "the taste is spent — the machine waits"
+                        ? "the machine waits — feed it"
                         : `${fmtTokens(Math.max(0, remaining ?? 0))} left · ~${Math.floor(
                             Math.max(0, remaining ?? 0) / TOKENS_PER_GHOST,
                           ).toLocaleString()} ghosts`
-                        : me?.poolOpen === false
-                          ? "the free tastes are spoken for"
-                          : "your first taste is on the house"}
+                        : "the instrument is free — the machine is prepaid"}
                   </span>
                 </div>
                 <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">

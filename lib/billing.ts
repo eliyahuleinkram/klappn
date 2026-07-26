@@ -57,17 +57,17 @@ export interface Plan {
 }
 
 export const PLANS: Record<PlanId, Plan> = {
-  // Free is the pre-subscription state, not a plan on the page: a 3-loop
-  // taste — ONCE, LIFETIME, it never refills (usedFor meters free against
-  // all-time usage, paid against the month). It left the tier grid
-  // 2026-07-05 (page.tsx filters it) — the blurb below is vestigial.
+  // Free is the pre-subscription state, not a plan on the page. `tokens` is
+  // the value of a GRANDFATHERED taste grant (the launch pool closed
+  // 2026-07-26 — see FREE_TASTE_GRANTS); accounts without one spend credits
+  // only. It left the tier grid 2026-07-05 — the blurb below is vestigial.
   free: {
     id: "free",
     name: "Free",
     tokens: 100_000,
     usd: 0,
     priceId: "",
-    blurb: "taste the full flow.",
+    blurb: "the machine is prepaid.",
   },
   creator: {
     id: "creator",
@@ -322,14 +322,15 @@ export async function addCredits(
 }
 
 /**
- * THE FREE POOL CAP — how many accounts, TOTAL, ever get the free taste.
- * Each grant is worth PLANS.free.tokens (100k weighted units ≈ $0.50 of model
- * spend at the anchor rate — the weights in lib/llm.ts already normalize
- * input, output, and cache tokens into these units), so the launch-day
- * worst case is ~FREE_TASTE_GRANTS dollars. Change this ONE number to
- * widen or close the pool; the schema (taste_grants) needs no change.
+ * THE FREE POOL CAP — CLOSED at 0 (2026-07-26, launch decision: giving tokens
+ * away read as a gimmick; the honest story is "the instrument is free, the
+ * machine is prepaid"). Grants already claimed are GRANDFATHERED — the
+ * claim/read paths still find an existing row, they just never mint a new one.
+ * Each grant was worth PLANS.free.tokens (100k weighted units ≈ $0.50 of
+ * model spend at the anchor rate). Raise this ONE number to reopen a pool;
+ * the schema (taste_grants) needs no change.
  */
-export const FREE_TASTE_GRANTS = 300;
+export const FREE_TASTE_GRANTS = 0;
 
 /** Claim a taste grant for this user (first-come): inserts while the pool has
  *  room, else tells the truth about an existing grant. Two racing first-timers
@@ -424,7 +425,7 @@ function quotaExceeded(
           ? credits > 0
             ? "Your tokens are spent — top up to keep composing."
             : limitTokens === 0
-              ? "The free tastes are all claimed — top up tokens to start composing."
+              ? "The instrument is free — the machine plays for prepaid tokens. Top up to start composing."
               : "That was the free taste — top up tokens to keep composing."
           : "You’ve used this month’s loops — they refresh next month, or top up tokens on the billing page.",
       code: "quota_exhausted",

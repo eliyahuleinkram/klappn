@@ -119,9 +119,9 @@ export default function OpenPage() {
           </code>{" "}
           — one screen of open code, so the price is something you read,
           and any change to it is a commit with our name on it, never a
-          surprise on a bill. The free taste — one per person, from a small
-          launch pool, while it lasts, no account needed to start — and the
-          servers are on us.
+          surprise on a bill. The instrument itself — engine, panes, mixer,
+          sketches — is free, no account needed to start; only the
+          machine&rsquo;s composing is prepaid, and the servers are on us.
           Rather hold the keys yourself? Self-host: your model key, your
           bill, our code.
         </p>

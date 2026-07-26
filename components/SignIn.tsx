@@ -27,8 +27,9 @@ export default function SignIn({
   const router = useRouter();
   const [email, setEmail] = useState("");
   // WALK IN (2026-07-26): the door opens without an email — a guest session is
-  // minted and the app is theirs; the taste is claimed at the first compose,
-  // same pool, same gate. Eve hands the apple over BEFORE asking for a name.
+  // minted and the instrument is theirs (playing is free; the machine's
+  // composing is prepaid — the launch taste pool closed 2026-07-26). Eve opens
+  // the door BEFORE asking for a name.
   const [walking, setWalking] = useState(false);
   async function walkIn() {
     if (walking) return;
@@ -234,7 +235,7 @@ export default function SignIn({
                   {walking ? (
                     <span className="shimmer-text">Opening the door…</span>
                   ) : (
-                    <>Walk straight in — no email, the first taste&rsquo;s on the house →</>
+                    <>Walk straight in — no email, the instrument&rsquo;s already yours →</>
                   )}
                 </button>
                 <form onSubmit={send} className="mt-3 flex flex-col gap-2.5 sm:mt-3.5 sm:flex-row sm:gap-2">
@@ -415,7 +416,7 @@ export default function SignIn({
                 {walking ? (
                   <span className="shimmer-text">Opening the door…</span>
                 ) : (
-                  <>Walk straight in — no email, the first taste&rsquo;s on the house →</>
+                  <>Walk straight in — no email, the instrument&rsquo;s already yours →</>
                 )}
               </button>
             )}

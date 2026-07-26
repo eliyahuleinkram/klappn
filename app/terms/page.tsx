@@ -139,9 +139,10 @@ export default function TermsPage() {
           at checkout.
         </p>
         <p>
-          The free taste is one per account, drawn from a small fixed pool —
-          the first three hundred accounts to compose — and it&rsquo;s gone
-          when it&rsquo;s gone. Grants already claimed stay claimed.
+          Playing the instrument is free and needs no account. AI composition
+          runs on prepaid tokens only. The small launch-era pool of free
+          tastes is closed to new accounts; grants already claimed stay
+          claimed and spend as normal.
         </p>
         <p>
           Tokens buy computation, which is spent the moment it runs, so

@@ -15,8 +15,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * The IDE's one identity + meter read: who am I (guest counts), and how many
- * tokens are left before the gate closes. Signed-out callers still learn
- * whether the free-taste pool has room — that's the line on the door.
+ * tokens are left before the gate closes. (poolOpen is a launch-era relic —
+ * the free-taste pool closed 2026-07-26, so it now always reads false; kept so
+ * older clients keep parsing.)
  */
 export async function GET(req: Request) {
   const user = await getSessionUser(req).catch(() => null);
@@ -55,7 +56,8 @@ export async function GET(req: Request) {
   });
 }
 
-/** Does the fixed free-taste pool still have room for a newcomer? */
+/** Does the fixed free-taste pool still have room? Always false since the
+ *  pool closed (FREE_TASTE_GRANTS = 0) — see lib/billing.ts. */
 async function poolOpen(): Promise<boolean> {
   try {
     const sql = db();

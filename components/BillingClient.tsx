@@ -153,7 +153,9 @@ export default function BillingClient({
               ? `${legacy.name} — $${legacy.usd}/month, resets monthly`
               : credits > 0
                 ? `spent ${fmtTokens(usedTokens)} ≈ $${(spentCents / 100).toFixed(2)}, ever`
-                : `free taste — ${fmtTokens(allowanceTokens)} tokens, once`}
+                : allowanceTokens > 0
+                  ? `free taste — ${fmtTokens(allowanceTokens)} tokens, once`
+                  : "prepaid — the first top-up starts the machine"}
           </span>
         </div>
         {!isOwner && (
