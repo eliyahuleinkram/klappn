@@ -9,10 +9,10 @@ import { db } from "./db";
  * uses, so the unit is model-agnostic; only the $/unit differs by model).
  *
  * THE DEAL, stated plainly (and shown to users just as plainly — /open): you
- * buy tokens at one flat public rate — $10 per 1M weighted units (set when
- * Fable 5's input rate was $10/1M; the composer is now Opus 5 at $5/1M —
- * the public rate is unchanged for now), with output/cache normalized by the
- * weights above. The rate lives in open code (lib/pricing.ts) — changing it
+ * buy tokens at one flat public rate that TRACKS THE COMPOSER'S OWN INPUT
+ * RATE — $5 per 1M weighted units since Opus 5 took over (repriced 2026-07-26;
+ * launched at $10/1M in the Fable era) — with output/cache normalized by the
+ * weights above, so a metered unit follows real model spend. The rate lives in open code (lib/pricing.ts) — changing it
  * is a commit anyone can read. Credits never expire and are metered
  * against LIFETIME usage alongside the free taste. This replaces the
  * subscription tiers AND their old posture of hiding the $/M rate behind
@@ -323,7 +323,7 @@ export async function addCredits(
 
 /**
  * THE FREE POOL CAP — how many accounts, TOTAL, ever get the free taste.
- * Each grant is worth PLANS.free.tokens (100k weighted units ≈ $1 of model
+ * Each grant is worth PLANS.free.tokens (100k weighted units ≈ $0.50 of model
  * spend at the anchor rate — the weights in lib/llm.ts already normalize
  * input, output, and cache tokens into these units), so the launch-day
  * worst case is ~FREE_TASTE_GRANTS dollars. Change this ONE number to

@@ -5,15 +5,18 @@
  */
 
 /**
- * THE RATE: dollars per 1M weighted units — set when Fable 5 ($10/1M input)
- * was the composer; the usage weights (output ×5, cache ×0.1/×1.25 —
- * lib/llm.ts) normalize every other token kind to it. $1 = 100k units.
- * The composer is now Opus 5 (2026-07-25; $5/1M input) — the rate is
- * unchanged for the moment. If the model or the pricing changes, change THIS
- * constant and the /open page together — the promise is a price you can
- * READ, right here.
+ * THE RATE: dollars per 1M weighted units — REPRICED 2026-07-26 to track the
+ * composer's own input rate (Opus 5: $5/1M; the usage weights — output ×5,
+ * cache ×0.1/×1.25, lib/llm.ts — normalize every other token kind to it, so a
+ * weighted unit tracks real model spend 1:1). $1 = 200k units. The card fee is
+ * itemized separately at checkout and passed through to the cent, so a top-up
+ * nets exactly its token value. If the model or its pricing moves, move THIS
+ * constant with it — the promise is a price you can READ, right here, that
+ * follows what the machine actually costs.
+ * (History: launched at $10/1M when Fable 5 — $10/1M input — was the composer;
+ * halved when Opus 5 took over rather than pocketing the difference.)
  */
-export const USD_CENTS_PER_MILLION = 1_000;
+export const USD_CENTS_PER_MILLION = 500;
 
 /**
  * Loops are the friendly ESTIMATE unit — "~30k weighted units buys a loop"

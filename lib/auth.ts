@@ -58,6 +58,18 @@ function createAuth() {
           "https://zaltz.klappn.com",
         ],
     secret: process.env.BETTER_AUTH_SECRET,
+    // ONE SESSION ACROSS THE HOUSE (2026-07-26): klappn.com and
+    // zaltz.klappn.com are one worker and one auth — the session cookie rides
+    // ".klappn.com" so signing in on either surface signs you in on both (the
+    // IDE stops asking a klappn account to claim itself). Localhost keeps
+    // host-scoped cookies (no subdomains there).
+    ...((process.env.BETTER_AUTH_URL || "").includes("klappn.com")
+      ? {
+          advanced: {
+            crossSubDomainCookies: { enabled: true, domain: ".klappn.com" },
+          },
+        }
+      : {}),
     plugins: [
       // TRY BEFORE ANY ACCOUNT (2026-07-26): a visitor who starts making gets a
       // real (anonymous) user row + session — the quota gate, the taste pool and

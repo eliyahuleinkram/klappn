@@ -962,6 +962,35 @@ export default function ZaltzIDE() {
   // The wall, named: signed in, metered, and dry. The chip burns, the ✦
   // buttons redirect to the register — the machine never just goes mute.
   const spent = !!me?.signedIn && !me.owner && (remaining ?? 0) <= 0;
+
+  // ✦ COMPLETE ON AN EMPTY PANE — the hint text BECOMES the reality: the
+  // placeholder's code lines land in the buffer (free, deterministic), then
+  // the copilot continues from there. Desktop and mobile, same one tap.
+  const MUSIC_SEED = 'setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n';
+  const VISUALS_SEED =
+    "osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n";
+  const completeMusic = () => {
+    if (spent) return setSheet("tokens");
+    if (!stateRef.current.strudel.trim()) {
+      setStrudel(MUSIC_SEED);
+      markDirty();
+      setSFlash((f) => f + 1); // you SEE the hint land
+      setTimeout(() => strudelPane.current?.summon(), 90);
+      return;
+    }
+    strudelPane.current?.summon();
+  };
+  const completeVisuals = () => {
+    if (spent) return setSheet("tokens");
+    if (!stateRef.current.hydra.trim()) {
+      setHydra(VISUALS_SEED);
+      markDirty();
+      setHFlash((f) => f + 1);
+      setTimeout(() => hydraPane.current?.summon(), 90);
+      return;
+    }
+    hydraPane.current?.summon();
+  };
   const tokenChip = !me
     ? "…"
     : me.owner
@@ -1072,7 +1101,7 @@ export default function ZaltzIDE() {
         />
         <button
           onClick={toggleCopilot}
-          className={`shrink-0 rounded-full px-3 py-1.5 text-[12.5px] transition active:scale-[.97] ${
+          className={`hidden shrink-0 rounded-full px-3 py-1.5 text-[12.5px] transition active:scale-[.97] sm:inline-flex ${
             copilot
               ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
               : "bg-white/[0.05] text-muted/60 hover:text-foreground"
@@ -1083,7 +1112,7 @@ export default function ZaltzIDE() {
         </button>
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
-          className="shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-muted transition hover:text-foreground active:scale-[.97]"
+          className="hidden shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-muted transition hover:text-foreground active:scale-[.97] sm:inline-flex"
         >
           Sketches
         </button>
@@ -1118,7 +1147,7 @@ export default function ZaltzIDE() {
       </header>
 
       {/* ── mobile pane tabs ────────────────────────────────────────────── */}
-      <div className="mb-2 flex gap-1.5 sm:hidden">
+      <div className="mb-2 flex items-center gap-1.5 sm:hidden">
         {(["strudel", "hydra"] as const).map((p) => (
           <button
             key={p}
@@ -1132,6 +1161,23 @@ export default function ZaltzIDE() {
             {p === "strudel" ? "music" : "visuals"}
           </button>
         ))}
+        <span className="flex-1" />
+        <button
+          onClick={toggleCopilot}
+          className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] transition active:scale-[.97] ${
+            copilot
+              ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
+              : "bg-white/[0.05] text-muted/60"
+          }`}
+        >
+          copilot
+        </button>
+        <button
+          onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
+          className="shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted transition active:scale-[.97]"
+        >
+          Sketches
+        </button>
       </div>
 
       {/* ── the panes ───────────────────────────────────────────────────── */}
@@ -1146,7 +1192,7 @@ export default function ZaltzIDE() {
             ghost?.pane === "strudel" ? "⇥ takes the ghost" : "⌘↵ plays it",
             () => void runMusic(),
             playing,
-            () => (spent ? setSheet("tokens") : strudelPane.current?.summon()),
+            completeMusic,
             halt,
           )}
           <CodePane
@@ -1185,7 +1231,7 @@ export default function ZaltzIDE() {
             ghost?.pane === "hydra" ? "⇥ takes the ghost" : "⌘↵ paints it",
             runVisuals,
             playing && !!hydra.trim(),
-            () => (spent ? setSheet("tokens") : hydraPane.current?.summon()),
+            completeVisuals,
           )}
           <CodePane
             ref={hydraPane}
@@ -1618,7 +1664,8 @@ export default function ZaltzIDE() {
                   </span>
                 </div>
                 <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-                  The machine writes when you feed it. $10 per million, flat, never
+                  The machine writes when you feed it. $5 per million — the
+                  model&apos;s own rate, passed straight through — flat, never
                   expiring — the whole price sheet is a screen of open code.
                 </p>
                 <div className="mt-3.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
