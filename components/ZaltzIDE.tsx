@@ -21,6 +21,7 @@ import {
   ensurePerfFx,
   fadeMaster,
   playPart,
+  setLiveCps,
   setLivePerf,
   setExplicitVisualsDrive,
   setHydraErrorSink,
@@ -39,6 +40,7 @@ import {
   filterDisplay,
   type Channel,
 } from "@/lib/set-live";
+import { transformForPlayback } from "@/lib/playback";
 import {
   cardFeeCents,
   CREDIT_PACK_USD,
@@ -161,6 +163,18 @@ $: note("<[e3,g3,b3] [c3,e3,g3] [g2,b2,d3] [a2,c3,e3]>").s("triangle").attack(2)
 ];
 
 const DRAFT_KEY = "zaltz-ide-draft-v1";
+
+// THE ONE PINK — the deck's hot gradient, worn by every lit control.
+const HOT_GRADIENT =
+  "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)";
+
+/** Hold: on · release: back — the deck's momentary throws, plus one of ours. */
+const PADS: { name: string; hint: string; patch: { filter?: number; echo?: number; punch?: number; space?: number } }[] = [
+  { name: "DIVE", hint: "filter down", patch: { filter: -78 } },
+  { name: "AIR", hint: "bass away", patch: { filter: 62 } },
+  { name: "ECHO", hint: "throw", patch: { echo: 0.6 } },
+  { name: "WASH", hint: "drown it", patch: { space: 0.55, echo: 0.25 } },
+];
 
 
 
@@ -392,7 +406,13 @@ export default function ZaltzIDE() {
       // THE DECK'S ROUTING, applied at play time only — the pane's code is
       // never touched. Every layer lands on its channel's orbit decade, so
       // the kills have buses to bite.
-      await playPart("zaltz-ide", assignChannelOrbits(code), "zaltz-ide");
+      await playPart(
+        "zaltz-ide",
+        transformForPlayback(assignChannelOrbits(code), {
+          transpose: keyRef.current,
+        }),
+        "zaltz-ide",
+      );
       if (runId.current !== id) {
         try {
           stop();
@@ -408,6 +428,7 @@ export default function ZaltzIDE() {
         applyOrbitGains(killGainFor);
         ensurePerfFx();
         setLivePerf(perfRef.current);
+        if (nudgeRef.current !== 0) applyNudge(nudgeRef.current);
       } catch {
         /* deck re-asserts on the 200ms loop */
       }
@@ -659,7 +680,18 @@ export default function ZaltzIDE() {
   const [perf, setPerf] = useState({ filter: 0, echo: 0, punch: 0, space: 0 });
   const perfRef = useRef(perf);
   perfRef.current = perf;
-  const [light, setLight] = useState({ hue: 0, sat: 1, contrast: 1, bright: 1 });
+  // TEMPO — the deck's nudge, driven straight into the scheduler (no re-eval);
+  // KEY — rides the code (transposePitched) at play time, so a turn re-evals
+  // (same-owner crossfade) a beat after the finger settles.
+  const [nudge, setNudge] = useState(0);
+  const nudgeRef = useRef(0);
+  const [key, setKey] = useState(0);
+  const keyRef = useRef(0);
+  const keyReeval = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // THE PADS — hold: on · release: back (the deck's momentary throws).
+  const [heldPad, setHeldPad] = useState<string | null>(null);
+  const padPrev = useRef<typeof perf | null>(null);
+  const [light, setLight] = useState({ hue: 0, sat: 1, contrast: 1, bright: 1, blur: 0 });
 
   const killGainFor = useCallback(
     (orbit: number): number | undefined => {
@@ -704,6 +736,52 @@ export default function ZaltzIDE() {
     }
   };
 
+  // The code's own tempo (its LAST setcpm) — what the nudge multiplies.
+  const baseCps = useMemo(() => {
+    let cpm: number | null = null;
+    for (const m of strudel.matchAll(/\bsetcpm\(\s*([0-9.]+)\s*(?:\/\s*([0-9.]+))?\s*\)/g)) {
+      cpm = Number(m[1]) / (m[2] ? Number(m[2]) : 1);
+    }
+    return cpm != null && cpm > 0 ? cpm / 60 : null;
+  }, [strudel]);
+  const applyNudge = useCallback(
+    (n: number) => {
+      if (baseCps == null) return;
+      try {
+        setLiveCps(baseCps * (1 + n / 100)); // scheduler-direct — no recompile
+      } catch {
+        /* engine not up — re-asserted after the next eval */
+      }
+    },
+    [baseCps],
+  );
+  const moveNudge = (n: number) => {
+    nudgeRef.current = n;
+    setNudge(n);
+    applyNudge(n);
+  };
+  const moveKey = (v: number) => {
+    keyRef.current = v;
+    setKey(v);
+    // Key rides the CODE — re-eval a beat after the finger settles (crossfade).
+    if (stateRef.current.playing) {
+      if (keyReeval.current) clearTimeout(keyReeval.current);
+      keyReeval.current = setTimeout(() => void runMusic(), 350);
+    }
+  };
+  const padDown = (name: string, patch: Partial<typeof perf>) => {
+    if (padPrev.current === null) padPrev.current = { ...perfRef.current };
+    setHeldPad(name);
+    movePerf(patch);
+  };
+  const padUp = () => {
+    setHeldPad(null);
+    if (padPrev.current) {
+      movePerf(padPrev.current);
+      padPrev.current = null;
+    }
+  };
+
   // VIDEO DJ — deterministic, ephemeral, instant: CSS filters on the canvas.
   // (The build scrub renames "hydra-canvas" consistently in prod chunks, so
   // this literal finds the canvas on both dev and prod.)
@@ -717,6 +795,7 @@ export default function ZaltzIDE() {
     if (next.sat !== 1) f.push(`saturate(${next.sat})`);
     if (next.contrast !== 1) f.push(`contrast(${next.contrast})`);
     if (next.bright !== 1) f.push(`brightness(${next.bright})`);
+    if (next.blur > 0) f.push(`blur(${next.blur}px)`);
     el.style.filter = f.join(" ");
   };
 
@@ -1121,7 +1200,9 @@ export default function ZaltzIDE() {
                   className={`rounded-full transition-all duration-300 ${
                     kills[ch]
                       ? "h-1 w-1 bg-white/20"
-                      : "h-1.5 w-1.5 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_8px_rgba(224,49,156,.8)]"
+                      : `h-1.5 w-1.5 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] shadow-[0_0_8px_rgba(224,49,156,.8)] ${
+                          playing ? "animate-pulse" : ""
+                        }`
                   }`}
                 />
               ))}
@@ -1181,8 +1262,51 @@ export default function ZaltzIDE() {
                       );
                     })}
                   </div>
+                  {/* THE PADS — hold: on · release: snap back. */}
+                  <div className="mt-2 grid grid-cols-4 gap-1.5">
+                    {PADS.map((pad) => (
+                      <button
+                        key={pad.name}
+                        onPointerDown={() => padDown(pad.name, pad.patch)}
+                        onPointerUp={padUp}
+                        onPointerLeave={() => heldPad === pad.name && padUp()}
+                        onPointerCancel={padUp}
+                        onContextMenu={(e) => e.preventDefault()}
+                        title="Hold — release to snap back"
+                        className={`flex h-11 select-none flex-col items-center justify-center rounded-2xl transition ${
+                          heldPad === pad.name
+                            ? "text-white"
+                            : "bg-white/[0.04] hover:bg-white/[0.08]"
+                        }`}
+                        style={{
+                          touchAction: "none",
+                          ...(heldPad === pad.name
+                            ? {
+                                backgroundImage: HOT_GRADIENT,
+                                boxShadow: "0 0 30px -8px rgba(224,49,156,0.9)",
+                              }
+                            : {}),
+                        }}
+                      >
+                        <span
+                          className={`text-[11px] font-medium tracking-[0.12em] ${
+                            heldPad === pad.name ? "text-white" : "text-foreground/85"
+                          }`}
+                        >
+                          {pad.name}
+                        </span>
+                        <span
+                          className={`max-w-full overflow-hidden whitespace-nowrap px-1 text-[8px] uppercase tracking-[0.08em] sm:text-[9px] sm:tracking-[0.14em] ${
+                            heldPad === pad.name ? "text-white/70" : "text-muted/45"
+                          }`}
+                        >
+                          hold · {pad.hint}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                   {/* the dials — the deck's grid: whispered label, mono readout,
-                      FILTER centre-detent (double-tap zeroes it) */}
+                      TEMPO/KEY/FILTER centre-detent (double-tap zeroes them) */}
                   <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2.5 sm:grid-cols-3 sm:gap-x-6">
                     <DeckSlider
                       label="Master"
@@ -1199,6 +1323,26 @@ export default function ZaltzIDE() {
                           /* engine not up yet — the dial still remembers */
                         }
                       }}
+                    />
+                    <DeckSlider
+                      label="Tempo"
+                      value={nudge}
+                      min={-8}
+                      max={8}
+                      step={1}
+                      bipolar
+                      display={nudge === 0 ? "—" : `${nudge > 0 ? "+" : ""}${nudge}%`}
+                      onChange={moveNudge}
+                    />
+                    <DeckSlider
+                      label="Key"
+                      value={key}
+                      min={-7}
+                      max={7}
+                      step={1}
+                      bipolar
+                      display={key === 0 ? "—" : `${key > 0 ? "+" : ""}${key} st`}
+                      onChange={moveKey}
                     />
                     <DeckSlider
                       label="Filter"
@@ -1276,6 +1420,15 @@ export default function ZaltzIDE() {
                     step={0.05}
                     display={light.bright === 1 ? "—" : `${light.bright.toFixed(2)}×`}
                     onChange={(v) => moveLight({ bright: v })}
+                  />
+                  <DeckSlider
+                    label="Smear"
+                    value={light.blur}
+                    min={0}
+                    max={8}
+                    step={0.25}
+                    display={light.blur === 0 ? "—" : `${light.blur.toFixed(1)}px`}
+                    onChange={(v) => moveLight({ blur: v })}
                   />
                 </div>
               )}
