@@ -71,8 +71,14 @@ export async function POST(req: Request) {
   );
   const sink = makeCallSink();
   try {
+    // SONNET 5 (2026-07-26 return, user: "as fast and as cheap as possible"):
+    // 0.6× Opus's rate — billed to the user at Sonnet's own rate via
+    // MODEL_COST_FACTOR — and snappier no-thinking latency. The wrong-ghost
+    // era that forced Opus predates the gate as it stands now (differential
+    // validation, chain-after-.out() rule, newline salvage, repair pass) —
+    // a bad ghost dies server-side instead of shipping.
     const cfg = {
-      model: "opus",
+      model: "sonnet",
       onUsage: (t: number) => void addTokenUsage(userId, t),
       onCall: sink.onCall,
     };

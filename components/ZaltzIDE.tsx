@@ -591,7 +591,7 @@ export default function ZaltzIDE() {
   function newSketch() {
     setStrudel("");
     setHydra("");
-    setTitle("untitled sketch");
+    setTitle("untitled grain");
     setSketchId(null);
     setDirty(false);
     setSheet(null);
@@ -1004,9 +1004,9 @@ export default function ZaltzIDE() {
   // buttons redirect to the register — the machine never just goes mute.
   const spent = !!me?.signedIn && !me.owner && (remaining ?? 0) <= 0;
 
-  // ✦ COMPLETE ON AN EMPTY PANE — the hint text BECOMES the reality: the
-  // placeholder's code lines land in the buffer (free, deterministic), then
-  // the copilot continues from there. Desktop and mobile, same one tap.
+  // ⇥ ON AN EMPTY PANE — the hint text BECOMES the reality: the placeholder's
+  // code lines land in the buffer (free, deterministic), then the copilot
+  // continues from there.
   const MUSIC_SEED = 'setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n';
   const VISUALS_SEED =
     "osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n";
@@ -1026,16 +1026,8 @@ export default function ZaltzIDE() {
     setHFlash((f) => f + 1);
     setTimeout(() => hydraPane.current?.summon(), 90);
   };
-  const completeMusic = () => {
-    if (spent) return setSheet("tokens");
-    if (!stateRef.current.strudel.trim()) return seedMusic();
-    strudelPane.current?.summon();
-  };
-  const completeVisuals = () => {
-    if (spent) return setSheet("tokens");
-    if (!stateRef.current.hydra.trim()) return seedVisuals();
-    hydraPane.current?.summon();
-  };
+  // (completeMusic/completeVisuals — the ✦ complete button's handlers — died
+  // with the button; the seeds live on under ⇥-takes-the-hint.)
 
   // THE ONE-TAP FIX — ✦ on the error chip: the broken pane + its error go up,
   // the mended pane comes back, lands with a flash and re-runs itself. The
@@ -1092,12 +1084,14 @@ export default function ZaltzIDE() {
 
   // The run button IS the transport (user's law: hit run, it turns into
   // stop, that is it): `stop` given + active → the same button reads ■ stop.
+  // (The "✦ complete" button lived here until 2026-07-26 — the user found it
+  // confusing next to a copilot that already whispers on its own. The ghost
+  // paths that remain: the caret-park auto-cue, ⌥\/⌃Space, and ⇥.)
   const paneHeader = (
     label: string,
     hint: string,
     run: () => void,
     active: boolean,
-    summon: () => void,
     stop?: () => void,
   ) => (
     <div className="flex items-center gap-2 border-b border-white/[0.06] px-3.5 py-2">
@@ -1112,15 +1106,6 @@ export default function ZaltzIDE() {
       {!touch && (
         <span className="hidden text-[11px] text-muted/45 sm:inline">{hint}</span>
       )}
-      {/* THE button-shaped answer to "how do I complete this?" — works the
-          same on a phone, where no ⌥\ exists. */}
-      <button
-        onClick={summon}
-        className="rounded-full bg-accent/[0.12] px-2.5 py-1 text-[11.5px] text-accent-strong transition hover:bg-accent/[0.22] active:scale-[.96]"
-        title="Conjure a ghost at the caret — ⇥ (or the pill) takes it"
-      >
-        ✦ complete
-      </button>
       <button
         onClick={stop && active ? stop : run}
         className={`rounded-full px-2.5 py-1 text-[11.5px] transition active:scale-[.96] ${
@@ -1167,7 +1152,7 @@ export default function ZaltzIDE() {
           }}
           spellCheck={false}
           className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-1 text-[14px] text-foreground/90 outline-none transition placeholder:text-muted/40 hover:bg-white/[0.04] focus:bg-white/[0.05]"
-          placeholder="name this sketch"
+          placeholder="name this grain"
         />
         {/* No Save button — work is simply KEPT, and the word says so (the
             old 6px dot was illegible — user: "what is that dot doing"). */}
@@ -1197,9 +1182,7 @@ export default function ZaltzIDE() {
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="hidden shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-muted transition hover:text-foreground active:scale-[.97] sm:inline-flex"
-        >
-          Sketches
-        </button>
+        >Grains</button>
         {canFullscreen && (
           <button
             onClick={toggleFullscreen}
@@ -1272,9 +1255,7 @@ export default function ZaltzIDE() {
         <button
           onClick={() => setSheet(sheet === "sketches" ? null : "sketches")}
           className="shrink-0 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted transition active:scale-[.97]"
-        >
-          Sketches
-        </button>
+        >Grains</button>
       </div>
 
       {/* ── the panes ───────────────────────────────────────────────────── */}
@@ -1289,7 +1270,6 @@ export default function ZaltzIDE() {
             ghost?.pane === "strudel" ? "⇥ takes the ghost" : "⌘↵ plays it",
             () => void runMusic(),
             playing,
-            completeMusic,
             halt,
           )}
           <CodePane
@@ -1314,7 +1294,7 @@ export default function ZaltzIDE() {
             onGhostDismiss={killGhost}
             onTakeHint={seedMusic}
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
-            placeholder={`setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then hit ▶ run — the room hears you\n// stuck? ✦ complete writes the next line${
+            placeholder={`setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then hit ▶ run — the room hears you\n// pause, and the machine whispers the next line${
               touch ? "" : "\n// on keys: ⌘↵ runs · ⇥ takes what's grey — this starter too"
             }`}
           />
@@ -1329,7 +1309,6 @@ export default function ZaltzIDE() {
             ghost?.pane === "hydra" ? "⇥ takes the ghost" : "⌘↵ paints it",
             runVisuals,
             playing && !!hydra.trim(),
-            completeVisuals,
           )}
           <CodePane
             ref={hydraPane}
@@ -1414,12 +1393,15 @@ export default function ZaltzIDE() {
           gestures, deterministic, zero AI — the pane's code never changes. */}
       {(hasVoices || hydra.trim()) && (
         <div className="mt-2 shrink-0">
+          {/* OPEN, THE HANDLE IS THE PANEL'S TOP EDGE (user 07-26: "connect
+              the bar to the panel it lifts") — same border, same glass, no
+              seam: rounded top, flat bottom, the panel continues beneath. */}
           <button
             onClick={() => setMixerOpen((o) => !o)}
-            className={`group flex w-full items-center justify-center gap-2.5 rounded-full border px-4 py-1.5 backdrop-blur-xl transition active:scale-[.99] ${
+            className={`group flex w-full items-center justify-center gap-2.5 border px-4 py-1.5 backdrop-blur-xl transition active:scale-[.99] ${
               mixerOpen
-                ? "border-accent/35 bg-black/60 shadow-[0_0_44px_-16px_rgba(224,49,156,.5)]"
-                : "border-white/[0.07] bg-black/45 hover:border-accent/30"
+                ? "rounded-t-[22px] rounded-b-none border-b-0 border-accent/25 bg-black/75 shadow-[0_0_44px_-16px_rgba(224,49,156,.5)]"
+                : "rounded-full border-white/[0.07] bg-black/45 hover:border-accent/30"
             }`}
             aria-expanded={mixerOpen}
           >
@@ -1459,10 +1441,10 @@ export default function ZaltzIDE() {
           </button>
           <div
             className={`overflow-hidden transition-all duration-300 ease-out ${
-              mixerOpen ? "mt-2 max-h-[38dvh] opacity-100" : "max-h-0 opacity-0"
+              mixerOpen ? "max-h-[38dvh] opacity-100" : "max-h-0 opacity-0"
             }`}
           >
-            <div className="max-h-[38dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/75 to-black/55 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+            <div className="max-h-[38dvh] overflow-y-auto rounded-b-[22px] border border-t-0 border-accent/25 bg-gradient-to-b from-black/75 to-black/55 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
               <div className="mb-3 flex items-center gap-1.5">
                 {(["music", "light"] as const).map((t) => (
                   <button
@@ -1727,7 +1709,7 @@ export default function ZaltzIDE() {
             {sheet === "sketches" && (
               <>
                 <div className="flex items-center justify-between">
-                  <h2 className="text-[15px] font-medium text-foreground">Sketches</h2>
+                  <h2 className="text-[15px] font-medium text-foreground">Grains</h2>
                   <button
                     onClick={newSketch}
                     className="rounded-full bg-accent/[0.14] px-3 py-1.5 text-[12.5px] text-foreground transition hover:bg-accent/[0.22] active:scale-[.97]"
