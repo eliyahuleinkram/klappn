@@ -3161,6 +3161,30 @@ function mobileVisualsAllowed(): boolean {
   }
 }
 
+/** SAFE H — the sketch↔transport bridge that can never kill the renderer.
+ *  @strudel/hydra's own H is `() => reify(p).queryArc(t, t)[0].value`: one
+ *  frame where the query comes back empty (a sick clock instant around a
+ *  play-start hush/re-anchor) THROWS inside hydra-synth's render tick — and
+ *  a throw there stops hydra's rAF loop for the whole session: the canvas
+ *  freezes black and every later sketch (even pure literals) paints nothing.
+ *  Wrap it total: hold the last good sample through bad instants. */
+function installSafeH(g: Record<string, unknown>, rawH: unknown): void {
+  const make = rawH as (p: unknown) => () => number;
+  g.H = (p: unknown) => {
+    const inner = make(p);
+    let last = 0;
+    return () => {
+      try {
+        const v = inner();
+        if (typeof v === "number" && Number.isFinite(v)) last = v;
+      } catch {
+        /* sick clock instant — hold the last good value for this frame */
+      }
+      return last;
+    };
+  };
+}
+
 /** Turn visuals on/off (default on; phones default OFF — see above). The next
  *  evaluate() reflects it. */
 export function setVisuals(on: boolean): void {
@@ -3211,7 +3235,7 @@ async function ensureHydra(): Promise<boolean> {
       const synth = await import("hydra-synth");
       g.Hydra = (synth as { default?: unknown }).default ?? synth;
       // H() is the Strudel→Hydra bridge; expose it to the evaluated code's scope.
-      g.H = hydraMod.H;
+      installSafeH(g, hydraMod.H);
       hydraLoaded = true;
     }
     // Create the ONE session canvas. This runs only on a true first init (or after
@@ -3275,7 +3299,7 @@ export async function preloadHydra(): Promise<void> {
     if (!hydraMod) hydraMod = (await import("@strudel/hydra")) as HydraMod;
     const synth = await import("hydra-synth");
     g.Hydra = (synth as { default?: unknown }).default ?? synth;
-    g.H = hydraMod.H;
+    installSafeH(g, hydraMod.H);
     hydraLoaded = true;
   } catch {
     /* best-effort warm — the first play will lazy-load if this didn't land */
@@ -3771,6 +3795,12 @@ async function evalProgram(
           clearVisuals();
           await zaltzEvaluate(music, ac, masterNode() ?? null, takeover);
         }
+        // Same contract as the repl path below: the play path's hush/stop can
+        // re-point the global time source at the (silent) repl scheduler —
+        // re-install our continuous odometer so H() samples healthy time
+        // during zaltz playback (the repl path always did this; the zaltz
+        // branch returned early and skipped it).
+        armVisualClock();
         return;
       } catch (e) {
         // ENGINE BOOT FAILURE (browser too old for the wasm/worklet, or the
