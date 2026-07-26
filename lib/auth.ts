@@ -38,18 +38,25 @@ function createAuth() {
   return betterAuth({
     database: database ? { db: database, type: "postgres" } : undefined,
     baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3001",
-    // Local dev runs on whatever port is free (3001/3002/3004 in launch.json);
-    // without these, any port other than the baseURL's 403s every auth POST
-    // ("Invalid origin"). Localhost-only — production trusts only the baseURL.
-    ...( (process.env.BETTER_AUTH_URL || "http://localhost:3001").includes("localhost")
-      ? {
-          trustedOrigins: [
-            "http://localhost:3001",
-            "http://localhost:3002",
-            "http://localhost:3004",
-          ],
-        }
-      : {}),
+    // Origins allowed to POST auth. Without an entry, any origin other than the
+    // baseURL's 403s ("Invalid origin") — which silently broke guest minting
+    // and sign-in ON zaltz.klappn.com (Safari sends Origin strictly; seen live
+    // 2026-07-26). Local dev runs on whatever port is free (launch.json), so
+    // localhost gets its ports; production gets every host this ONE worker
+    // serves — the zaltz IDE is a first-class auth surface now.
+    trustedOrigins: (process.env.BETTER_AUTH_URL || "http://localhost:3001").includes(
+      "localhost",
+    )
+      ? [
+          "http://localhost:3001",
+          "http://localhost:3002",
+          "http://localhost:3004",
+        ]
+      : [
+          "https://klappn.com",
+          "https://www.klappn.com",
+          "https://zaltz.klappn.com",
+        ],
     secret: process.env.BETTER_AUTH_SECRET,
     plugins: [
       // TRY BEFORE ANY ACCOUNT (2026-07-26): a visitor who starts making gets a

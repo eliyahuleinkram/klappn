@@ -164,6 +164,14 @@ $: note("<[e3,g3,b3] [c3,e3,g3] [g2,b2,d3] [a2,c3,e3]>").s("triangle").attack(2)
 
 const DRAFT_KEY = "zaltz-ide-draft-v1";
 
+/** Earlier placeholder copy leaked into some saved buffers as real comments —
+ *  and it named keyboard chords, which lied on phones. Scrub the known legacy
+ *  lines from anything we LOAD (draft or sketch); user-written code is never
+ *  touched (exact-line match only). */
+const LEGACY_HINT_RE =
+  /^[ \t]*\/\/ (?:type, then ⌘↵ — the room hears you|the walls, in code(?: — ⌘↵ paints them)?)[ \t]*\r?\n?/gm;
+const scrubLegacyHints = (s: string) => s.replace(LEGACY_HINT_RE, "");
+
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(Math.round(n / 100_000) / 10).toLocaleString()}M`;
   return `${Math.round(n / 1000)}k`;
@@ -295,16 +303,19 @@ export default function ZaltzIDE() {
           title?: string;
           sketchId?: string | null;
         };
-        if (typeof d.strudel === "string") setStrudel(d.strudel);
-        if (typeof d.hydra === "string") setHydra(d.hydra);
+        if (typeof d.strudel === "string") setStrudel(scrubLegacyHints(d.strudel));
+        if (typeof d.hydra === "string") setHydra(scrubLegacyHints(d.hydra));
         if (typeof d.title === "string" && d.title) setTitle(d.title);
         setSketchId(d.sketchId ?? null);
       }
     } catch {
       /* a bad draft never blocks the bench */
     }
-    void refreshMe();
-    void refreshSketches();
+    // Identity first, then the crate — the sketches call is session-gated.
+    void (async () => {
+      await refreshMe();
+      await refreshSketches();
+    })();
     return () => {
       document.body.classList.remove("ide-stage");
       runId.current++;
@@ -355,9 +366,12 @@ export default function ZaltzIDE() {
   }
 
   async function refreshSketches() {
+    // Signed out there is nothing to list — and an uncaught 401 in the console
+    // reads like a broken page to anyone who opens devtools.
+    if (!meRef.current?.signedIn) return;
     try {
       const res = await fetch("/api/sketches");
-      if (!res.ok) return; // signed out — nothing saved yet
+      if (!res.ok) return;
       const d = openDeep((await res.json()) as { sketches: Sketch[] });
       setSketches(d.sketches ?? []);
     } catch {
@@ -366,13 +380,24 @@ export default function ZaltzIDE() {
   }
 
   /** A session on demand: the visitor plays first; identity appears the moment
-   *  it's needed (first save / first ask) as a silent guest — no form, no wall. */
+   *  it's needed (first save / first ask) as a silent guest — no form, no wall.
+   *
+   *  RESILIENCE (2026-07-26, seen live on mobile Safari): a session can EXIST
+   *  while meRef still says otherwise — /api/me races the first tap on a slow
+   *  network — and minting on top of a live anonymous session 403s (the plugin
+   *  refuses guest-on-guest). So: re-read identity before minting, and after a
+   *  failed mint re-read again — if a session is there after all, that's a win,
+   *  not an error. */
   const ensureSession = useCallback(async (): Promise<boolean> => {
+    if (meRef.current?.signedIn) return true;
+    await refreshMe();
     if (meRef.current?.signedIn) return true;
     try {
       const { error } = await authClient.signIn.anonymous();
       if (error) throw new Error(String(error.message ?? "guest sign-in failed"));
     } catch {
+      await refreshMe();
+      if (meRef.current?.signedIn) return true;
       setNotice("Couldn't open a guest session — try again in a moment.");
       return false;
     }
@@ -545,8 +570,8 @@ export default function ZaltzIDE() {
   }, [dirty, strudel, hydra, title]);
 
   function loadSketch(s: Sketch) {
-    setStrudel(s.strudel);
-    setHydra(s.hydra);
+    setStrudel(scrubLegacyHints(s.strudel));
+    setHydra(scrubLegacyHints(s.hydra));
     setTitle(s.title);
     setSketchId(s.id);
     setDirty(false);
@@ -861,7 +886,9 @@ export default function ZaltzIDE() {
         {label}
       </span>
       <span className="flex-1" />
-      <span className="hidden text-[11px] text-muted/45 sm:inline">{hint}</span>
+      {!touch && (
+        <span className="hidden text-[11px] text-muted/45 sm:inline">{hint}</span>
+      )}
       {/* THE button-shaped answer to "how do I complete this?" — works the
           same on a phone, where no ⌥\ exists. */}
       <button
@@ -1023,11 +1050,9 @@ export default function ZaltzIDE() {
             onGhostAccept={killGhost}
             onGhostDismiss={killGhost}
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
-            placeholder={
-              touch
-                ? `setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then tap ▶ run — the room hears you\n// stuck? ✦ complete writes the next line`
-                : `setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then ⌘↵ — the room hears you\n// stuck? ✦ complete writes the next line`
-            }
+            placeholder={`setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then hit ▶ run — the room hears you\n// stuck? ✦ complete writes the next line${
+              touch ? "" : "\n// on keys: ⌘↵ runs · ⇥ takes a ghost"
+            }`}
           />
         </section>
         <section
@@ -1057,11 +1082,7 @@ export default function ZaltzIDE() {
             onGhostAccept={killGhost}
             onGhostDismiss={killGhost}
             onCaretIdle={(ctx) => void requestGhost("hydra", ctx)}
-            placeholder={
-              touch
-                ? `osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — tap ▶ run`
-                : `osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ⌘↵ paints them`
-            }
+            placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them`}
           />
         </section>
       </div>
@@ -1199,19 +1220,13 @@ export default function ZaltzIDE() {
                 the machine is taking a pass…
               </span>
             ) : (
-              // The same law as the placeholders: chords for pointers,
-              // buttons for thumbs — an iPad counts as thumbs.
-              touch ? (
-                <>
-                  ✦ complete conjures a ghost — ⇥ take drops it in. Play it clean
-                  and tweaks appear.
-                </>
-              ) : (
-                <>
-                  ghosts land as you type — ⇥ takes one, ✦ complete (or ⌥\)
-                  summons one. Play it clean and the machine offers tweaks.
-                </>
-              )
+              // BUTTONS FIRST, everywhere — ▶ run, ✦ complete and ⇥ take exist
+              // on every device; key chords are a keyboard-only postscript.
+              <>
+                ✦ complete conjures a ghost — ⇥ take drops it in. Play it clean
+                and tweaks appear.
+                {!touch && <span className="text-muted/30"> (keys: ⇥ · ⌥\ · ⌘↵)</span>}
+              </>
             )}
           </p>
         )}
