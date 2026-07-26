@@ -861,35 +861,17 @@ body.ide-stage #k1-canvas {
   opacity: 0.85;
 }
 
-/* The copilot's pulse — the CARET ITSELF breathes while a completion is in
-   flight (user 2026-07-26: no glyph inside the text — a symbol there reads as
-   content). The span is zero-width so the highlighted twin stays byte-aligned
-   with the textarea; the bar is drawn absolutely on top of the native caret.
-   You still SEE it thinking; a cache hit never shows it (instant). */
-@keyframes ghost-ponder {
-  0%, 100% { opacity: 0.25; }
-  50% { opacity: 0.9; }
+/* The copilot's pulse — while a completion is in flight the NATIVE caret
+   itself breathes pink (user 2026-07-26, twice: no glyph inside the text, and
+   never a second bar — a marker drawn in the highlight twin put TWO cursors on
+   screen). caret-color is animatable; browsers that won't animate it still get
+   the steady pink from the base rule. ONE cursor, one meaning; a cache hit
+   never shows it (instant). */
+@keyframes caret-think {
+  0%, 100% { caret-color: rgba(255, 99, 193, 0.35); }
+  50% { caret-color: #ff63c1; }
 }
-.tok-pondering {
-  position: relative;
-  display: inline-block;
-  width: 0;
-  /* GEOMETRY IS LOAD-BEARING: an EMPTY inline-block has ZERO height and its
-     baseline is its own bottom edge — so a bare zero-size box sits with its top
-     ON the text baseline, and any absolute bar drawn downward from it lands a
-     full line BELOW the text (shipped once; seen on prod). Give the box the
-     caret's own height and sink it to caret depth instead, then fill it. */
-  height: 1.2em;
-  vertical-align: -0.25em;
-}
-.tok-pondering::after {
-  content: "";
-  position: absolute;
-  left: -1px;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--accent-strong);
-  animation: ghost-ponder 1.1s ease-in-out infinite;
+.caret-thinking {
+  caret-color: var(--accent-strong);
+  animation: caret-think 1.1s ease-in-out infinite;
 }

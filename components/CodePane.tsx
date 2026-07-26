@@ -80,8 +80,9 @@ const CodePane = forwardRef<
     /** Increment to fire the eval flash (live-coding convention: you SEE the send). */
     flash?: number;
     autoFocus?: boolean;
-    /** A completion is in flight — the caret itself breathes (a pulsing bar,
-     *  zero-width so the twin stays byte-aligned; no glyph in the text). */
+    /** A completion is in flight — the NATIVE caret breathes pink
+     *  (caret-color on the textarea; nothing is ever drawn in the twin, so
+     *  there is exactly one cursor on screen). */
     pondering?: boolean;
     /** The copilot's suggestion, rendered at the caret. Parent owns its lifecycle. */
     ghost?: string | null;
@@ -114,23 +115,22 @@ const CodePane = forwardRef<
 
   // With a ghost up, the twin renders before + ghost + after; the textarea
   // knows nothing about it (alignment guaranteed by the parent's truncation
-  // rule — see the header note).
+  // rule — see the header note). Pondering never touches the twin — it tints
+  // the NATIVE caret instead (ONE cursor on screen, ever; a second bar in the
+  // twin read as two cursors — user 2026-07-26).
   const html = useMemo(() => {
-    if (ghost || pondering) {
+    if (ghost) {
       const at =
         ghostCaretRef.current >= 0 ? ghostCaretRef.current : value.length;
-      const marker = ghost
-        ? `<span class="tok-ghost">${esc(ghost)}</span>`
-        : `<span class="tok-pondering"></span>`;
       return (
         highlightCore(value.slice(0, at)) +
-        marker +
+        `<span class="tok-ghost">${esc(ghost)}</span>` +
         highlightCore(value.slice(at)) +
         "\n"
       );
     }
     return highlightCore(value) + "\n";
-  }, [value, ghost, pondering]);
+  }, [value, ghost]);
 
   // Eval flash — a quick pink wash over the pane when its code is sent.
   const flashRef = useRef<HTMLDivElement>(null);
@@ -330,7 +330,9 @@ const CodePane = forwardRef<
             autoComplete="off"
             autoCorrect="off"
             autoFocus={autoFocus}
-            className="code-layer code-input absolute inset-0 h-full w-full"
+            className={`code-layer code-input absolute inset-0 h-full w-full${
+              pondering ? " caret-thinking" : ""
+            }`}
           />
         </div>
       </div>
