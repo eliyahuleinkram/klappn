@@ -18,9 +18,7 @@ import { attachHydraBlock } from "@/lib/hydra-embed";
 import { openDeep } from "@/lib/seal";
 import {
   fadeMaster,
-  pausePlayback,
   playPart,
-  resumePlayback,
   setExplicitVisualsDrive,
   setHydraErrorSink,
   setStrudelErrorSink,
@@ -68,18 +66,6 @@ interface Me {
   owner?: boolean;
   remainingTokens?: number | null;
   allowanceTokens?: number;
-}
-
-interface Proposal {
-  strudel?: string;
-  hydra?: string;
-  note?: string;
-  issues?: string[];
-}
-
-interface Tweak {
-  name: string;
-  ask: string;
 }
 
 type PaneId = "strudel" | "hydra";
@@ -184,34 +170,6 @@ function fmtTokens(n: number): string {
   return `${Math.round(n / 1000)}k`;
 }
 
-/** Which lines of `next` are new/changed vs `prev` (LCS on lines) — the
- *  proposal preview lights exactly what the machine touched. */
-function changedLines(prev: string, next: string): boolean[] {
-  const a = prev.split("\n");
-  const b = next.split("\n");
-  const n = a.length;
-  const m = b.length;
-  if (n * m > 250_000) return b.map(() => false); // never burn the UI on a diff
-  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-    }
-  }
-  const keep = new Array(m).fill(false);
-  let i = 0;
-  let j = 0;
-  while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      keep[j] = true;
-      i++;
-      j++;
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) i++;
-    else j++;
-  }
-  return keep.map((k) => !k);
-}
-
 const hydraProgram = (hydra: string) => attachHydraBlock("", hydra);
 
 export default function ZaltzIDE() {
@@ -233,14 +191,10 @@ export default function ZaltzIDE() {
   const touch = useIsMobile("(pointer: coarse)");
 
   const [playing, setPlaying] = useState(false);
-  const [paused, setPaused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [waking, setWaking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-
-  const [asking, setAsking] = useState<string | null>(null); // the tweak-ask in flight
-  const [proposal, setProposal] = useState<Proposal | null>(null);
 
   // THE COPILOT — ghost completions at the caret (Tab takes, Esc bins).
   const [copilot, setCopilot] = useState(true);
@@ -256,11 +210,10 @@ export default function ZaltzIDE() {
   const strudelPane = useRef<CodePaneHandle>(null);
   const hydraPane = useRef<CodePaneHandle>(null);
 
-  // TWEAK CHIPS — offered after a clean run, never auto-applied.
-  const [tweaks, setTweaks] = useState<Tweak[]>([]);
-  const tweaksMeta = useRef({ lastCode: "", at: 0, inflight: false });
-  // runMusic (declared above the tweaks logic) calls through this ref.
-  const tweaksAfterRun = useRef<() => Promise<void> | void>(() => {});
+  // THE NAMER — after a clean run, every `$:` line gets its human name.
+  const namesMeta = useRef({ lastCode: "", at: 0, inflight: false });
+  // runMusic (declared above the namer) calls through this ref.
+  const namesAfterRun = useRef<() => Promise<void> | void>(() => {});
 
   const [sheet, setSheet] = useState<null | "sketches" | "tokens" | "signin">(null);
   const [mobilePane, setMobilePane] = useState<PaneId>("strudel");
@@ -276,17 +229,8 @@ export default function ZaltzIDE() {
     title,
     sketchId,
     playing,
-    busyWithTake: false,
   });
-  stateRef.current = {
-    strudel,
-    hydra,
-    title,
-    sketchId,
-    playing,
-    // While a take is on the table (or being conjured) the copilot stays quiet.
-    busyWithTake: proposal !== null || asking !== null,
-  };
+  stateRef.current = { strudel, hydra, title, sketchId, playing };
 
   // ── boot / teardown ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -438,10 +382,9 @@ export default function ZaltzIDE() {
         return;
       }
       setPlaying(true);
-      setPaused(false); // a fresh eval always sounds
       if (sketch.trim()) void updateVisuals(hydraProgram(sketch));
       // It runs clean — let the machine name some next moves (throttled).
-      setTimeout(() => void tweaksAfterRun.current(), 1500);
+      setTimeout(() => void namesAfterRun.current(), 1500);
     } catch (e) {
       if (runId.current === id) setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -458,7 +401,7 @@ export default function ZaltzIDE() {
     if (live) void updateVisuals(program);
     else void startIdleVisual(program);
     // A repaint is a run too — the light deserves its own tweak round.
-    setTimeout(() => void tweaksAfterRun.current(), 1500);
+    setTimeout(() => void namesAfterRun.current(), 1500);
   }, []);
 
   const halt = useCallback(() => {
@@ -469,28 +412,9 @@ export default function ZaltzIDE() {
       /* already stopped */
     }
     setPlaying(false);
-    setPaused(false);
     setBusy(false);
   }, []);
 
-  // PAUSE holds the music mid-phrase (the light keeps gently drifting — the
-  // engine's own law); RESUME picks it back up exactly there. Stop ends it.
-  const pause = useCallback(() => {
-    try {
-      pausePlayback();
-    } catch {
-      /* engine not up — nothing to hold */
-    }
-    setPaused(true);
-  }, []);
-  const resume = useCallback(async () => {
-    try {
-      await resumePlayback();
-    } catch {
-      /* worst case the next ⌘↵ restarts it */
-    }
-    setPaused(false);
-  }, []);
 
   // ⌘. stops and ⌘S saves from anywhere (not just inside a pane); Esc closes
   // whatever's open.
@@ -504,7 +428,6 @@ export default function ZaltzIDE() {
         void saveRef.current();
       } else if (e.key === "Escape") {
         setSheet(null);
-        setProposal(null);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -582,7 +505,6 @@ export default function ZaltzIDE() {
     setTitle(s.title);
     setSketchId(s.id);
     setDirty(false);
-    setProposal(null);
     setSheet(null);
   }
 
@@ -592,7 +514,6 @@ export default function ZaltzIDE() {
     setTitle(p.name);
     setSketchId(null);
     setDirty(false);
-    setProposal(null);
     setSheet(null);
   }
 
@@ -602,7 +523,6 @@ export default function ZaltzIDE() {
     setTitle("untitled sketch");
     setSketchId(null);
     setDirty(false);
-    setProposal(null);
     setSheet(null);
   }
 
@@ -616,7 +536,6 @@ export default function ZaltzIDE() {
   const requestGhost = useCallback(
     async (pane: PaneId, ctx: CaretContext) => {
       if (!copilot) return;
-      if (stateRef.current.busyWithTake) return; // never whisper over a take
       if (ghostRef.current) return; // one ghost at a time — take it or bin it
       const cueKey = `${pane}:${ctx.before.length}:${ctx.after.length}:${ctx.before.slice(-40)}`;
       // An explicit ✦/⌥\ summon is a direct order — it re-asks even where an
@@ -684,9 +603,8 @@ export default function ZaltzIDE() {
   // language's own mute), the slider rewrites that line's .gain(n). Commits
   // re-eval mid-play, so the change crossfades into the running mix like any
   // live edit. Master is engine-level (fadeMaster) and moves DURING the drag.
-  const [dialsOpen, setDialsOpen] = useState(false);
   const [master, setMaster] = useState(1);
-  // AI names per layer (line-signature → "Deep kick"), refreshed with tweaks.
+  // AI names per layer (line-signature → "Deep kick"), refreshed by the namer.
   const [layerNames, setLayerNames] = useState<Map<string, string>>(new Map());
 
   interface LayerDial {
@@ -766,37 +684,30 @@ export default function ZaltzIDE() {
     });
   }
 
-  // ── tweak chips — the machine's "next moves", after a clean run ────────────
-  const maybeTweaks = useCallback(async () => {
-    const { strudel: s, hydra: h } = stateRef.current;
-    const code = s + " " + h;
-    const meta = tweaksMeta.current;
-    if (meta.inflight || code === meta.lastCode) return;
-    if (Date.now() - meta.at < 45_000) return;
+  // ── the namer — human names on the faders, after a clean run ───────────────
+  // The mixer stays CONSISTENT across edits: names key on the line itself
+  // (layerSig), so untouched lines keep their names and only changed lines
+  // fall back to the code sniff until the next clean run re-hears them.
+  const maybeNames = useCallback(async () => {
+    const { strudel: s } = stateRef.current;
+    const meta = namesMeta.current;
+    if (meta.inflight || s === meta.lastCode) return;
+    if (Date.now() - meta.at < 30_000) return;
     const m = meRef.current;
-    if (!m?.signedIn) return; // chips wait for a session; never mint one for this
+    if (!m?.signedIn) return; // names wait for a session; never mint one for this
     if (!m.owner && (m.remainingTokens ?? 0) <= 0) return;
     meta.inflight = true;
     try {
-      const res = await fetch("/api/tweaks", {
+      const res = await fetch("/api/names", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ strudel: s, hydra: h }),
+        body: JSON.stringify({ strudel: s }),
       });
       if (!res.ok) return;
-      const d = (await res.json().catch(() => ({}))) as {
-        tweaks?: Tweak[];
-        layerNames?: string[];
-      };
-      if (Array.isArray(d.tweaks) && d.tweaks.length) {
-        setTweaks(d.tweaks);
-        meta.lastCode = code;
-        meta.at = Date.now();
-      }
-      // The machine's human names for each `$:` line — the dials wear them.
-      // Keyed by the LINE ITSELF (trimmed), so an edited line falls back to
-      // the sniffed label until the next clean run re-names it.
+      const d = (await res.json().catch(() => ({}))) as { layerNames?: string[] };
       if (Array.isArray(d.layerNames) && d.layerNames.length) {
+        meta.lastCode = s;
+        meta.at = Date.now();
         const sigs = s
           .split("\n")
           .filter((l) => /^\s*_?\$:/.test(l))
@@ -811,77 +722,12 @@ export default function ZaltzIDE() {
         });
       }
     } catch {
-      /* chips just don't appear */
+      /* the sniffed labels carry on */
     } finally {
       meta.inflight = false;
     }
   }, []);
-  tweaksAfterRun.current = maybeTweaks;
-
-  // ── the bandmate (the Ask path — a whole take, yours to drop in or bin) ────
-  async function conjure(askText: string, retried = false) {
-    const asked = askText.trim();
-    if (!asked || asking) return;
-    if (!(await ensureSession())) return;
-    setAsking(asked);
-    setNotice(null);
-    killGhost();
-    try {
-      const res = await fetch("/api/assist", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          strudel: stateRef.current.strudel,
-          hydra: stateRef.current.hydra,
-          ask: asked,
-        }),
-      });
-      const d = openDeep(
-        (await res.json().catch(() => ({}))) as Proposal & {
-          error?: string;
-          code?: string;
-        },
-      );
-      if (res.status === 401 && d.code === "session_required" && !retried) {
-        setMe(null);
-        meRef.current = null;
-        setAsking(null);
-        return conjure(asked, true);
-      }
-      if (res.status === 402) {
-        setSheet("tokens");
-        setNotice(d.error || "Tokens spent — top up to keep the machine talking.");
-        return;
-      }
-      if (!res.ok) {
-        setNotice(d.error || "The machine dropped the take — ask again.");
-        return;
-      }
-      setProposal({ strudel: d.strudel, hydra: d.hydra, note: d.note, issues: d.issues });
-      void refreshMe(); // the meter moved
-    } catch {
-      setNotice("Network hiccup — ask again.");
-    } finally {
-      setAsking(null);
-    }
-  }
-
-  function takeProposal() {
-    if (!proposal) return;
-    const wasPlaying = stateRef.current.playing;
-    if (proposal.strudel !== undefined) setStrudel(proposal.strudel);
-    if (proposal.hydra !== undefined) setHydra(proposal.hydra);
-    markDirty();
-    const p = proposal;
-    setProposal(null);
-    // Mid-set, the take drops straight into the running mix — that's the point.
-    if (wasPlaying) {
-      setTimeout(() => {
-        if (p.strudel !== undefined) void runMusic();
-        else if (p.hydra !== undefined) runVisuals();
-      }, 30);
-    }
-  }
+  namesAfterRun.current = maybeNames;
 
   // ── tokens ─────────────────────────────────────────────────────────────────
   const [buying, setBuying] = useState<number | null>(null);
@@ -989,12 +835,15 @@ export default function ZaltzIDE() {
           ? "0"
           : "free taste";
 
+  // The run button IS the transport (user's law: hit run, it turns into
+  // stop, that is it): `stop` given + active → the same button reads ■ stop.
   const paneHeader = (
     label: string,
     hint: string,
     run: () => void,
     active: boolean,
     summon: () => void,
+    stop?: () => void,
   ) => (
     <div className="flex items-center gap-2 border-b border-white/[0.06] px-3.5 py-2">
       <span
@@ -1018,11 +867,15 @@ export default function ZaltzIDE() {
         ✦ complete
       </button>
       <button
-        onClick={run}
-        className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[11.5px] text-foreground/85 transition hover:bg-accent/20 hover:text-accent-strong active:scale-[.96]"
-        title="Evaluate this pane (⌘↵)"
+        onClick={stop && active ? stop : run}
+        className={`rounded-full px-2.5 py-1 text-[11.5px] transition active:scale-[.96] ${
+          stop && active
+            ? "bg-accent/[0.16] text-accent-strong ring-1 ring-inset ring-accent/40 hover:bg-accent/[0.24]"
+            : "bg-white/[0.06] text-foreground/85 hover:bg-accent/20 hover:text-accent-strong"
+        }`}
+        title={stop && active ? "Stop (⌘.)" : "Evaluate this pane (⌘↵)"}
       >
-        ▶ run
+        {stop && active ? "■ stop" : waking ? "waking…" : "▶ run"}
       </button>
     </div>
   );
@@ -1153,6 +1006,7 @@ export default function ZaltzIDE() {
             () => void runMusic(),
             playing,
             () => strudelPane.current?.summon(),
+            halt,
           )}
           <CodePane
             ref={strudelPane}
@@ -1230,50 +1084,9 @@ export default function ZaltzIDE() {
         </div>
       )}
 
-      {/* ── the proposal — the machine's take, yours to drop in or bin ──── */}
-      {proposal && (
-        <div className="mt-2 max-h-[38dvh] overflow-y-auto rounded-2xl border border-accent/30 bg-black/60 p-3.5 shadow-[0_0_70px_-20px_rgba(224,49,156,.55)] backdrop-blur-2xl">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent-strong">
-              the machine&apos;s take
-            </span>
-            {proposal.note && (
-              <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted" title={proposal.note}>
-                {proposal.note}
-              </span>
-            )}
-            <button
-              onClick={takeProposal}
-              className="btn-primary shrink-0 rounded-full px-4 py-1.5 text-[13px] font-medium active:scale-[.97]"
-            >
-              {playing ? "Drop it in" : "Take it"}
-            </button>
-            <button
-              onClick={() => setProposal(null)}
-              className="shrink-0 rounded-full bg-white/[0.06] px-3 py-1.5 text-[13px] text-muted transition hover:text-foreground active:scale-[.97]"
-              aria-label="Dismiss the take"
-            >
-              ✕
-            </button>
-          </div>
-          {proposal.issues && proposal.issues.length > 0 && (
-            <p className="mt-2 text-[12px] leading-snug text-amber-300/80">
-              Told straight — it still flags: {proposal.issues.join(" · ")}
-            </p>
-          )}
-          <div className="mt-2.5 grid gap-2.5 sm:grid-cols-2">
-            {proposal.strudel !== undefined && (
-              <ProposalPane label="music" prev={strudel} next={proposal.strudel} />
-            )}
-            {proposal.hydra !== undefined && (
-              <ProposalPane label="light" prev={hydra} next={proposal.hydra} />
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── the dials — hands on the running code, no AI in the loop ────── */}
-      {dialsOpen && (
+      {/* ── the mixer — always at hand: every voice a fader, no AI in the
+          loop. It re-reads the code on every edit; names persist per line. */}
+      {layers.length > 0 && (
         <div className="animate-rise mt-2 max-h-[38dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/75 to-black/55 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
           <div className="flex items-center gap-3.5">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden>
@@ -1345,83 +1158,6 @@ export default function ZaltzIDE() {
           )}
         </div>
       )}
-
-      {/* ── the rail: transport · the machine's moves · your hands ──────── */}
-      <footer className="mt-2.5 flex items-center gap-2.5">
-        <button
-          onClick={
-            !playing
-              ? () => void runMusic()
-              : paused
-                ? () => void resume()
-                : pause
-          }
-          disabled={busy}
-          className={`btn-primary min-w-[5.5rem] shrink-0 rounded-full px-5 py-2.5 text-[14px] font-medium transition active:scale-[.97] ${
-            waking ? "opacity-60" : ""
-          }`}
-        >
-          {waking ? "Waking…" : !playing ? "Play" : paused ? "Resume" : "Pause"}
-        </button>
-        {playing && (
-          <button
-            onClick={halt}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-[13px] text-foreground/80 backdrop-blur-xl transition hover:bg-white/[0.1] hover:text-foreground active:scale-[.95]"
-            title="Stop (⌘.)"
-            aria-label="Stop"
-          >
-            ■
-          </button>
-        )}
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-1">
-          {asking ? (
-            <span className="shimmer-text truncate text-[12.5px] text-accent-strong/80">
-              the machine is taking a pass…
-            </span>
-          ) : (
-            tweaks.length > 0 &&
-            !proposal && (
-              <>
-                <span
-                  className="shrink-0 text-[12px] text-accent-strong/80"
-                  title="One tap asks for the change — the take still lands on your table first"
-                >
-                  ✦
-                </span>
-                {tweaks.map((t) => (
-                  <button
-                    key={t.name + t.ask}
-                    onClick={() => void conjure(t.ask)}
-                    disabled={!!asking}
-                    title={t.ask}
-                    className="h-8 shrink-0 rounded-full border border-accent/25 bg-accent/[0.07] px-3 text-[12.5px] leading-8 text-foreground/90 backdrop-blur-xl transition hover:bg-accent/[0.16] hover:text-accent-strong active:scale-[.97] disabled:opacity-40"
-                  >
-                    {t.name}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setTweaks([])}
-                  className="shrink-0 px-1.5 text-[12px] text-muted/50 transition hover:text-foreground"
-                  aria-label="Hide tweaks"
-                >
-                  ✕
-                </button>
-              </>
-            )
-          )}
-        </div>
-        <button
-          onClick={() => setDialsOpen((o) => !o)}
-          className={`shrink-0 rounded-full px-3.5 py-2 text-[12.5px] transition active:scale-[.97] ${
-            dialsOpen
-              ? "bg-accent/[0.16] text-accent-strong ring-1 ring-inset ring-accent/40"
-              : "bg-white/[0.06] text-muted backdrop-blur-xl hover:text-foreground"
-          }`}
-          title="Faders on every layer — your hands on the running code"
-        >
-          dials
-        </button>
-      </footer>
 
       {/* ── sheets ──────────────────────────────────────────────────────── */}
       {sheet && (
@@ -1710,33 +1446,3 @@ function Dial({
   );
 }
 
-/** One pane of the machine's take — full code, changed lines lit. */
-function ProposalPane({
-  label,
-  prev,
-  next,
-}: {
-  label: string;
-  prev: string;
-  next: string;
-}) {
-  const changed = changedLines(prev, next);
-  const lines = next.split("\n");
-  return (
-    <div className="min-w-0 overflow-hidden rounded-xl border border-white/[0.07] bg-black/40">
-      <p className="border-b border-white/[0.05] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.18em] text-muted/60">
-        {label}
-      </p>
-      <pre className="max-h-[24dvh] overflow-auto p-3 font-mono text-[12px] leading-[1.55] text-foreground/80">
-        {lines.map((l, i) => (
-          <div
-            key={i}
-            className={changed[i] ? "-mx-3 bg-accent/[0.12] px-3 text-foreground" : undefined}
-          >
-            {l || " "}
-          </div>
-        ))}
-      </pre>
-    </div>
-  );
-}
