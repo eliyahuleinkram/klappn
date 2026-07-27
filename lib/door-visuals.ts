@@ -231,6 +231,43 @@ export function doorHue(): number {
   return hueTarget;
 }
 
+// BLOOM — the deck's swarm toggle. A physarum colony (zissl's compute layer)
+// senses the piece's own picture and grows living filaments over it, tinted
+// by the same live ink uniforms. Deterministic and hand-authored like every
+// other door control: the AI writes songs against plain Hydra and never sees
+// this vocabulary; the deck composes it AROUND whatever the piece paints.
+// On the WebGL fallback engine there is no compute — the toggle simply adds
+// no layer, and the room keeps its light.
+let growthOn = false;
+export function setDoorGrowth(on: boolean): void {
+  growthOn = on;
+  applyGrowth();
+}
+export function doorGrowth(): boolean {
+  return growthOn;
+}
+function applyGrowth(): void {
+  const z = hydra?._zissl;
+  if (!z) return;
+  if (growthOn) {
+    // Phone GPUs carry fewer agents; the density-normalized trail keeps the
+    // LOOK identical either way — only the filament detail scales.
+    const small = Math.min(window.innerWidth, window.innerHeight) < 700;
+    z.swarm(small ? 160000 : 400000, z.o0, 1.25, 1.5)
+      .color(() => inkNow[0] * 1.15, () => inkNow[1] * 1.15, () => inkNow[2] * 1.15)
+      .hue(() => hueNow)
+      // THE ROOM STAYS BLACK (door law #1): growth lives only in the piece's
+      // own light — masked by o0's luminance, it can never swallow the frame.
+      .mask(z.src(z.o0))
+      .add(z.src(z.o0), 1)
+      .out(z.o2);
+    z.render(z.o2);
+  } else {
+    z._swarmSys.active = false;
+    z.render(z.o0);
+  }
+}
+
 /** Re-ink the room — the geometry never moves, the colour glides over. */
 export function setDoorInk(rgb: [number, number, number]): void {
   inkTarget[0] = Math.min(1.6, rgb[0] * 1.12);
@@ -372,6 +409,7 @@ function apply(): void {
   } catch (e) {
     console.error("[klappn] door piece failed; keeping previous light", e);
   }
+  applyGrowth(); // Bloom survives piece switches and engine rebuilds
 }
 
 /** The first reveal is an EVENT: the piece blooms in already surging, then

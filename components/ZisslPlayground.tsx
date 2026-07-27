@@ -148,86 +148,104 @@ export default function ZisslPlayground() {
     }
   }
 
+  const link = "underline decoration-[#7c63ff]/40 underline-offset-2 hover:text-[#cfc4ff] transition-colors";
+
   return (
     <div className="fixed inset-0 bg-[#07070c] text-[#e8e6f2] overflow-hidden font-mono text-[13px] leading-relaxed">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+      {/* the canvas is the show — the rail only borrows its left edge */}
+      <div className="pointer-events-none absolute inset-y-0 left-0 hidden w-[560px] bg-gradient-to-r from-black/70 via-black/25 to-transparent md:block" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[52vh] bg-gradient-to-t from-black/80 via-black/30 to-transparent md:hidden" />
 
-      <div className="absolute left-4 bottom-4 md:left-6 md:bottom-6 w-[min(600px,calc(100vw-2rem))] rounded-xl border border-[#7c63ff]/35 bg-[#0a0a10]/85 backdrop-blur-xl p-4">
-        <div className="flex items-baseline gap-3 mb-2.5">
-          <span className="text-[15px] font-bold tracking-[0.06em] text-[#b9aaff]">zissl</span>
-          <span className="text-xs text-[#6f6a85]">
-            Hydra&apos;s language, WebGPU&apos;s machine — the sweet counterpart of{" "}
-            <a href="https://zaltz.klappn.com" className="underline decoration-[#7c63ff]/50 hover:text-[#b9aaff]">
-              zaltz
+      {/* THE RAIL — a studio column on desktop, a bottom sheet on phones */}
+      <div className="absolute inset-x-0 bottom-0 flex max-h-[72vh] flex-col rounded-t-2xl border-t border-[#7c63ff]/25 bg-[#0a0a10]/80 backdrop-blur-2xl md:inset-x-auto md:inset-y-0 md:left-0 md:max-h-none md:w-[440px] md:rounded-none md:border-t-0 md:border-r md:border-[#7c63ff]/20 md:bg-[#0a0a10]/70">
+        <div className="flex flex-1 flex-col overflow-y-auto p-5 md:p-7">
+          <div className="mb-1 flex items-baseline justify-between">
+            <span className="text-[26px] font-bold tracking-[0.04em] text-[#cfc4ff] md:text-[34px]">
+              zissl
+            </span>
+            <a href="https://zaltz.klappn.com" className={`text-[11px] text-[#6f6a85] ${link}`}>
+              zaltz&apos;s sweet counterpart ↗
             </a>
-          </span>
-        </div>
-
-        {noGpu ? (
-          <p className="text-sm text-[#a9a4c0] py-4">
-            This page needs WebGPU (Chrome, Edge, Safari 26, Firefox 141+). The
-            engine itself degrades gracefully inside Klappn — but the playground
-            is the new machine, undiluted.
+          </div>
+          <p className="mb-4 text-[12px] text-[#8d87a8] md:mb-6">
+            Hydra&apos;s language, WebGPU&apos;s machine. Type a chain — the room
+            lights up.
           </p>
-        ) : (
-          <>
-            <textarea
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                  e.preventDefault();
-                  run();
-                }
-              }}
-              spellCheck={false}
-              className="w-full h-[150px] md:h-[170px] resize-y bg-transparent outline-none border-none text-[#e8e6f2]"
-              style={{ tabSize: 2 }}
-            />
-            <div className="flex flex-wrap items-center gap-2 mt-2.5">
-              <button
-                onClick={() => run()}
-                disabled={!ready}
-                className="rounded-md bg-[#7c63ff] px-3.5 py-1.5 text-[#07070c] font-semibold hover:bg-[#9280ff] disabled:opacity-40"
-              >
-                run
-              </button>
-              {PRESETS.map((p) => (
-                <button
-                  key={p.name}
-                  onClick={() => {
-                    setCode(p.code);
-                    run(p.code);
-                  }}
-                  disabled={!ready}
-                  className="rounded-md border border-[#7c63ff]/50 px-3 py-1.5 text-[#b9aaff] hover:bg-[#7c63ff]/15 disabled:opacity-40"
-                >
-                  {p.name}
-                </button>
-              ))}
-              <span className="ml-auto text-xs text-[#6f6a85]">⌘⏎ runs</span>
-            </div>
-            {err && (
-              <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap text-xs text-[#ff8da3]">{err}</pre>
-            )}
-          </>
-        )}
 
-        <div className="mt-3 border-t border-[#7c63ff]/15 pt-2.5 text-xs text-[#6f6a85]">
-          One file of WGSL, every Hydra source and transform, H() locked to
-          Strudel&apos;s clock — and a million-agent swarm the old machine could
-          never run. This same package paints{" "}
-          <a href="https://klappn.com" className="underline decoration-[#7c63ff]/50 hover:text-[#b9aaff]">
-            klappn.com
-          </a>{" "}
-          behind the scenes.{" "}
-          <a
-            href="https://github.com/eliyahuleinkram/zissl"
-            className="underline decoration-[#7c63ff]/50 hover:text-[#b9aaff]"
-          >
-            AGPL, on GitHub
-          </a>
-          .
+          {noGpu ? (
+            <p className="py-6 text-sm text-[#a9a4c0]">
+              This page needs WebGPU (Chrome, Edge, Safari 26, Firefox 141+).
+              Inside Klappn the engine falls back gracefully — but the
+              playground is the new machine, undiluted.
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-1.5">
+                {PRESETS.map((p, i) => (
+                  <button
+                    key={p.name}
+                    onClick={() => {
+                      setCode(p.code);
+                      run(p.code);
+                    }}
+                    disabled={!ready}
+                    className={`rounded-full border px-3 py-1 text-[12px] transition-colors disabled:opacity-40 ${
+                      i === 0
+                        ? "border-[#7c63ff]/70 bg-[#7c63ff]/15 text-[#cfc4ff] hover:bg-[#7c63ff]/25"
+                        : "border-[#7c63ff]/30 text-[#a89ee0] hover:bg-[#7c63ff]/10 hover:text-[#cfc4ff]"
+                    }`}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    run();
+                  }
+                }}
+                spellCheck={false}
+                className="mt-3 h-[30vh] min-h-[120px] w-full flex-none resize-none rounded-lg border border-[#7c63ff]/15 bg-black/40 p-3 text-[12.5px] leading-[1.55] text-[#e8e6f2] outline-none focus:border-[#7c63ff]/40 md:h-auto md:flex-1 md:text-[13px]"
+                style={{ tabSize: 2 }}
+              />
+
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  onClick={() => run()}
+                  disabled={!ready}
+                  className="rounded-lg bg-[#7c63ff] px-6 py-2 font-semibold text-[#07070c] transition-colors hover:bg-[#9280ff] disabled:opacity-40"
+                >
+                  run
+                </button>
+                <span className="text-[11px] text-[#6f6a85]">⌘⏎ runs it</span>
+                {!ready && !noGpu && <span className="ml-auto text-[11px] text-[#6f6a85]">warming the device…</span>}
+              </div>
+              {err && (
+                <pre className="mt-2 max-h-20 overflow-auto whitespace-pre-wrap text-[11px] text-[#ff8da3]">{err}</pre>
+              )}
+            </>
+          )}
+
+          <div className="mt-4 border-t border-[#7c63ff]/12 pt-3 text-[11px] leading-relaxed text-[#6f6a85] md:mt-auto">
+            One file of WGSL. Every Hydra source and transform — 55/55 sketches
+            pixel-identical to hydra-synth, 52 bit-exact. H() locked to
+            Strudel&apos;s clock, and a million-agent swarm the old machine
+            could never run. The same package paints{" "}
+            <a href="https://klappn.com" className={link}>
+              klappn.com
+            </a>{" "}
+            behind the scenes.{" "}
+            <a href="https://github.com/eliyahuleinkram/zissl" className={link}>
+              AGPL, on GitHub
+            </a>
+            .
+          </div>
         </div>
       </div>
     </div>

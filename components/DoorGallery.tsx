@@ -25,6 +25,7 @@ import {
   reseedDoorVisual,
   seedFrom,
   setDoorEnergy,
+  setDoorGrowth,
   setDoorHue,
   setDoorRush,
   showDoorVisual,
@@ -544,6 +545,19 @@ export default function DoorGallery({
     pulseDoorVisual();
   }
 
+  /** BLOOM, a toggle: tap = a living colony grows over the light (zissl's
+   *  million-agent swarm sensing the picture), tap again = it recedes. On
+   *  browsers without WebGPU the square still answers — the light just keeps
+   *  its plain form. Deterministic deck vocabulary; the AI never writes it. */
+  const [bloomOn, setBloomOn] = useState(false);
+  function toggleBloom() {
+    if (!isPlaying) return; // the touch itself just started the room
+    const on = !bloomOn;
+    setBloomOn(on);
+    setDoorGrowth(on);
+    pulseDoorVisual();
+  }
+
 
   /** Take the key SOMEWHERE — a destination, not an increment. Decorate
    *  carries the transpose into a seamless in-place rebuild: the transport
@@ -633,6 +647,12 @@ export default function DoorGallery({
       label: "Colour",
       on: colourOn,
       onClick: toggleColour,
+    },
+    {
+      key: "bloom",
+      label: "Bloom",
+      on: bloomOn,
+      onClick: toggleBloom,
     },
     // DESTINATIONS, not increments: one tap takes you there (the tempo
     // GLIDES like a pitch fader) and the SAME square brings you home.
