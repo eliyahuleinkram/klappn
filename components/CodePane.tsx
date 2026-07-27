@@ -86,8 +86,6 @@ const CodePane = forwardRef<
     /** ⌘S — bubble up so the browser save dialog never appears. */
     onSave?: () => void;
     placeholder?: string;
-    /** Increment to fire the eval flash (live-coding convention: you SEE the send). */
-    flash?: number;
     autoFocus?: boolean;
     /** A completion is in flight — the NATIVE caret breathes pink
      *  (caret-color on the textarea; nothing is ever drawn in the twin, so
@@ -111,7 +109,6 @@ const CodePane = forwardRef<
     onRun,
     onSave,
     placeholder,
-    flash,
     autoFocus,
     pondering,
     ghost,
@@ -220,19 +217,6 @@ const CodePane = forwardRef<
     }
     return highlightCore(value) + "\n";
   }, [value, ghost]);
-
-  // Eval flash — a quick pink wash over the pane when its code is sent.
-  const flashRef = useRef<HTMLDivElement>(null);
-  const lastFlash = useRef(flash ?? 0);
-  useEffect(() => {
-    if (flash === undefined || flash === lastFlash.current) return;
-    lastFlash.current = flash;
-    const el = flashRef.current;
-    if (!el) return;
-    el.classList.remove("pane-flash");
-    void el.offsetWidth; // reflow so re-adding restarts the animation
-    el.classList.add("pane-flash");
-  }, [flash]);
 
   // Keep the caret's line inside the scroll viewport while typing. Reads the
   // DOM, never the prop — a stale closure value here computed the caret's
@@ -529,7 +513,6 @@ const CodePane = forwardRef<
           fades.top ? " fade-top" : ""
         }${fades.bottom ? " fade-bottom" : ""}`}
       >
-        <div ref={flashRef} aria-hidden className="pointer-events-none absolute inset-0 z-[2]" />
         <div ref={contentRef} className="relative min-h-full">
           <pre
             aria-hidden

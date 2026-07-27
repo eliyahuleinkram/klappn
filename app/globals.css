@@ -919,15 +919,6 @@ body.ide-stage.ide-solo #k1-canvas {
 .tok-n { color: #e8e9ee; }
 .tok-c { color: #565964; font-style: italic; }
 
-/* Eval flash — you SEE the send land (live-coding ritual). */
-@keyframes pane-flash {
-  0% { background: rgba(224, 49, 156, 0.16); }
-  100% { background: transparent; }
-}
-.pane-flash {
-  animation: pane-flash 0.5s ease-out 1;
-}
-
 /* The copilot's ghost — a whisper, never the voice: quiet grey, no pink. */
 .tok-ghost {
   color: #6a6d78;

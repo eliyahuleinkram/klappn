@@ -294,8 +294,6 @@ export default function ZaltzIDE({
 
   const [sheet, setSheet] = useState<null | "tokens" | "signin">(null);
   const [mobilePane, setMobilePane] = useState<PaneId>("strudel");
-  const [sFlash, setSFlash] = useState(0);
-  const [hFlash, setHFlash] = useState(0);
 
   const runId = useRef(0);
   const meRef = useRef<Me | null>(null);
@@ -432,7 +430,6 @@ export default function ZaltzIDE({
     const id = ++runId.current;
     setBusy(true);
     setErr(null);
-    setSFlash((f) => f + 1);
     // An EXPLICIT send outranks any whisper — but the live room's own
     // auto re-eval must never touch the ghost: it fires 100ms after the
     // ghost cue on every typing pause, and killing here would silence the
@@ -497,7 +494,6 @@ export default function ZaltzIDE({
   const runVisuals = useCallback(() => {
     const { hydra: sketch, playing: live } = stateRef.current;
     setErr(null);
-    setHFlash((f) => f + 1);
     if (!sketch.trim()) return;
     try {
       setVisuals(true);
@@ -1206,19 +1202,17 @@ export default function ZaltzIDE({
   // register first.
   const seedMusic = () => {
     setStrudel(MUSIC_SEED);
-    setSFlash((f) => f + 1); // you SEE the hint land
     setTimeout(() => strudelPane.current?.summon(), 90);
   };
   const seedVisuals = () => {
     setHydra(VISUALS_SEED);
-    setHFlash((f) => f + 1);
     setTimeout(() => hydraPane.current?.summon(), 90);
   };
   // (completeMusic/completeVisuals — the ✦ complete button's handlers — died
   // with the button; the seeds live on under ⇥-takes-the-hint.)
 
   // THE ONE-TAP FIX — ✦ on the error chip: the broken pane + its error go up,
-  // the mended pane comes back, lands with a flash and re-runs itself. The
+  // the mended pane comes back and re-runs itself. The
   // machine either fixes it or says so — never a silent nothing.
   const [fixing, setFixing] = useState(false);
   const fixError = async () => {
@@ -1249,7 +1243,6 @@ export default function ZaltzIDE({
       }
       if (pane === "hydra") setHydra(fixed);
       else setStrudel(fixed);
-      (pane === "hydra" ? setHFlash : setSFlash)((f) => f + 1);
       setErr(null);
       // The mend proves itself: re-run the pane it healed.
       setTimeout(() => {
@@ -1514,7 +1507,6 @@ export default function ZaltzIDE({
               setStrudel(v);
             }}
             onRun={() => void runMusic()}
-            flash={sFlash}
             pondering={pondering === "strudel" && ghost?.pane !== "strudel"}
             ghost={ghost?.pane === "strudel" ? ghost.text : null}
             onGhostAccept={() => {
@@ -1548,7 +1540,6 @@ export default function ZaltzIDE({
               setHydra(v);
             }}
             onRun={runVisuals}
-            flash={hFlash}
             pondering={pondering === "hydra" && ghost?.pane !== "hydra"}
             ghost={ghost?.pane === "hydra" ? ghost.text : null}
             onGhostAccept={() => {
