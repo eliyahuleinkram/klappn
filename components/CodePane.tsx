@@ -264,17 +264,34 @@ const CodePane = forwardRef<
     },
     [onCaretIdle],
   );
-  // Any caret activity — typing, a click, an arrow — re-arms one timer; 600ms
-  // of stillness with focus and the copilot looks over your shoulder. 450ms —
-  // Copilot-eager; the parent's per-spot dedupe + LRU keep the spend sane. This is
-  // what makes "just complete what's sitting there" work: click at the end,
-  // wait a beat, the ghost arrives. The parent dedupes repeat cues per spot.
+  // Any caret activity — typing, a click, an arrow — re-arms one timer; a
+  // beat of stillness with focus and the copilot looks over your shoulder.
+  // THE BEAT IS ADAPTIVE (user 07-27: "not taking any longer than necessary
+  // — know when someone probably wants the help"): what the hand just
+  // finished tells us how badly the whisper is wanted. A comment is an ASK —
+  // near-instant. An expression that just closed at line end is an
+  // invitation — quick. A caret mid-word or mid-chain is still typing —
+  // patient, so the machine never interrupts a thought (and never spends a
+  // call it would only abort). The parent's per-spot dedupe + LRU keep the
+  // spend sane either way.
   const cueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleCue = useCallback(() => {
     if (cueTimer.current) clearTimeout(cueTimer.current);
+    let delay = 450;
+    const ta = taRef.current;
+    if (ta) {
+      const caret = ta.selectionStart ?? 0;
+      const v = ta.value;
+      const lineStart = v.lastIndexOf("\n", caret - 1) + 1;
+      const line = v.slice(lineStart, caret);
+      const atLineEnd = caret >= v.length || v[caret] === "\n";
+      if (atLineEnd && /^\s*\/\/\s*\S/.test(line)) delay = 220; // a comment is an ask
+      else if (atLineEnd && /[)\]}"']$/.test(line.trimEnd())) delay = 300; // just closed — invite
+      else if (/[A-Za-z_$.([{,]$/.test(line)) delay = 700; // mid-word/chain — patient
+    }
     cueTimer.current = setTimeout(() => {
       if (document.activeElement === taRef.current) summonGhost();
-    }, 450);
+    }, delay);
   }, [summonGhost]);
   useEffect(
     () => () => {

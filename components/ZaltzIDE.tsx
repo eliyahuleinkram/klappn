@@ -605,19 +605,18 @@ export default function ZaltzIDE({
   const lastMusicRun = useRef<string | null>(null);
   const lastVisualRun = useRef<string | null>(null);
   useEffect(() => {
-    // Gated on the whole transport, not just the music half: an emptied pane
-    // that went silent comes back the moment real code returns, and typing a
-    // beat into a room that's only painting brings the sound in too.
-    if (!(playing || visualsLive) || busy) return;
+    // Gated on the MUSIC playing (07-27: the picture is ambient now, so it
+    // no longer counts as "transport on") — an emptied pane that went silent
+    // comes back the moment real code returns, but typing strudel into a
+    // quiet room stays composing until ▶ says otherwise.
+    if (!playing || busy) return;
     if (strudel === lastMusicRun.current) return;
     const t = setTimeout(async () => {
       const code = stateRef.current.strudel;
       if (code === lastMusicRun.current) return; // a take already landed it
       if (!code.trim()) {
         lastMusicRun.current = code;
-        // Silence is what the empty pane says — but only if music was sounding
-        // (halt on a visuals-only room would be a no-op churn).
-        if (stateRef.current.playing) halt();
+        halt(); // silence is what the empty pane says
         return;
       }
       try {
@@ -634,9 +633,15 @@ export default function ZaltzIDE({
       void runMusic(true);
     }, 700);
     return () => clearTimeout(t);
-  }, [strudel, playing, visualsLive, busy, runMusic, halt]);
+  }, [strudel, playing, busy, runMusic, halt]);
+  // THE PICTURE IS ALWAYS ON (user 07-27, klappn's own law): the sketch
+  // paints from the moment the room opens — breathing on the idle clock,
+  // unsynced — and LOCKS to the music the moment the transport runs (the
+  // visual clock anchors to the audio clock; playhead-visual-sync law).
+  // So this effect is UNGATED: hydra edits land ambiently whether or not
+  // anything sounds, and the first paint arrives a breath after load. An
+  // emptied pane is still dark — no code, no light.
   useEffect(() => {
-    if (!(playing || visualsLive)) return;
     if (hydra === lastVisualRun.current) return;
     const t = setTimeout(async () => {
       const sketch = stateRef.current.hydra;
@@ -656,12 +661,17 @@ export default function ZaltzIDE({
       runVisuals();
     }, 700);
     return () => clearTimeout(t);
-  }, [hydra, playing, visualsLive, runVisuals, stopVisuals]);
+  }, [hydra, runVisuals, stopVisuals]);
 
   // THE TRANSPORT — one ▶/■ in the top bar for the WHOLE room (user 07-27:
   // music and picture play and stop together; per-pane transport is gone).
   // ⌘↵ still evals the pane under your fingers while the room runs.
-  const transportOn = playing || visualsLive;
+  // THE TRANSPORT RULES SOUND, THE PICTURE IS AMBIENT (user 07-27, klappn's
+  // law worn by the instrument): the sketch always paints — ▶ brings the
+  // music in and the visuals LOCK to its clock; ■ stops the sound and the
+  // picture drifts on, unsynced, still alive. The room is only dark when
+  // the hydra pane is empty.
+  const transportOn = playing;
   // The chip only speaks between thoughts — see the render note below.
   const liveErr =
     err && !midThought(err.startsWith("hydra:") ? hydra : strudel) ? err : null;
@@ -672,14 +682,11 @@ export default function ZaltzIDE({
   // cuts; silence can be part of a take.)
   const cutTapeRef = useRef<() => void>(() => {});
   const transport = () => {
-    if (playing || visualsLive) {
+    if (playing) {
       halt();
-      stopVisuals();
       cutTapeRef.current();
     } else if (stateRef.current.strudel.trim()) {
-      void runMusic(); // its tail paints the hydra pane too
-    } else {
-      runVisuals(); // nothing to sound — light the room anyway
+      void runMusic(); // its tail re-evals the picture onto the synced clock
     }
   };
   const transportRef = useRef(transport);
@@ -1173,9 +1180,9 @@ export default function ZaltzIDE({
       setTaping(true);
       setTapeStart(Date.now());
       // Frictionless: taping a silent room presses play for you — one
-      // gesture, and the downbeat is already on tape.
-      if (!stateRef.current.playing && !stateRef.current.visualsLive)
-        transportRef.current();
+      // gesture, and the downbeat is already on tape. (The ambient picture
+      // doesn't count as sound — only the music's transport matters here.)
+      if (!stateRef.current.playing) transportRef.current();
     } else {
       setTaping(false);
       setTapePrinting(true);
@@ -1765,7 +1772,9 @@ export default function ZaltzIDE({
           {paneHeader(
             "hydra",
             ghost?.pane === "hydra" ? "⇥ take the whisper" : "",
-            visualsLive && !!hydra.trim(),
+            // Accent = SYNCED to the music; the ambient drift is the room's
+            // resting state, not a "live" state worth announcing.
+            playing && !!hydra.trim(),
             () => hydraPane.current?.take(),
           )}
           <CodePane
