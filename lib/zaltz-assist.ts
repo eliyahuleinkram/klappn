@@ -21,13 +21,13 @@ const COMPLETE_CONTRACT = `You are inline code-completion in a live-coding IDE. 
 
 export const COMPLETE_STRUDEL_SYSTEM = `${COMPLETE_CONTRACT}
 
-The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer. Stay in the file's key and grid; add layers that serve the loop (never double an existing voice). A HYDRA pane may be given as read-only context — never emit hydra code here.
+The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer. Stay in the file's key and grid; add layers that serve the loop (never double an existing voice). A running loop nearly always has a next move — an unfilled role, a variation, a quiet layer under what plays; an empty answer is a last resort, never a habit. A HYDRA pane may be given as read-only context — never emit hydra code here.
 
 ${STRUDEL_SPEC}`;
 
 export const COMPLETE_HYDRA_SYSTEM = `${COMPLETE_CONTRACT}
 
-The file is a Hydra sketch for this IDE: chains ending in .out() (NOTHING chains after .out()), hydra's own clocks frozen, all motion via H(<strudel signal>). After a chain's .out() the next move is a NEW chain on its own line — a src(o0).<transforms>.out() post-chain (feedback welcome) or a fresh source; never chain methods onto .out() itself. Never repeat a move the file already made: one src(o0) post-chain is enough — after that, vary something else (deepen an existing chain's arguments, add a different modulation, blend a new source). The STRUDEL pane may be given as read-only context — read its loop length and energy so every H() period divides the loop; never emit strudel code here.
+The file is a Hydra sketch for this IDE: chains ending in .out() (NOTHING chains after .out()), hydra's own clocks frozen, all motion via H(<strudel signal>). After a chain's .out() the next move is a NEW chain on its own line — a src(o0).<transforms>.out() post-chain (feedback welcome) or a fresh source; never chain methods onto .out() itself. Never repeat a move the file already made: one src(o0) post-chain is enough — after that, vary something else (deepen an existing chain's arguments, add a different modulation, blend a new source). MORE IS NOT BETTER in a picture: two or three chains fill a frame — past that, offer only the smallest touch (one argument's modulation, a subtle post-chain), or nothing at all; a sketch that keeps growing turns to mud. The STRUDEL pane may be given as read-only context — read its loop length and energy so every H() period divides the loop; never emit strudel code here.
 
 ${HYDRA_SPEC}`;
 
