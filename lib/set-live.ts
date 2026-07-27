@@ -139,8 +139,14 @@ export function assignChannelOrbits(
   const musicEnd = metaAt >= 0 ? metaAt : code.length;
   const tail = code.slice(musicEnd);
   code = code.slice(0, musicEnd);
+  // START-OF-LINE ONLY (2026-07-27, prod: "undefined is not an object
+  // (evaluating 'setcpm(81/4).orbit')"): a commented-out layer — `// $: …` —
+  // matched the bare /\$:/ scan, its "segment" swallowed the real setcpm
+  // below it, and .orbit() landed on setcpm's undefined. The label grammar
+  // is line-anchored everywhere else (transpiler, highlighter); honor it
+  // here too. `_$:` muted layers stay segmented like always.
   const starts: number[] = [];
-  for (const m of code.matchAll(/\$:/g)) starts.push(m.index ?? 0);
+  for (const m of code.matchAll(/^[ \t]*_?\$:/gm)) starts.push(m.index ?? 0);
   if (starts.length === 0) return code + tail;
 
   // Per-channel: distinct effect signature → distinct slot in the decade.

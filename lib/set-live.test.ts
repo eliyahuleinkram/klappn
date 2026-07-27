@@ -129,3 +129,16 @@ test("assignChannelOrbits re-buses layers onto their channel decades", () => {
   assert.match(out, /note\("c2 g1"\)\.s\("sawtooth"\)\.orbit\(20\)/);
   assert.match(out, /note\("c4 e4"\)\.s\("gm_pad_warm"\)\.orbit\(30\)/);
 });
+
+test("assignChannelOrbits ignores a commented-out layer above setcpm (prod 2026-07-27)", () => {
+  // A `// $:` comment before setcpm made the bare /\$:/ scan treat the
+  // comment as a layer start — its segment swallowed setcpm and .orbit()
+  // landed on setcpm's undefined return: play died on the whole file.
+  const code =
+    '// give\n// hand-drum shaker on the offbeats\n// $: s("~ sh ~ sh").gain(0.3).orbit(1)\nsetcpm(81/4)\n$: s("bd ~ bd ~").bank("RolandTR909").gain(1)\n$: n("0 0 3 0").scale("E1:phrygian:dominant").s("gm_synth_bass_1")';
+  const out = assignChannelOrbits(code);
+  assert.doesNotMatch(out, /setcpm\(81\/4\)\.orbit/); // setcpm never chained
+  assert.doesNotMatch(out, /\/\/ \$: s\("~ sh ~ sh"\).*orbit\(1\)\.orbit/); // the comment untouched
+  assert.match(out, /s\("bd ~ bd ~"\)\.bank\("RolandTR909"\)\.gain\(1\)\.orbit\(10\)/);
+  assert.match(out, /scale\("E1:phrygian:dominant"\)\.s\("gm_synth_bass_1"\)\.orbit\(20\)/);
+});
