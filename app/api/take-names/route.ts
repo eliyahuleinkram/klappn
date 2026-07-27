@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  * of erroring wherever it can't (or shouldn't) run.
  */
 
-const SYSTEM = `You name the stems of a live-coded music take. Input: a JSON array of tracks, each a list of raw engine sound ids (drum machine codes like "bd"/"hh", synth waves, gm_ soundfont names). Answer ONLY a JSON array of strings, one label per track, same order. A label is 1-3 lowercase plain words a producer would say — "halo pad", "909 drums", "acid bass", "hats" — never a raw id, never punctuation beyond spaces. Distinct tracks get distinct labels.`;
+const SYSTEM = `You name the stems of a live-coded music take. Input: numbered tracks, each a list of raw engine sound ids (drum machine codes like "bd"/"hh", synth waves, gm_ soundfont names). Answer ONLY a JSON array of strings with EXACTLY one label per numbered track, in number order — same count as tracks, always, even when two tracks have identical sounds (repeat or vary the label, but never merge or skip a track). A label is 1-3 lowercase plain words a producer would say — "halo pad", "909 drums", "acid bass", "hats" — never a raw id, never punctuation beyond spaces.`;
 
 export async function POST(req: Request) {
   const userId = await getUserId(req);
@@ -38,12 +38,18 @@ export async function POST(req: Request) {
 
   const sink = makeCallSink();
   try {
+    // NUMBERED tracks (2026-07-27, "sawtooth" twice in one take): identical
+    // lists made the model merge tracks and answer one short — the length
+    // gate then killed EVERY name. Numbers make the count contract literal.
+    const numbered = lists
+      .map((l, i) => `${i + 1}. ${l.join(", ") || "(silent)"}`)
+      .join("\n");
     // Two attempts: a mangled answer (wrong length, prose, fences) is cheap
     // to re-roll and the alternative is a whole card of raw engine ids.
     for (let attempt = 0; attempt < 2; attempt++) {
       const raw = await complete(
         SYSTEM,
-        JSON.stringify(lists),
+        numbered,
         {
           model: "sonnet", // the cheap-call pin — naming needs no composing tier
           onUsage: (t: number) => void addTokenUsage(userId, t),
@@ -66,7 +72,11 @@ export async function POST(req: Request) {
       } catch {
         /* unparseable — fall through to the retry */
       }
-      console.warn(`[klappn] take-names attempt ${attempt + 1} unusable`);
+      // The RAW reply in the log — a silent all-bare card told us nothing
+      // twice; next time the log says exactly what the model answered.
+      console.warn(
+        `[klappn] take-names attempt ${attempt + 1} unusable for ${lists.length} tracks: ${raw.slice(0, 200)}`,
+      );
     }
     return Response.json({ names: null });
   } catch (e) {

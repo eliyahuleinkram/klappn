@@ -1191,7 +1191,7 @@ export default function ZaltzIDE({
       if (r && r.files.length) setTake(r);
       else
         setNotice(
-          r ? "The room never made a sound — nothing to keep." : "The take was lost mid-print.",
+          r ? "The room never made a sound — nothing to keep." : "The take was lost mid-grind.",
         );
     }
   };
@@ -1606,7 +1606,7 @@ export default function ZaltzIDE({
             disabled={tapePrinting}
             title={
               taping
-                ? "Cut the take — the WAVs print"
+                ? "Cut the take — it grinds into grains"
                 : "Tape the take — the master + a WAV per layer, rendered live"
             }
             className={`group flex items-center gap-1.5 px-3.5 py-2 transition active:scale-[.96] ${
@@ -1631,7 +1631,7 @@ export default function ZaltzIDE({
                 </span>
               </>
             ) : tapePrinting ? (
-              <span className="shimmer-text text-[12px]">printing…</span>
+              <span className="shimmer-text text-[12px]">grinding…</span>
             ) : (
               <span className="inline-flex h-[11px] w-[11px] rounded-full bg-white/40 transition group-hover:bg-accent group-hover:shadow-[0_0_12px_rgba(224,49,156,.8)]" />
             )}
@@ -1676,23 +1676,31 @@ export default function ZaltzIDE({
         />
       </header>
 
-      {/* ── mobile pane tabs — the DESK's own words (user 07-27: the tech
-          names are irrelevant to the person; Sound│Visual is the house
-          vocabulary, same as the mixer's capsule). ──────────────────────── */}
+      {/* ── mobile: ONE pill, "visuals" (user 07-27, final: sound is the
+          room's resting pane; the pill is the door to the picture's code —
+          lit while you're behind the lens, quiet when you're back on the
+          beat). The eye is its mark; state lives in the ink. ────────────── */}
       <div className="mb-2 flex items-center gap-1.5 sm:hidden">
-        {(["strudel", "hydra"] as const).map((p) => (
-          <button
-            key={p}
-            onClick={() => setMobilePane(p)}
-            className={`rounded-full px-3.5 py-1.5 text-[12px] uppercase tracking-[0.14em] transition ${
-              mobilePane === p
-                ? "bg-accent/20 text-accent-strong ring-1 ring-inset ring-accent/40"
-                : "bg-white/[0.04] text-muted/70"
-            }`}
-          >
-            {p === "strudel" ? "sound" : "visual"}
-          </button>
-        ))}
+        <button
+          onClick={() => setMobilePane(mobilePane === "hydra" ? "strudel" : "hydra")}
+          aria-pressed={mobilePane === "hydra"}
+          className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] backdrop-blur transition active:scale-[.97] ${
+            mobilePane === "hydra"
+              ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
+              : "bg-white/[0.05] text-muted/60 ring-1 ring-inset ring-white/[0.1]"
+          }`}
+        >
+          <svg viewBox="0 0 18 12" className="h-[12px] w-[16px]" aria-hidden>
+            <path
+              d="M1 6 C3.4 2.2 6 .8 9 .8 C12 .8 14.6 2.2 17 6 C14.6 9.8 12 11.2 9 11.2 C6 11.2 3.4 9.8 1 6 Z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+            <circle cx="9" cy="6" r="2.4" fill="currentColor" />
+          </svg>
+          visuals
+        </button>
         <span className="flex-1" />
         <button
           onClick={toggleCopilot}
@@ -1846,7 +1854,7 @@ export default function ZaltzIDE({
 
 
       {/* ── the GRAINS card (user 07-27: the take's files ARE grains) — the
-          tape, cut and printed. Every row is a file: the label says what it
+          tape, cut and ground into grains. Every row is a file: the label says what it
           is, the size says what it weighs, one tap and it's yours. ✕ forgets
           it (files already saved stay saved). */}
       {take && (
