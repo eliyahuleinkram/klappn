@@ -1690,14 +1690,13 @@ export default function ZaltzIDE({
               : "bg-white/[0.05] text-muted/60 ring-1 ring-inset ring-white/[0.1]"
           }`}
         >
-          <svg viewBox="0 0 18 12" className="h-[12px] w-[16px]" aria-hidden>
-            <path
-              d="M1 6 C3.4 2.2 6 .8 9 .8 C12 .8 14.6 2.2 17 6 C14.6 9.8 12 11.2 9 11.2 C6 11.2 3.4 9.8 1 6 Z"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            />
-            <circle cx="9" cy="6" r="2.4" fill="currentColor" />
+          {/* A LENS, not an eye (user 07-27: "the eye looks creepy") — two
+              machined rings and one specular glint: the photographer's own
+              object for "the picture", clean as turned metal. */}
+          <svg viewBox="0 0 14 14" className="h-[13px] w-[13px]" aria-hidden>
+            <circle cx="7" cy="7" r="5.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+            <circle cx="7" cy="7" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.1" opacity="0.75" />
+            <circle cx="4.9" cy="4.6" r="1" fill="currentColor" />
           </svg>
           visuals
         </button>
