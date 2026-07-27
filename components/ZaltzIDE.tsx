@@ -174,6 +174,24 @@ const isUntouchedStarter = (s: string, h: string, t: string) =>
 /** Engine errors arrive as raw JS strings — translate the known classes into
  *  one line a live coder can act on mid-set. The raw text stays in the
  *  tooltip; unknown classes pass through untouched (never hide the truth). */
+/** Still typing, not stuck: the pane ends mid-thought — an unclosed bracket
+ *  or quote, or a line hanging on an operator. The error chip holds its
+ *  tongue while this is true (user 07-27: `s("` is not a mistake yet). */
+function midThought(code: string): boolean {
+  const t = code.trimEnd();
+  if (!t) return false;
+  if ("([{,.:+-*/&|=<>".includes(t[t.length - 1])) return true;
+  const line = t.slice(t.lastIndexOf("\n") + 1);
+  for (const q of ['"', "'", "`"])
+    if ((line.split(q).length - 1) % 2 === 1) return true;
+  let open = 0;
+  for (const c of t) {
+    if (c === "(" || c === "[" || c === "{") open++;
+    else if (c === ")" || c === "]" || c === "}") open--;
+  }
+  return open > 0;
+}
+
 function humanizeEngineError(raw: string): string {
   let m = raw.match(/sound not found[:\s]*["'\u2018\u201c]?([\w:.-]+)/i);
   if (m) return `"${m[1]}" isn\u2019t a sound the engine knows \u2014 check the name (gm_\u2026, a bank\u2019s drum letters, or an oscillator).`;
@@ -644,6 +662,9 @@ export default function ZaltzIDE({
   // music and picture play and stop together; per-pane transport is gone).
   // ⌘↵ still evals the pane under your fingers while the room runs.
   const transportOn = playing || visualsLive;
+  // The chip only speaks between thoughts — see the render note below.
+  const liveErr =
+    err && !midThought(err.startsWith("hydra:") ? hydra : strudel) ? err : null;
   // THE TAPE FOLLOWS THE TRANSPORT (user 07-27: "it does not make sense to
   // keep recording if we have stopped playing"): ■ — button, SPACE or ⌘. —
   // cuts a rolling take in the same gesture. One object, one life. (The live
@@ -1723,7 +1744,9 @@ export default function ZaltzIDE({
             onTakeHint={seedMusic}
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
             placeholder={`setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then hit ▶ run — the room hears you\n// pause, and the machine whispers the next line${
-              touch ? "" : "\n// on keys: ⌘↵ runs · ⇥ takes what's grey — this starter too"
+              touch
+                ? "\n// tap the grey — it becomes yours"
+                : "\n// on keys: ⌘↵ runs · ⇥ takes what's grey — this starter too"
             }`}
           />
         </section>
@@ -1759,42 +1782,50 @@ export default function ZaltzIDE({
             onTakeHint={seedVisuals}
             onCaretIdle={(ctx) => void requestGhost("hydra", ctx)}
             placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them${
-              touch ? "" : "\n// ⇥ takes what's grey — this starter too"
+              touch
+                ? "\n// tap the grey — it becomes yours"
+                : "\n// ⇥ takes what's grey — this starter too"
             }`}
           />
         </section>
       </div>
 
-      {/* ── errors / notices ────────────────────────────────────────────── */}
-      {(err || notice) && (
+      {/* ── errors / notices ──────────────────────────────────────────────
+          THE CHIP WAITS FOR THE THOUGHT TO CLOSE (user 07-27: "we are typing
+          s(\" ... it is annoying"): while the erroring pane ends on an open
+          bracket, a dangling operator or an unclosed quote, the coder is
+          mid-keystroke, not stuck — the complaint (and its ✦ fix) holds its
+          tongue until the brackets balance. It vanishes DURING the fix too:
+          type `(` and the chip steps back until you close it. */}
+      {(liveErr || notice) && (
         /* A CAPSULE, not a banner (user 07-27): full-width on the phone, but
            on desktop it hugs its words and centres — so the ✦ fix sits right
            beside the complaint instead of a screen-width away. */
         <div
           className={`mt-2 flex items-center gap-2.5 rounded-2xl border px-3.5 py-2 backdrop-blur-xl sm:mx-auto sm:w-fit sm:max-w-2xl ${
-            err
+            liveErr
               ? "border-red-400/25 bg-red-950/35 shadow-[0_0_44px_-18px_rgba(248,113,113,.5)]"
               : "border-accent/30 bg-black/55 shadow-[0_0_44px_-16px_rgba(224,49,156,.55)]"
           }`}
         >
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] ${
-              err
+              liveErr
                 ? "bg-red-400/[0.12] text-red-300/90"
                 : "bg-accent/[0.14] text-accent-strong"
             }`}
           >
-            {err ? (err.startsWith("hydra:") ? "hydra" : "strudel") : "✦"}
+            {liveErr ? (liveErr.startsWith("hydra:") ? "hydra" : "strudel") : "✦"}
           </span>
           <p
             className={`min-w-0 flex-1 truncate text-[12.5px] leading-snug ${
-              err ? "text-red-200/90" : "text-accent-strong/95"
+              liveErr ? "text-red-200/90" : "text-accent-strong/95"
             }`}
-            title={err ?? notice ?? undefined}
+            title={liveErr ?? notice ?? undefined}
           >
-            {err ? humanizeEngineError(err.replace(/^hydra:\s*/, "")) : notice}
+            {liveErr ? humanizeEngineError(liveErr.replace(/^hydra:\s*/, "")) : notice}
           </p>
-          {err && (
+          {liveErr && (
             <button
               onClick={() => void fixError()}
               disabled={fixing}
@@ -1818,14 +1849,15 @@ export default function ZaltzIDE({
       )}
 
 
-      {/* ── the take card — the tape, cut and printed. Every row IS a WAV:
-          the label says what it is, the size says what it weighs, one tap
-          and it's yours. ✕ forgets it (files already saved stay saved). */}
+      {/* ── the GRAINS card (user 07-27: the take's files ARE grains) — the
+          tape, cut and printed. Every row is a file: the label says what it
+          is, the size says what it weighs, one tap and it's yours. ✕ forgets
+          it (files already saved stay saved). */}
       {take && (
         <div className="animate-rise fixed bottom-4 left-4 z-[18] w-[280px] rounded-3xl border border-accent/25 bg-black/[.88] p-4 shadow-[0_0_60px_-16px_rgba(224,49,156,.55),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
           <div className="flex items-baseline gap-2">
             <span className="text-[11.5px] font-semibold uppercase tracking-[0.18em] text-foreground">
-              The take
+              Grains
             </span>
             <span className="text-[12px] tabular-nums text-muted">{fmtClock(take.seconds)}</span>
             <span className="flex-1" />
@@ -1847,10 +1879,10 @@ export default function ZaltzIDE({
                 >
                   <span
                     className={`min-w-0 flex-1 truncate text-[13px] ${
-                      f.kind === "master" ? "font-medium text-foreground" : "text-foreground/85"
+                      f.kind === "stem" ? "text-foreground/85" : "font-medium text-foreground"
                     }`}
                   >
-                    {f.kind === "master" ? "MASTER" : f.label}
+                    {f.label}
                   </span>
                   <span className="shrink-0 text-[11px] tabular-nums text-muted/60">
                     {fmtMB(f.bytes)}

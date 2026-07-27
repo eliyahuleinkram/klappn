@@ -38,26 +38,37 @@ export async function POST(req: Request) {
 
   const sink = makeCallSink();
   try {
-    const raw = await complete(
-      SYSTEM,
-      JSON.stringify(lists),
-      {
-        model: "sonnet", // the cheap-call pin — naming needs no composing tier
-        onUsage: (t: number) => void addTokenUsage(userId, t),
-        onCall: sink.onCall,
-      },
-      { thinking: false, maxTokens: 300, trace: { kind: "take-names" } },
-    );
-    const parsed: unknown = JSON.parse(
-      raw.replace(/^\s*```[a-z]*\r?\n?/i, "").replace(/\r?\n?```\s*$/i, "").trim(),
-    );
-    const names =
-      Array.isArray(parsed) &&
-      parsed.length === lists.length &&
-      parsed.every((n) => typeof n === "string" && n.trim())
-        ? (parsed as string[]).map((n) => n.trim().toLowerCase().slice(0, 28))
-        : null;
-    return Response.json({ names });
+    // Two attempts: a mangled answer (wrong length, prose, fences) is cheap
+    // to re-roll and the alternative is a whole card of raw engine ids.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const raw = await complete(
+        SYSTEM,
+        JSON.stringify(lists),
+        {
+          model: "sonnet", // the cheap-call pin — naming needs no composing tier
+          onUsage: (t: number) => void addTokenUsage(userId, t),
+          onCall: sink.onCall,
+        },
+        { thinking: false, maxTokens: 300, trace: { kind: "take-names" } },
+      );
+      try {
+        const parsed: unknown = JSON.parse(
+          raw.replace(/^\s*```[a-z]*\r?\n?/i, "").replace(/\r?\n?```\s*$/i, "").trim(),
+        );
+        if (
+          Array.isArray(parsed) &&
+          parsed.length === lists.length &&
+          parsed.every((n) => typeof n === "string" && n.trim())
+        )
+          return Response.json({
+            names: (parsed as string[]).map((n) => n.trim().toLowerCase().slice(0, 28)),
+          });
+      } catch {
+        /* unparseable — fall through to the retry */
+      }
+      console.warn(`[klappn] take-names attempt ${attempt + 1} unusable`);
+    }
+    return Response.json({ names: null });
   } catch (e) {
     console.error("[klappn] take-names failed:", e);
     return Response.json({ names: null });

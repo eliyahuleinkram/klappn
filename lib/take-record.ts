@@ -24,6 +24,8 @@ import {
   ensureEngineStarted,
   getEngineAudioContext,
   getTakeTap,
+  pickVideoMime,
+  videoExt,
 } from "@/lib/strudel-client";
 import { loadTakeTapWorklet, TAKE_TAP_PROCESSOR, type TakeTapChunk, type TakeTapFlushAck } from "@/lib/take-capture";
 import {
@@ -36,9 +38,9 @@ import {
 } from "@/lib/zaltz";
 
 export interface TakeFile {
-  /** "master" | "o<orbit>" — the writer's key. */
+  /** "master" | "movie" | "o<orbit>" — the writer's key. */
   name: string;
-  kind: "master" | "stem";
+  kind: "master" | "stem" | "movie";
   /** Disk-backed File (OPFS) or assembled Blob — lazy either way. */
   blob: Blob;
   /** Human label: "MASTER", or the sounds that played the orbit ("bd·hh"). */
@@ -191,11 +193,47 @@ async function pcm(d) {
   if (frames) writePcm(st, il);
 }
 
+// RAW files (the movie) — MediaRecorder's own container bytes, streamed as-is;
+// no header, no padding, no peak math. Same OPFS/in-memory duality as PCM.
+async function rawState(name, ext, mime) {
+  let st = files.get(name);
+  if (!st) {
+    st = { raw: true, bytes: 0, mime, chunks: [], access: null, fname: name + "." + ext };
+    files.set(name, st);
+    if (useOpfs) {
+      const fh = await dir.getFileHandle(st.fname, { create: true });
+      st.access = await fh.createSyncAccessHandle();
+      st.access.truncate(0);
+    }
+  }
+  return st;
+}
+
+async function raw(d) {
+  const st = await rawState(d.raw, d.ext, d.mime);
+  const bytes = new Uint8Array(d.bytes);
+  if (st.access) st.access.write(bytes, { at: st.bytes });
+  else st.chunks.push(bytes);
+  st.bytes += bytes.length;
+}
+
 async function stop() {
   let max = 0;
-  for (const st of files.values()) if (st.frames > max) max = st.frames;
+  for (const st of files.values()) if (!st.raw && st.frames > max) max = st.frames;
   const list = [];
   for (const [name, st] of files) {
+    if (st.raw) {
+      if (st.access) { st.access.flush(); st.access.close(); }
+      if (!st.bytes) {
+        if (st.access) await dir.removeEntry(st.fname).catch(() => {});
+        continue;
+      }
+      const blob = st.access
+        ? await (await dir.getFileHandle(st.fname)).getFile()
+        : new Blob(st.chunks, { type: st.mime });
+      list.push({ name, blob, frames: 0, peak: 1, raw: true });
+      continue;
+    }
     if (st.frames && st.frames < max) padSilence(st, max - st.frames); // shared length: DAW-aligned
     const silent = !st.frames || st.peak < 1e-6;
     if (st.access) {
@@ -219,6 +257,7 @@ onmessage = (e) => {
   q = q.then(() => {
     if (d.init) return init(d.init);
     if (d.pcm != null) return pcm(d);
+    if (d.raw != null) return raw(d);
     if (d.stop) return stop();
   }).catch((err) => postMessage({ error: String(err) }));
 };
@@ -239,6 +278,8 @@ interface ActiveTake {
   masterFlush: Promise<void>;
   resolveMasterFlush: () => void;
   workerDone: Promise<{ files: WorkerFile[]; sampleRate: number }>;
+  movie: { rec: MediaRecorder; mime: string; stopped: Promise<void>; dest: MediaStreamAudioDestinationNode } | null;
+  moviePoll: ReturnType<typeof setInterval> | null;
 }
 
 interface WorkerFile {
@@ -246,6 +287,7 @@ interface WorkerFile {
   blob: Blob;
   frames: number;
   peak: number;
+  raw?: boolean;
 }
 
 let active: ActiveTake | null = null;
@@ -345,12 +387,75 @@ export async function startTake(): Promise<boolean> {
       },
     );
 
+    // THE MOVIE (user 07-27: "an mp4 you can download too, of the hydra
+    // playing along with the music") — the hydra canvas captureStream + the
+    // SAME post-limiter tap the master hears, one MediaRecorder, MP4 where
+    // the browser can mux it (pickVideoMime ladder; webm named honestly
+    // otherwise). Streams into the writer as raw container bytes — an hour
+    // of video is disk, not memory. STICKY-ARMED like the stems: ● pressed
+    // on a fresh page beats the hydra canvas into existence, so the arm
+    // keeps watching and the movie starts the moment the room has walls.
+    const tryArmMovie = (): ActiveTake["movie"] => {
+      const canvas = document.getElementById("hydra-canvas") as HTMLCanvasElement | null;
+      if (!canvas || typeof MediaRecorder === "undefined") return null;
+      try {
+        const mime = pickVideoMime();
+        const dest = ac.createMediaStreamDestination();
+        tap.connect(dest);
+        const stream = new MediaStream([
+          ...canvas.captureStream(30).getVideoTracks(),
+          ...dest.stream.getAudioTracks(),
+        ]);
+        const rec = new MediaRecorder(stream, {
+          ...(mime ? { mimeType: mime } : {}),
+          videoBitsPerSecond: 8_000_000,
+          audioBitsPerSecond: 192_000,
+        });
+        const recMime = rec.mimeType || mime || "video/webm";
+        const ext = videoExt(recMime);
+        // chunk → arrayBuffer is async: a promise chain keeps the writer's
+        // byte order identical to the recorder's chunk order.
+        let chain = Promise.resolve();
+        rec.ondataavailable = (e) => {
+          if (!e.data?.size) return;
+          chain = chain.then(async () => {
+            const bytes = await e.data.arrayBuffer();
+            worker.postMessage({ raw: "movie", ext, mime: recMime, bytes }, [bytes]);
+          });
+        };
+        const stopped = new Promise<void>((r) => {
+          rec.onstop = () => void chain.then(r); // the tail chunk lands first
+        });
+        rec.start(1000);
+        return { rec, mime: recMime, stopped, dest };
+      } catch (e) {
+        console.info("[klappn] movie tape unavailable — WAVs only", e);
+        return null;
+      }
+    };
+    const movie = tryArmMovie();
+
     sessionDirs.push(dir);
-    active = {
+    const take: ActiveTake = {
       worker, node, sink, tap, ac, dir,
       startedAt: Date.now(),
-      stemsArmed, stemEnd, masterFlush, resolveMasterFlush, workerDone,
+      stemsArmed, stemEnd, masterFlush, resolveMasterFlush, workerDone, movie,
+      moviePoll: null,
     };
+    if (!movie)
+      take.moviePoll = setInterval(() => {
+        if (active !== take) {
+          if (take.moviePoll) clearInterval(take.moviePoll);
+          return;
+        }
+        const m = tryArmMovie();
+        if (m) {
+          take.movie = m;
+          if (take.moviePoll) clearInterval(take.moviePoll);
+          take.moviePoll = null;
+        }
+      }, 600);
+    active = take;
     return true;
   } catch (e) {
     console.warn("[klappn] take failed to start", e);
@@ -373,6 +478,14 @@ export async function stopTake(): Promise<TakeResult | null> {
     }
     a.node.port.postMessage("flush");
     await withTimeout(a.masterFlush, 2000);
+    if (a.moviePoll) clearInterval(a.moviePoll);
+    if (a.movie) {
+      try {
+        a.movie.rec.stop(); // final chunk flushes through the chunk chain
+        await withTimeout(a.movie.stopped, 4000);
+      } catch { /* a dead recorder still leaves the streamed bytes */ }
+      try { a.tap.disconnect(a.movie.dest); } catch { /* context died */ }
+    }
     try { a.tap.disconnect(a.node); } catch { /* context died mid-take */ }
     try { a.node.disconnect(); a.sink.disconnect(); } catch { /* already down */ }
 
@@ -388,7 +501,7 @@ export async function stopTake(): Promise<TakeResult | null> {
     const d = new Date(a.startedAt);
     const stampStr = `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}`;
     const stems = raw
-      .filter((f) => f.name !== "master")
+      .filter((f) => f.name !== "master" && !f.raw) // orbits only — the movie is its own row
       .sort((x, y) => Number(x.name.slice(1)) - Number(y.name.slice(1)));
 
     // HUMAN NAMES (user 07-27: "gm_pad_halo does not mean anything to
@@ -398,17 +511,23 @@ export async function stopTake(): Promise<TakeResult | null> {
     // cut already shows "printing…", so the wait is allowed 10s — the first
     // ship's 3.5s abort lost to a cold prod worker + the model's own
     // latency, and every take came back with bare ids.
-    let aiNames: string[] | null = null;
+    // Only stems that LOGGED sounds go to the model — a soundless orbit's
+    // empty list poisoned the whole answer once (the model returned one name
+    // short, the length gate rejected everything, EVERY stem shipped bare —
+    // the user's "orbit 33" take). Soundless stems name themselves locally.
+    const aiNames = new Map<number, string>();
     if (stems.length) {
       try {
-        const lists = stems.map((f) => [...(orbitLog.get(Number(f.name.slice(1))) ?? [])]);
-        if (lists.some((l) => l.length)) {
+        const withSounds = stems
+          .map((f, i) => ({ i, sounds: [...(orbitLog.get(Number(f.name.slice(1))) ?? [])] }))
+          .filter((e) => e.sounds.length);
+        if (withSounds.length) {
           const ctl = new AbortController();
           const to = setTimeout(() => ctl.abort(), 10000);
           const res = await fetch("/api/take-names", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ stems: lists }),
+            body: JSON.stringify({ stems: withSounds.map((e) => e.sounds) }),
             signal: ctl.signal,
           });
           clearTimeout(to);
@@ -416,10 +535,10 @@ export async function stopTake(): Promise<TakeResult | null> {
             const j = (await res.json()) as { names?: unknown };
             if (
               Array.isArray(j.names) &&
-              j.names.length === stems.length &&
+              j.names.length === withSounds.length &&
               j.names.every((n) => typeof n === "string" && (n as string).trim())
             )
-              aiNames = (j.names as string[]).map((n) => n.trim());
+              (j.names as string[]).forEach((n, k) => aiNames.set(withSounds[k].i, n.trim()));
             else console.info("[klappn] take-names: no usable names — bare ids stand in");
           } else console.info(`[klappn] take-names: ${res.status} — bare ids stand in`);
         }
@@ -435,11 +554,18 @@ export async function stopTake(): Promise<TakeResult | null> {
         filename: `zaltz-${stampStr}-master.wav`,
         seconds: master.frames / sampleRate, bytes: master.blob.size,
       });
+    const movieFile = raw.find((f) => f.name === "movie");
+    if (movieFile && a.movie)
+      files.push({
+        name: "movie", kind: "movie", blob: movieFile.blob, label: "MOVIE",
+        filename: `zaltz-${stampStr}-movie.${videoExt(a.movie.mime)}`,
+        seconds: master ? master.frames / sampleRate : 0, bytes: movieFile.blob.size,
+      });
     stems.forEach((f, i) => {
       const orbit = Number(f.name.slice(1));
       const sounds = [...(orbitLog.get(orbit) ?? [])];
       const label =
-        aiNames?.[i]?.slice(0, 28) || (sounds.length ? sounds.join("·") : `orbit ${orbit}`);
+        aiNames.get(i)?.slice(0, 28) || (sounds.length ? sounds.join("·") : `orbit ${orbit}`);
       files.push({
         name: f.name, kind: "stem", blob: f.blob, label,
         filename: `zaltz-${stampStr}-${pad2(i + 1)}-${slug(label) || `orbit-${orbit}`}.wav`,

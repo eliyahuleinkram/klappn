@@ -123,30 +123,56 @@ const CodePane = forwardRef<
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const ghostCaretRef = useRef<number>(-1);
+  // Coarse pointer = a thumb, no ⇥ — the grey hint gets a tap target.
+  const coarse = useMemo(
+    () => typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches,
+    [],
+  );
 
   // THE TAKE PILL SITS AT THE GHOST (user 07-27, twice): measured off the
   // ghost's LAST rendered line and placed in the empty air just PAST its end
   // — never below it, where it sat on top of the real code underneath. Only
   // when the line runs out of room does it drop under, hugging the left.
   const [pillPos, setPillPos] = useState<{ top: number; left: number } | null>(null);
+  // THE GHOST ITSELF IS THE BUTTON (user 07-27, mobile: "if you tap the
+  // hinted code it should work too") — every rendered line of grey text gets
+  // an invisible hit area that takes it, so a thumb lands on the words, not
+  // on a 28px pill. Clicking ghost text has no caret meaning anyway: those
+  // lines aren't in the buffer yet.
+  const [ghostRects, setGhostRects] = useState<
+    { top: number; left: number; width: number; height: number }[]
+  >([]);
   useLayoutEffect(() => {
     if (!ghost) {
       setPillPos(null);
+      setGhostRects([]);
       return;
     }
     const content = contentRef.current;
     const el = content?.querySelector(".tok-ghost");
     if (!content || !el) {
       setPillPos(null);
+      setGhostRects([]);
       return;
     }
     const rects = el.getClientRects();
     const last = rects[rects.length - 1];
     if (!last) {
       setPillPos(null);
+      setGhostRects([]);
       return;
     }
     const box = content.getBoundingClientRect();
+    setGhostRects(
+      [...rects]
+        .filter((r) => r.width > 0 && r.height > 0)
+        .map((r) => ({
+          top: r.top - box.top,
+          left: r.left - box.left,
+          width: r.width,
+          height: r.height,
+        })),
+    );
     const PILL_W = 88;
     const PILL_H = 28;
     const fitsBeside = last.right - box.left + 10 + PILL_W <= content.clientWidth - 4;
@@ -195,19 +221,21 @@ const CodePane = forwardRef<
     el.classList.add("pane-flash");
   }, [flash]);
 
-  // Keep the caret's line inside the scroll viewport while typing.
+  // Keep the caret's line inside the scroll viewport while typing. Reads the
+  // DOM, never the prop — a stale closure value here computed the caret's
+  // line against the PREVIOUS buffer.
   const followCaret = useCallback(() => {
     const ta = taRef.current;
     const sc = scrollRef.current;
     if (!ta || !sc) return;
-    const line = value.slice(0, ta.selectionStart ?? 0).split("\n").length;
+    const line = ta.value.slice(0, ta.selectionStart ?? 0).split("\n").length;
     const lineH = 21; // 13px mono × 1.6 leading — matches the CSS
     const y = line * lineH;
     if (y - sc.scrollTop > sc.clientHeight - lineH * 2)
       sc.scrollTop = y - sc.clientHeight + lineH * 2;
     else if (y - lineH * 2 < sc.scrollTop) sc.scrollTop = Math.max(0, y - lineH * 2);
-  }, [value]);
-  useEffect(followCaret, [followCaret]);
+  }, []);
+  useEffect(followCaret, [followCaret, value]);
 
   // ── the copilot's cue: typing pauses (anywhere), or a summon ─────────────
   // READ THE DOM, NEVER THE PROP: the cue timer is armed inside onChange,
@@ -287,6 +315,18 @@ const CodePane = forwardRef<
       const s = ta.selectionStart ?? 0;
       const e = ta.selectionEnd ?? 0;
       onChange(value.slice(0, s) + text + value.slice(e));
+      // THE CARET MUST FOLLOW THE INSERT (user 07-27, mobile: "it scrolls all
+      // the way up") — this fallback path replaces the value through React
+      // and the browser parks the caret at 0; followCaret then dutifully
+      // scrolled to the TOP of the file. Pin the caret to the end of the
+      // inserted text after the commit, and the view stays at the work.
+      const pos = s + text.length;
+      requestAnimationFrame(() => {
+        const t = taRef.current;
+        if (!t) return;
+        t.setSelectionRange(pos, pos);
+        followCaret();
+      });
     }
   }
 
@@ -361,6 +401,21 @@ const CodePane = forwardRef<
               {placeholder}
             </pre>
           )}
+          {/* GREY IS TAPPABLE ON TOUCH (user 07-27: "on mobile the person does
+              not have a tab button") — the hint block itself takes the hint,
+              exactly like ⇥ does on keys. Only the hint's own lines: the rest
+              of the empty pane still focuses the keyboard for typing. */}
+          {!value && placeholder && onTakeHint && coarse && (
+            <button
+              aria-label="Take the starter"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                onTakeHint();
+              }}
+              style={{ height: placeholder.split("\n").length * 21 + 14 }}
+              className="absolute inset-x-0 top-0 z-[3] cursor-pointer bg-transparent"
+            />
+          )}
           <textarea
             ref={taRef}
             value={value}
@@ -393,6 +448,25 @@ const CodePane = forwardRef<
               belongs to the grey text it takes, and scrolls with the code.
               pointerDown (not click) so the textarea never blurs first, which
               would dismiss the very ghost being taken. */}
+          {ghost &&
+            ghostRects.map((r, i) => (
+              <button
+                key={i}
+                aria-label="Take the suggestion"
+                onPointerDown={(e) => {
+                  e.preventDefault(); // the textarea must not blur — that kills the ghost
+                  insertText(ghost);
+                  onGhostAccept?.();
+                }}
+                style={{
+                  top: r.top - 4,
+                  left: r.left - 4,
+                  width: r.width + 8,
+                  height: r.height + 8,
+                }}
+                className="absolute z-[3] cursor-pointer bg-transparent"
+              />
+            ))}
           {ghost && pillPos && (
             <button
               onPointerDown={(e) => {

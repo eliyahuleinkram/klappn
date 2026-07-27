@@ -5876,7 +5876,7 @@ export async function renderSongToWav(
 /** The best container/codec this browser's MediaRecorder supports. webm (VP9/VP8
  *  + Opus) on Chrome/Firefox; mp4 (H.264) on recent Safari. "" = let the browser
  *  decide. */
-function pickVideoMime(): string {
+export function pickVideoMime(): string {
   if (typeof MediaRecorder === "undefined") return "";
   // Prefer MP4 (H.264) — it plays natively everywhere (macOS QuickTime/Finder,
   // phones, etc.). webm is the fallback (Chrome/Firefox always have it, but macOS
