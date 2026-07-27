@@ -389,6 +389,40 @@ export async function stopTake(): Promise<TakeResult | null> {
     const stems = raw
       .filter((f) => f.name !== "master")
       .sort((x, y) => Number(x.name.slice(1)) - Number(y.name.slice(1)));
+
+    // HUMAN NAMES (user 07-27: "gm_pad_halo does not mean anything to
+    // anyone") — one cheap Sonnet call turns each stem's raw sound ids into
+    // a producer's word ("halo pad", "909 drums"). Cosmetic by contract:
+    // any failure, timeout or spent machine falls back to the bare ids and
+    // the card never waits more than ~3.5s.
+    let aiNames: string[] | null = null;
+    if (stems.length) {
+      try {
+        const lists = stems.map((f) => [...(orbitLog.get(Number(f.name.slice(1))) ?? [])]);
+        if (lists.some((l) => l.length)) {
+          const ctl = new AbortController();
+          const to = setTimeout(() => ctl.abort(), 3500);
+          const res = await fetch("/api/take-names", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ stems: lists }),
+            signal: ctl.signal,
+          });
+          clearTimeout(to);
+          if (res.ok) {
+            const j = (await res.json()) as { names?: unknown };
+            if (
+              Array.isArray(j.names) &&
+              j.names.length === stems.length &&
+              j.names.every((n) => typeof n === "string" && (n as string).trim())
+            )
+              aiNames = (j.names as string[]).map((n) => n.trim());
+          }
+        }
+      } catch {
+        /* bare names it is */
+      }
+    }
     const files: TakeFile[] = [];
     const master = raw.find((f) => f.name === "master");
     if (master)
@@ -400,7 +434,8 @@ export async function stopTake(): Promise<TakeResult | null> {
     stems.forEach((f, i) => {
       const orbit = Number(f.name.slice(1));
       const sounds = [...(orbitLog.get(orbit) ?? [])];
-      const label = sounds.length ? sounds.join("·") : `orbit ${orbit}`;
+      const label =
+        aiNames?.[i]?.slice(0, 28) || (sounds.length ? sounds.join("·") : `orbit ${orbit}`);
       files.push({
         name: f.name, kind: "stem", blob: f.blob, label,
         filename: `zaltz-${stampStr}-${pad2(i + 1)}-${slug(label) || `orbit-${orbit}`}.wav`,

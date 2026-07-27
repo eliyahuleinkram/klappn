@@ -644,10 +644,17 @@ export default function ZaltzIDE({
   // music and picture play and stop together; per-pane transport is gone).
   // ⌘↵ still evals the pane under your fingers while the room runs.
   const transportOn = playing || visualsLive;
+  // THE TAPE FOLLOWS THE TRANSPORT (user 07-27: "it does not make sense to
+  // keep recording if we have stopped playing"): ■ — button, SPACE or ⌘. —
+  // cuts a rolling take in the same gesture. One object, one life. (The live
+  // room's auto-halt on an emptied pane is an EDIT, not a stop — it never
+  // cuts; silence can be part of a take.)
+  const cutTapeRef = useRef<() => void>(() => {});
   const transport = () => {
     if (playing || visualsLive) {
       halt();
       stopVisuals();
+      cutTapeRef.current();
     } else if (stateRef.current.strudel.trim()) {
       void runMusic(); // its tail paints the hydra pane too
     } else {
@@ -665,6 +672,7 @@ export default function ZaltzIDE({
       if ((e.metaKey || e.ctrlKey) && e.key === ".") {
         e.preventDefault();
         halt();
+        cutTapeRef.current(); // ⌘. is a stop — the tape follows the transport
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "s" || e.key === "S")) {
         e.preventDefault();
         void saveRef.current();
@@ -1062,6 +1070,13 @@ export default function ZaltzIDE({
   // API doesn't exist (iPhone Safari).
   const [fullscreen, setFullscreen] = useState(false);
   const [canFullscreen, setCanFullscreen] = useState(false);
+  // INSTANT CINEMA needs a LOCK, not just a set: the ⛶ click is always
+  // followed by mouse noise (the hand leaving the button, the fullscreen
+  // resize jitter), and the movie rule's arm() un-dimmed the room the same
+  // frame it went dark — "the button does nothing". For a beat after entering
+  // fullscreen, pointer noise cannot wake the furniture; a REAL move after
+  // that beat restores as ever.
+  const dimLockUntil = useRef(0);
   useEffect(() => {
     setCanFullscreen(!!document.documentElement.requestFullscreen);
     const on = () => {
@@ -1069,9 +1084,13 @@ export default function ZaltzIDE({
       setFullscreen(fs);
       // INSTANT CINEMA (user 07-27, second steer — on ⛶, not on ▶): entering
       // fullscreen while the picture plays IS the "just watch" gesture — the
-      // furniture steps aside at once, no waiting out the idle timer. Any
-      // move brings it back; the movie rule re-dims from there.
-      if (fs && stateRef.current.visualsLive) setDimmed(true);
+      // furniture steps aside at once, no waiting out the idle timer.
+      if (fs && stateRef.current.visualsLive) {
+        dimLockUntil.current = Date.now() + 1500;
+        setDimmed(true);
+      } else {
+        dimLockUntil.current = 0;
+      }
     };
     document.addEventListener("fullscreenchange", on);
     return () => document.removeEventListener("fullscreenchange", on);
@@ -1098,6 +1117,7 @@ export default function ZaltzIDE({
     }
     let t: ReturnType<typeof setTimeout>;
     const arm = () => {
+      if (Date.now() < dimLockUntil.current) return; // instant cinema holds
       setDimmed(false);
       clearTimeout(t);
       t = setTimeout(() => setDimmed(true), 4000);
@@ -1159,6 +1179,9 @@ export default function ZaltzIDE({
           r ? "The room never made a sound — nothing to keep." : "The take was lost mid-print.",
         );
     }
+  };
+  cutTapeRef.current = () => {
+    if (taping && !tapePrinting) void toggleTape();
   };
   const saveTakeFile = (f: TakeFile) => {
     const url = URL.createObjectURL(f.blob);
@@ -1371,8 +1394,10 @@ export default function ZaltzIDE({
   // Pane headers carry NO transport (user 07-27: music and picture play and
   // stop TOGETHER — the one ▶/■ lives in the top bar); a pane is a page of
   // code with a name, lit while its half of the room is live.
+  // MOBILE WEARS NO HEADER (user 07-27): the pill tabs above the pane already
+  // say STRUDEL/HYDRA — saying it twice costs a code line of glass.
   const paneHeader = (label: string, hint: string, active: boolean) => (
-    <div className="flex items-center gap-2 border-b border-white/[0.09] px-3.5 py-2.5">
+    <div className="hidden items-center gap-2 border-b border-white/[0.09] px-3.5 py-2.5 sm:flex">
       <span
         className={`text-[11.5px] font-semibold uppercase tracking-[0.18em] ${
           active ? "text-accent-strong" : "text-foreground/60"
@@ -1505,54 +1530,80 @@ export default function ZaltzIDE({
         {/* Desktop: the name is a name, not a runway — fixed width, the air
             in the middle belongs to the room. */}
         <span className="hidden flex-1 sm:block" />
-        {/* ● — the tape. Press it and the room is RENDERED, live: the master
-            plus a WAV per layer, straight off the engine's buses. Press again
-            and the take card offers the files. A silent room presses play for
-            you — one gesture, downbeat on tape. */}
-        <button
-          onClick={() => void toggleTape()}
-          disabled={tapePrinting}
-          title={
+        {/* THE TRANSPORT CAPSULE — play and tape are ONE machined object
+            (the seam law: one capsule, one hairline). ▶/■ rules the room;
+            ● is its tape deck, fused to it because they share one life:
+            stop cuts the take, ● on a silent room presses play. While the
+            tape rolls the whole capsule burns — you can FEEL the room being
+            rendered. */}
+        <div
+          className={`flex shrink-0 items-stretch overflow-hidden rounded-full transition ${
             taping
-              ? "Cut the take — the WAVs print"
-              : "Tape the take — the master + a WAV per layer, live"
-          }
-          className="group flex shrink-0 items-center gap-1.5 px-1.5 py-2 transition active:scale-[.95]"
-        >
-          {taping ? (
-            <>
-              <span className="relative flex h-[11px] w-[11px]">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-50" />
-                <span
-                  className="relative inline-flex h-[11px] w-[11px] rounded-full shadow-[0_0_14px_rgba(224,49,156,.9)]"
-                  style={{ backgroundImage: "linear-gradient(135deg,#ff63c1,#b3126f)" }}
-                />
-              </span>
-              <span className="text-[12.5px] tabular-nums text-accent-strong">{tapeClock}</span>
-            </>
-          ) : tapePrinting ? (
-            <span className="shimmer-text text-[12px]">printing…</span>
-          ) : (
-            <span className="inline-flex h-[11px] w-[11px] rounded-full bg-white/[0.22] transition group-hover:bg-accent group-hover:shadow-[0_0_12px_rgba(224,49,156,.7)]" />
-          )}
-        </button>
-        {/* THE TRANSPORT — the whole room plays and stops as one. */}
-        <button
-          onClick={transport}
-          title={transportOn ? "Stop (⌘.)" : "Play the room — ⌘↵ evals a pane"}
-          className={`shrink-0 rounded-full px-4 py-2 text-[13.5px] font-medium transition active:scale-[.96] ${
-            transportOn
-              ? "bg-accent/[0.16] text-accent-strong ring-1 ring-inset ring-accent/40 hover:bg-accent/[0.24]"
-              : "text-white shadow-[0_0_30px_-8px_rgba(224,49,156,.8)]"
+              ? "ring-1 ring-accent/60 shadow-[0_0_36px_-6px_rgba(224,49,156,.85)]"
+              : transportOn
+                ? "ring-1 ring-inset ring-accent/40"
+                : "shadow-[0_0_30px_-8px_rgba(224,49,156,.8)]"
           }`}
-          style={
-            transportOn
-              ? undefined
-              : { backgroundImage: "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)" }
-          }
         >
-          {transportOn ? "■ stop" : waking ? "waking…" : "▶ play"}
-        </button>
+          <button
+            onClick={transport}
+            title={
+              transportOn
+                ? taping
+                  ? "Stop (⌘.) — cuts the take"
+                  : "Stop (⌘.)"
+                : "Play the room — ⌘↵ evals a pane"
+            }
+            className={`px-4 py-2 text-[13.5px] font-medium transition active:scale-[.96] ${
+              transportOn
+                ? "bg-accent/[0.16] text-accent-strong hover:bg-accent/[0.24]"
+                : "text-white"
+            }`}
+            style={
+              transportOn
+                ? undefined
+                : { backgroundImage: "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)" }
+            }
+          >
+            {transportOn ? "■ stop" : waking ? "waking…" : "▶ play"}
+          </button>
+          <span className="w-px bg-black/30" aria-hidden />
+          <button
+            onClick={() => void toggleTape()}
+            disabled={tapePrinting}
+            title={
+              taping
+                ? "Cut the take — the WAVs print"
+                : "Tape the take — the master + a WAV per layer, rendered live"
+            }
+            className={`group flex items-center gap-1.5 px-3.5 py-2 transition active:scale-[.96] ${
+              taping
+                ? "bg-accent/[0.14]"
+                : transportOn
+                  ? "bg-accent/[0.08] hover:bg-accent/[0.16]"
+                  : "bg-white/[0.08] backdrop-blur hover:bg-white/[0.14]"
+            }`}
+          >
+            {taping ? (
+              <>
+                <span className="relative flex h-[11px] w-[11px]">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-50" />
+                  <span
+                    className="relative inline-flex h-[11px] w-[11px] rounded-full shadow-[0_0_14px_rgba(224,49,156,.9)]"
+                    style={{ backgroundImage: "linear-gradient(135deg,#ff63c1,#b3126f)" }}
+                  />
+                </span>
+                <span className="text-[12.5px] font-medium tabular-nums text-accent-strong">
+                  {tapeClock}
+                </span>
+              </>
+            ) : tapePrinting ? (
+              <span className="shimmer-text text-[12px]">printing…</span>
+            ) : (
+              <span className="inline-flex h-[11px] w-[11px] rounded-full bg-white/40 transition group-hover:bg-accent group-hover:shadow-[0_0_12px_rgba(224,49,156,.8)]" />
+            )}
+          </button>
+        </div>
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
         <button
