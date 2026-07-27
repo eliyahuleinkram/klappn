@@ -838,6 +838,36 @@ body.ide-stage.ide-solo #k1-canvas {
   opacity: 1;
 }
 
+/* SCROLL FADES (user 07-27: the code dissolves at the edges while you
+   scroll) — mask the scroll container, not the text: whatever slides past
+   the rim melts into the glass instead of hard-clipping. Each edge fades
+   ONLY when there is more code beyond it (state from CodePane's scroll
+   listener), so a short sketch never dims its own first line. */
+.code-pane.fade-top {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 34px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 34px, #000 100%);
+}
+.code-pane.fade-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 34px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 34px), transparent 100%);
+}
+.code-pane.fade-top.fade-bottom {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 34px,
+    #000 calc(100% - 34px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 34px,
+    #000 calc(100% - 34px),
+    transparent 100%
+  );
+}
+
 /* The two layers of a CodePane must be BYTE-ALIGNED twins: same font, same
    size, same leading, same padding, same soft-wrap. Touch one, touch both. */
 .code-layer {

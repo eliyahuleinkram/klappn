@@ -126,6 +126,16 @@ const CodePane = forwardRef<
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const ghostCaretRef = useRef<number>(-1);
+  // SCROLL FADES — each edge melts only when code continues past it (the
+  // CSS masks live in globals; this is just the truth of the scroll).
+  const [fades, setFades] = useState({ top: false, bottom: false });
+  const updateFades = useCallback(() => {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    const top = sc.scrollTop > 4;
+    const bottom = sc.scrollTop + sc.clientHeight < sc.scrollHeight - 4;
+    setFades((f) => (f.top === top && f.bottom === bottom ? f : { top, bottom }));
+  }, []);
   // Coarse pointer = a thumb, no ⇥ — the grey hint gets a tap target.
   const coarse = useMemo(
     () => typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches,
@@ -239,6 +249,7 @@ const CodePane = forwardRef<
     else if (y - lineH * 2 < sc.scrollTop) sc.scrollTop = Math.max(0, y - lineH * 2);
   }, []);
   useEffect(followCaret, [followCaret, value]);
+  useEffect(updateFades, [updateFades, value, ghost]);
 
   // ── the copilot's cue: typing pauses (anywhere), or a summon ─────────────
   // READ THE DOM, NEVER THE PROP: the cue timer is armed inside onChange,
@@ -417,7 +428,13 @@ const CodePane = forwardRef<
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div ref={scrollRef} className="code-pane relative flex-1 overflow-y-auto overscroll-contain">
+      <div
+        ref={scrollRef}
+        onScroll={updateFades}
+        className={`code-pane relative flex-1 overflow-y-auto overscroll-contain${
+          fades.top ? " fade-top" : ""
+        }${fades.bottom ? " fade-bottom" : ""}`}
+      >
         <div ref={flashRef} aria-hidden className="pointer-events-none absolute inset-0 z-[2]" />
         <div ref={contentRef} className="relative min-h-full">
           <pre

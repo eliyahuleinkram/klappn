@@ -1162,6 +1162,10 @@ export default function ZaltzIDE({
   const [tapeStart, setTapeStart] = useState(0);
   const [tapePrinting, setTapePrinting] = useState(false);
   const [take, setTake] = useState<TakeResult | null>(null);
+  // ✕ FOLDS, NEVER FORGETS (user 07-27: "someone might mistake-click ✕") —
+  // the card collapses to a small glass chip and the grains stay reachable
+  // until a NEW take replaces them. Same law as the desk's grabber.
+  const [takeFolded, setTakeFolded] = useState(false);
   const [, tapeTick] = useState(0);
   useEffect(() => {
     if (!taping) return;
@@ -1188,7 +1192,10 @@ export default function ZaltzIDE({
       setTapePrinting(true);
       const r = await stopTake();
       setTapePrinting(false);
-      if (r && r.files.length) setTake(r);
+      if (r && r.files.length) {
+        setTake(r);
+        setTakeFolded(false); // fresh grains always arrive unfolded
+      }
       else
         setNotice(
           r ? "The room never made a sound — nothing to keep." : "The take was lost mid-grind.",
@@ -1856,7 +1863,19 @@ export default function ZaltzIDE({
           tape, cut and ground into grains. Every row is a file: the label says what it
           is, the size says what it weighs, one tap and it's yours. ✕ forgets
           it (files already saved stay saved). */}
-      {take && (
+      {take && takeFolded && (
+        /* THE GRAINS, PUT AWAY — a slim glass chip where the card stood; one
+           tap and they pour back out. A stray ✕ can never lose a take. */
+        <button
+          onClick={() => setTakeFolded(false)}
+          title="The grains — open them back up"
+          className="animate-rise fixed bottom-4 left-4 z-[18] flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-black/35 px-3 py-1.5 text-[11.5px] text-muted/70 shadow-[inset_0_1px_0_rgba(255,255,255,.09)] backdrop-blur-xl backdrop-saturate-[1.6] transition hover:text-accent-strong active:scale-[.96]"
+        >
+          grains
+          <span className="tabular-nums text-muted/50">· {take.files.length}</span>
+        </button>
+      )}
+      {take && !takeFolded && (
         <div className="animate-rise fixed bottom-4 left-4 z-[18] w-[280px] rounded-3xl border border-accent/25 bg-black/[.88] p-4 shadow-[0_0_60px_-16px_rgba(224,49,156,.55),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
           <div className="flex items-baseline gap-2">
             <span className="text-[11.5px] font-semibold uppercase tracking-[0.18em] text-foreground">
@@ -1865,9 +1884,10 @@ export default function ZaltzIDE({
             <span className="text-[12px] tabular-nums text-muted">{fmtClock(take.seconds)}</span>
             <span className="flex-1" />
             <button
-              onClick={() => setTake(null)}
+              onClick={() => setTakeFolded(true)}
               className="text-[12px] text-muted/60 transition hover:text-foreground"
-              aria-label="Dismiss the take"
+              aria-label="Put the grains away"
+              title="Put the grains away — the chip brings them back"
             >
               ✕
             </button>
