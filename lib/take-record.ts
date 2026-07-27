@@ -71,22 +71,23 @@ const files = new Map();
 // The master is 24-bit PCM (post-limiter — it cannot exceed 0dBFS). Stems are
 // 32-BIT FLOAT (format 3): they're PRE-limiter, and a hot kick past 1.0 must
 // land in the DAW intact, never clamped into clipping the master didn't have.
+// NO fact CHUNK, deliberately (2026-07-27, "stems are deafening white noise"):
+// the spec asks non-PCM WAVs to carry one, but real chunk-walkers — Chrome's
+// decodeAudioData among them, MEASURED — misparse a float WAV with a fact
+// chunk and read the samples off-alignment: misaligned float32 IS that noise.
+// The plain 44-byte header (format 3, bits 32) decodes exactly everywhere we
+// can test; interoperability outranks the letter of the spec.
 function header(frames, float) {
   const bpf = float ? 8 : 6;
   const data = frames * bpf;
-  const b = new ArrayBuffer(float ? 58 : 44), v = new DataView(b);
+  const b = new ArrayBuffer(44), v = new DataView(b);
   const w4 = (o, s) => { for (let i = 0; i < 4; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-  w4(0, "RIFF"); v.setUint32(4, (float ? 50 : 36) + data, true); w4(8, "WAVE");
+  w4(0, "RIFF"); v.setUint32(4, 36 + data, true); w4(8, "WAVE");
   w4(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, float ? 3 : 1, true);
   v.setUint16(22, 2, true); v.setUint32(24, sr, true);
   v.setUint32(28, sr * bpf, true); v.setUint16(32, bpf, true);
   v.setUint16(34, float ? 32 : 24, true);
-  if (float) { // non-PCM formats carry a fact chunk (frame count)
-    w4(36, "fact"); v.setUint32(40, 4, true); v.setUint32(44, frames, true);
-    w4(48, "data"); v.setUint32(52, data, true);
-  } else {
-    w4(36, "data"); v.setUint32(40, data, true);
-  }
+  w4(36, "data"); v.setUint32(40, data, true);
   return new Uint8Array(b);
 }
 
@@ -112,7 +113,7 @@ async function fileState(name) {
     const float = name !== "master";
     st = {
       frames: 0, peak: 0, chunks: [], access: null, fname: name + ".wav",
-      float, bpf: float ? 8 : 6, hlen: float ? 58 : 44,
+      float, bpf: float ? 8 : 6, hlen: 44,
     };
     files.set(name, st);
     if (useOpfs) {
@@ -393,15 +394,17 @@ export async function stopTake(): Promise<TakeResult | null> {
     // HUMAN NAMES (user 07-27: "gm_pad_halo does not mean anything to
     // anyone") — one cheap Sonnet call turns each stem's raw sound ids into
     // a producer's word ("halo pad", "909 drums"). Cosmetic by contract:
-    // any failure, timeout or spent machine falls back to the bare ids and
-    // the card never waits more than ~3.5s.
+    // any failure, timeout or spent machine falls back to the bare ids. The
+    // cut already shows "printing…", so the wait is allowed 10s — the first
+    // ship's 3.5s abort lost to a cold prod worker + the model's own
+    // latency, and every take came back with bare ids.
     let aiNames: string[] | null = null;
     if (stems.length) {
       try {
         const lists = stems.map((f) => [...(orbitLog.get(Number(f.name.slice(1))) ?? [])]);
         if (lists.some((l) => l.length)) {
           const ctl = new AbortController();
-          const to = setTimeout(() => ctl.abort(), 3500);
+          const to = setTimeout(() => ctl.abort(), 10000);
           const res = await fetch("/api/take-names", {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -417,10 +420,11 @@ export async function stopTake(): Promise<TakeResult | null> {
               j.names.every((n) => typeof n === "string" && (n as string).trim())
             )
               aiNames = (j.names as string[]).map((n) => n.trim());
-          }
+            else console.info("[klappn] take-names: no usable names — bare ids stand in");
+          } else console.info(`[klappn] take-names: ${res.status} — bare ids stand in`);
         }
-      } catch {
-        /* bare names it is */
+      } catch (e) {
+        console.info("[klappn] take-names unreachable — bare ids stand in", e);
       }
     }
     const files: TakeFile[] = [];

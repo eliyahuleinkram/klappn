@@ -892,6 +892,7 @@ function smoothDelayBus(): void {
 // tap the post-limiter node so files match what you hear.
 let outputTap: AudioNode | null = null; // post-limiter node (or null = use master)
 let limiterInstalled = false;
+let limiterCtx: AudioContext | null = null; // the context the splice lives on
 
 function masterNode(): AudioNode | undefined {
   return mod?.getSuperdoughAudioController?.()?.output?.destinationGain as
@@ -1032,7 +1033,10 @@ export function ensurePerfFx(): void {
 
 /** The node whose downstream edge routeSink()/the bg sink move around. */
 function finalTap(): AudioNode | undefined {
-  return (perfFxAlive() ? perfFx?.out : undefined) ?? outputTap ?? masterNode();
+  // a tap from a dead context must never be handed out (see installLimiter)
+  const ac = audioContext();
+  const tapAlive = outputTap && ac && outputTap.context === ac ? outputTap : undefined;
+  return (perfFxAlive() ? perfFx?.out : undefined) ?? tapAlive ?? masterNode();
 }
 
 /** The take recorder's tap (lib/take-record): forces the master chain into
@@ -2749,8 +2753,15 @@ export function buildLimiterChain(ac: BaseAudioContext): { input: AudioNode; out
 }
 
 function installLimiter(): void {
-  if (limiterInstalled) return;
   const ac = audioContext();
+  // Context-staleness guard (same law as perfFxAlive): after an engine
+  // recycle the spliced chain lives on a DEAD context — connecting its tap
+  // anywhere throws "different audio context" (the tape refused to roll).
+  // A new context re-splices from scratch.
+  if (limiterInstalled && limiterCtx === ac) return;
+  limiterInstalled = false;
+  outputTap = null;
+  limiterCtx = ac;
   const master = masterNode();
   if (!ac || !master) return; // not ready yet — try again on the next play
   // Step 1: drop the direct master→output edge (the speakers, or the background
