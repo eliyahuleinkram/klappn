@@ -1562,12 +1562,12 @@ export default function ZaltzIDE({
             playing turns the icon and the word pink. The capsule stays one
             calm object; only the ink changes. */}
         <div
-          className={`flex shrink-0 items-stretch overflow-hidden rounded-full transition ${
+          className={`flex shrink-0 items-stretch overflow-hidden rounded-full border transition ${
             taping
-              ? "ring-1 ring-accent/60 shadow-[0_0_36px_-6px_rgba(224,49,156,.85)]"
+              ? "border-accent/60 shadow-[0_0_36px_-6px_rgba(224,49,156,.85)]"
               : transportOn
-                ? "ring-1 ring-inset ring-accent/40"
-                : "ring-1 ring-inset ring-white/[0.12]"
+                ? "border-accent/40"
+                : "border-white/[0.12]"
           }`}
         >
           <button
