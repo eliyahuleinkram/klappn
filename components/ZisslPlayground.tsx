@@ -89,12 +89,16 @@ export default function ZisslPlayground() {
       try {
         const { default: Zissl } = await import("zissl");
         // A pane measured mid-layout can report 0 — floor to a real stage.
+        // NATIVE resolution: the playground is the engine's portrait, and a
+        // soft upscale reads as a cheap one. Full devicePixelRatio (≤2),
+        // bounded by an AREA budget instead of hard edges — 1:1 pixels on
+        // ordinary retina fullscreens, proportional on cinema displays.
         const dims = () => {
-          const s = Math.min(window.devicePixelRatio || 1, 1.5);
-          return {
-            w: Math.min(1600, Math.max(640, Math.floor(window.innerWidth * s))),
-            h: Math.min(900, Math.max(360, Math.floor(window.innerHeight * s))),
-          };
+          const s = Math.min(window.devicePixelRatio || 1, 2);
+          let w = Math.max(640, window.innerWidth * s);
+          let h = Math.max(360, window.innerHeight * s);
+          const k = Math.min(1, Math.sqrt((3456 * 2160) / (w * h)));
+          return { w: Math.floor(w * k), h: Math.floor(h * k) };
         };
         const d0 = dims();
         const created = await Zissl.create({
