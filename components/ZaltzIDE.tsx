@@ -1550,13 +1550,17 @@ export default function ZaltzIDE({
             stop cuts the take, ● on a silent room presses play. While the
             tape rolls the whole capsule burns — you can FEEL the room being
             rendered. */}
+        {/* STATE LIVES IN THE MARK, NOT A SLAB (user 07-27: "all in pink
+            like lipstick") — idle is the tape side's own quiet grey glass;
+            playing turns the icon and the word pink. The capsule stays one
+            calm object; only the ink changes. */}
         <div
           className={`flex shrink-0 items-stretch overflow-hidden rounded-full transition ${
             taping
               ? "ring-1 ring-accent/60 shadow-[0_0_36px_-6px_rgba(224,49,156,.85)]"
               : transportOn
                 ? "ring-1 ring-inset ring-accent/40"
-                : "shadow-[0_0_30px_-8px_rgba(224,49,156,.8)]"
+                : "ring-1 ring-inset ring-white/[0.12]"
           }`}
         >
           <button
@@ -1568,16 +1572,11 @@ export default function ZaltzIDE({
                   : "Stop (⌘.)"
                 : "Play the room — ⌘↵ evals a pane"
             }
-            className={`px-4 py-2 text-[13.5px] font-medium transition active:scale-[.96] ${
+            className={`px-4 py-2 text-[13.5px] font-medium backdrop-blur transition active:scale-[.96] ${
               transportOn
-                ? "bg-accent/[0.16] text-accent-strong hover:bg-accent/[0.24]"
-                : "text-white"
+                ? "bg-accent/[0.1] text-accent-strong hover:bg-accent/[0.16]"
+                : "bg-white/[0.08] text-muted/80 hover:bg-white/[0.14] hover:text-foreground"
             }`}
-            style={
-              transportOn
-                ? undefined
-                : { backgroundImage: "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)" }
-            }
           >
             {/* REAL GEOMETRY, not font glyphs (user 07-27: "the stop icon is
                 not centered on the same point as the play icon"): ▶ and ■
