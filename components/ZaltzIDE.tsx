@@ -1409,33 +1409,21 @@ export default function ZaltzIDE({
   // Pane headers carry NO transport (user 07-27: music and picture play and
   // stop TOGETHER — the one ▶/■ lives in the top bar); a pane is a page of
   // code with a name, lit while its half of the room is live.
-  // MOBILE WEARS NO HEADER (user 07-27): the pill tabs above the pane already
-  // say STRUDEL/HYDRA — saying it twice costs a code line of glass.
-  // The hint is a HANDLE, not a caption (user 07-27: "you should be able to
-  // accept the change at the top") — clicking it takes the whisper, same act
-  // as ⇥.
-  const paneHeader = (label: string, hint: string, active: boolean, onHint?: () => void) => (
-    <div className="hidden items-center gap-2 border-b border-white/[0.09] px-3.5 py-2.5 sm:flex">
-      <span
-        className={`text-[11.5px] font-semibold uppercase tracking-[0.18em] ${
-          active ? "text-accent-strong" : "text-foreground/60"
-        }`}
-      >
-        {label}
-      </span>
-      <span className="flex-1" />
-      {!touch && hint && (
-        <button
-          onPointerDown={(e) => {
-            e.preventDefault(); // the pane must not blur — that hushes the very whisper being taken
-            onHint?.();
-          }}
-          className="hidden text-[11px] text-muted/45 transition hover:text-accent-strong sm:inline"
-        >
-          {hint}
-        </button>
-      )}
-    </div>
+  // NO PANE HEADERS (user 07-27, final round: "people do not care about
+  // underlying technologies" — STRUDEL/HYDRA retired from the furniture; the
+  // code itself says what each pane is, and the row goes back to the code).
+  // The whisper's handle survives as a FLOATING CHIP that exists only while
+  // a whisper is up — no reserved row, no permanent words.
+  const whisperChip = (onTake: () => void) => (
+    <button
+      onPointerDown={(e) => {
+        e.preventDefault(); // the pane must not blur — that hushes the very whisper being taken
+        onTake();
+      }}
+      className="absolute right-2.5 top-2 z-[4] hidden rounded-full border border-white/[0.12] bg-black/30 px-2.5 py-1 text-[11px] text-muted/60 backdrop-blur-xl backdrop-saturate-[1.6] transition hover:text-accent-strong sm:block"
+    >
+      ⇥ take the whisper
+    </button>
   );
 
   return (
@@ -1689,7 +1677,9 @@ export default function ZaltzIDE({
         />
       </header>
 
-      {/* ── mobile pane tabs ────────────────────────────────────────────── */}
+      {/* ── mobile pane tabs — the DESK's own words (user 07-27: the tech
+          names are irrelevant to the person; Sound│Visual is the house
+          vocabulary, same as the mixer's capsule). ──────────────────────── */}
       <div className="mb-2 flex items-center gap-1.5 sm:hidden">
         {(["strudel", "hydra"] as const).map((p) => (
           <button
@@ -1701,7 +1691,7 @@ export default function ZaltzIDE({
                 : "bg-white/[0.04] text-muted/70"
             }`}
           >
-            {p === "strudel" ? "strudel" : "hydra"}
+            {p === "strudel" ? "sound" : "visual"}
           </button>
         ))}
         <span className="flex-1" />
@@ -1725,16 +1715,12 @@ export default function ZaltzIDE({
             the "alive" tell), and a machined top highlight. The type carries
             its own shadow for bright frames — see .code-pane pre. */}
         <section
-          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,.09),inset_0_-1px_0_rgba(255,255,255,.03)] backdrop-blur-2xl backdrop-saturate-[1.6] transition focus-within:border-accent/30 sm:flex sm:w-[58%] ${
+          className={`relative min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,.09),inset_0_-1px_0_rgba(255,255,255,.03)] backdrop-blur-2xl backdrop-saturate-[1.6] transition focus-within:border-accent/30 sm:flex sm:w-[58%] ${
             mobilePane === "strudel" ? "flex w-full" : "hidden"
           }`}
         >
-          {paneHeader(
-            "strudel",
-            ghost?.pane === "strudel" ? "⇥ take the whisper" : "",
-            playing,
-            () => strudelPane.current?.take(),
-          )}
+          {ghost?.pane === "strudel" &&
+            whisperChip(() => strudelPane.current?.take())}
           <CodePane
             ref={strudelPane}
             value={strudel}
@@ -1765,18 +1751,12 @@ export default function ZaltzIDE({
           />
         </section>
         <section
-          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,.09),inset_0_-1px_0_rgba(255,255,255,.03)] backdrop-blur-2xl backdrop-saturate-[1.6] transition focus-within:border-accent/30 sm:flex ${
+          className={`relative min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,.09),inset_0_-1px_0_rgba(255,255,255,.03)] backdrop-blur-2xl backdrop-saturate-[1.6] transition focus-within:border-accent/30 sm:flex ${
             mobilePane === "hydra" ? "flex w-full" : "hidden"
           }`}
         >
-          {paneHeader(
-            "hydra",
-            ghost?.pane === "hydra" ? "⇥ take the whisper" : "",
-            // Accent = SYNCED to the music; the ambient drift is the room's
-            // resting state, not a "live" state worth announcing.
-            playing && !!hydra.trim(),
-            () => hydraPane.current?.take(),
-          )}
+          {ghost?.pane === "hydra" &&
+            whisperChip(() => hydraPane.current?.take())}
           <CodePane
             ref={hydraPane}
             value={hydra}
