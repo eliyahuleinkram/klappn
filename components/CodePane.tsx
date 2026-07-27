@@ -312,6 +312,26 @@ const CodePane = forwardRef<
     },
     [onChange, onGhostDismiss, followCaret],
   );
+  // PHONES HAVE NO ⌘Z — iOS says undo with a shake or a three-finger swipe
+  // (and desktop context menus say it with "Undo"); all of them arrive as
+  // beforeinput historyUndo/historyRedo. Route those into the pane's own
+  // history too, so the OS's word for undo and ours are the same act.
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const on = (e: Event) => {
+      const t = (e as InputEvent).inputType;
+      if (t === "historyUndo") {
+        e.preventDefault();
+        timeTravel(-1);
+      } else if (t === "historyRedo") {
+        e.preventDefault();
+        timeTravel(1);
+      }
+    };
+    ta.addEventListener("beforeinput", on);
+    return () => ta.removeEventListener("beforeinput", on);
+  }, [timeTravel]);
 
   // ── the copilot's cue: typing pauses (anywhere), or a summon ─────────────
   // READ THE DOM, NEVER THE PROP: the cue timer is armed inside onChange,
