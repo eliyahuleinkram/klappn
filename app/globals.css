@@ -876,6 +876,10 @@ body.ide-stage.ide-solo #k1-canvas {
   /* Crisp pass 07-27: the resting code reads a step brighter — the old
      #b9bcc6 sat too close to the glass and the whole pane felt hazy. */
   color: #c9ccd6;
+  /* Glass pass 07-27: the smoke thinned (black/45 → /25) so the room shows
+     through — the type carries its own shadow now, and stays etched even
+     when a bright frame burns right behind it. */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 12px rgba(0, 0, 0, 0.35);
 }
 /* Monochrome + the one pink: the pattern strings ARE the music, so they carry
    the accent; everything else stays quiet steel. */

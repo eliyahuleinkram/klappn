@@ -1711,8 +1711,14 @@ export default function ZaltzIDE({
 
       {/* ── the panes (all gone in solo — the picture alone) ────────────── */}
       <div className="flex min-h-0 flex-1 gap-3">
+        {/* REAL GLASS (user 07-27: "they do not feel see-through"): the old
+            black/45 smoke over a heavy blur ate the picture — nothing moved
+            behind the pane, so it read as a panel. Glass is thin smoke, a
+            SATURATED backdrop (the room's colors bleed through vivid, that's
+            the "alive" tell), and a machined top highlight. The type carries
+            its own shadow for bright frames — see .code-pane pre. */}
         <section
-          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 sm:flex sm:w-[58%] ${
+          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,.09),inset_0_-1px_0_rgba(255,255,255,.03)] backdrop-blur-2xl backdrop-saturate-[1.6] transition focus-within:border-accent/30 sm:flex sm:w-[58%] ${
             mobilePane === "strudel" ? "flex w-full" : "hidden"
           }`}
         >
@@ -1751,7 +1757,7 @@ export default function ZaltzIDE({
           />
         </section>
         <section
-          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 sm:flex ${
+          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,.09),inset_0_-1px_0_rgba(255,255,255,.03)] backdrop-blur-2xl backdrop-saturate-[1.6] transition focus-within:border-accent/30 sm:flex ${
             mobilePane === "hydra" ? "flex w-full" : "hidden"
           }`}
         >
