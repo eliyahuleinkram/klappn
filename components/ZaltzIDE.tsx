@@ -1063,7 +1063,15 @@ export default function ZaltzIDE({
   const [canFullscreen, setCanFullscreen] = useState(false);
   useEffect(() => {
     setCanFullscreen(!!document.documentElement.requestFullscreen);
-    const on = () => setFullscreen(!!document.fullscreenElement);
+    const on = () => {
+      const fs = !!document.fullscreenElement;
+      setFullscreen(fs);
+      // INSTANT CINEMA (user 07-27, second steer — on ⛶, not on ▶): entering
+      // fullscreen while the picture plays IS the "just watch" gesture — the
+      // furniture steps aside at once, no waiting out the idle timer. Any
+      // move brings it back; the movie rule re-dims from there.
+      if (fs && stateRef.current.visualsLive) setDimmed(true);
+    };
     document.addEventListener("fullscreenchange", on);
     return () => document.removeEventListener("fullscreenchange", on);
   }, []);
@@ -1083,7 +1091,7 @@ export default function ZaltzIDE({
   // (a phone's tap is already the wake gesture).
   const [dimmed, setDimmed] = useState(false);
   useEffect(() => {
-    if (touch || !playing || sheet !== null || mixerOpen) {
+    if (touch || !(playing || visualsLive) || sheet !== null || mixerOpen) {
       setDimmed(false);
       return;
     }
@@ -1101,7 +1109,7 @@ export default function ZaltzIDE({
       evs.forEach((e) => window.removeEventListener(e, arm));
       setDimmed(false);
     };
-  }, [touch, playing, sheet, mixerOpen]);
+  }, [touch, playing, visualsLive, sheet, mixerOpen]);
   useEffect(() => {
     document.body.classList.toggle("ide-solo", dimmed); // canvas to full brightness
     return () => document.body.classList.remove("ide-solo");
@@ -1468,17 +1476,15 @@ export default function ZaltzIDE({
           title="Copilot — ghosts as you type: ⇥ takes them, ⌥\ summons one, Esc bins them"
         >
           <CopilotMark on={copilot} />Copilot</button>
-        {/* (The Grains pill is gone — saved work now lives in the ▾ beside
-            the name, where a project switcher belongs.) */}
         {/* ⛶ — plain and whole: the page, furniture and all, goes fullscreen
             (the picture-only posture is the movie rule's job, not a button's).
-            Bare glyph, no pill (user 07-27): a window control is furniture,
-            not a button — it just needs to be seen. */}
+            Bare glyph, no pill; DESKTOP ONLY (user 07-27) — on a phone the
+            page already owns the screen. */}
         {canFullscreen && (
           <button
             onClick={toggleFullscreen}
             title={fullscreen ? "Leave fullscreen" : "Fullscreen"}
-            className={`shrink-0 px-1 text-[19px] leading-none transition active:scale-[.95] ${
+            className={`hidden shrink-0 px-1 text-[19px] leading-none transition active:scale-[.95] sm:block ${
               fullscreen
                 ? "text-accent-strong"
                 : "text-muted/70 hover:text-foreground"
@@ -1531,7 +1537,7 @@ export default function ZaltzIDE({
       {/* ── the panes (all gone in solo — the picture alone) ────────────── */}
       <div className="flex min-h-0 flex-1 gap-3">
         <section
-          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex sm:w-[58%] ${
+          className={`min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 sm:flex sm:w-[58%] ${
             mobilePane === "strudel" ? "flex w-full" : "hidden"
           }`}
         >
@@ -1568,7 +1574,7 @@ export default function ZaltzIDE({
           />
         </section>
         <section
-          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 focus-within:shadow-[0_0_60px_-24px_rgba(224,49,156,.5)] sm:flex ${
+          className={`min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-black/45 backdrop-blur-xl transition focus-within:border-accent/30 sm:flex ${
             mobilePane === "hydra" ? "flex w-full" : "hidden"
           }`}
         >

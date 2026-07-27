@@ -436,8 +436,14 @@ textarea,
   background: #38383f;
 }
 
-/* Keyboard focus: a magnetic fuchsia ring, never the default blue. */
-:focus-visible {
+/* Keyboard focus: a magnetic fuchsia ring, never the default blue. The code
+   panes are EXEMPT: a textarea matches :focus-visible even on mouse focus
+   (keyboard-input elements always do), and this rounded ring hugging the
+   code area read as a BENT hairline under the pane label (user 07-27 —
+   "the line must stay perfectly horizontal"). This rule is unlayered, so it
+   outranks the layered .code-input reset — the exemption must live HERE.
+   The pane's focus cue is its border tint + the breathing caret. */
+:focus-visible:not(.code-input) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;

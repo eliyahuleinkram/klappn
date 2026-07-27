@@ -30,6 +30,25 @@ let coreMod: StrudelCore | null = null;
 let transpilerFn: unknown = null;
 
 const LOOKAHEAD = 0.35; // seconds of haps kept scheduled ahead
+// HIDDEN TAB = DEEP BUFFER (2026-07-27, "it slows down and drops in pitch in
+// the background, then bursts to catch up" on desktop Chrome/macOS): an
+// occluded renderer's MAIN THREAD wakes on Chrome's throttled cadence (~1s
+// bursts under Energy Saver), so a 0.35s lookahead starves — each wake posts
+// its backlog late, the worklet plays past-due events immediately (rel
+// clamps to 0), and the groove smears then bunches. The worklet itself
+// schedules by ABSOLUTE time, so the cure is simply to keep more future
+// queued while hidden. 2.0s rides out the wake cadence and stays safely
+// inside the engine's MAX_EVENTS=256 even for dense loops (~64 events/s).
+const LOOKAHEAD_HIDDEN = 2.0;
+let lookahead = LOOKAHEAD;
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    const hidden = document.visibilityState !== "visible";
+    lookahead = hidden ? LOOKAHEAD_HIDDEN : LOOKAHEAD;
+    // Going dark: fill the deep buffer NOW, before the throttle bites.
+    if (hidden && timer) tick();
+  });
+}
 const TICK_MS = 120;
 
 type HapValue = Record<string, unknown>;
@@ -674,7 +693,7 @@ function hapKv(v: HapValue, durationSec: number): string | null {
 function tick(): void {
   if (!pattern || !node || !ctxRef) return;
   const now = ctxRef.currentTime;
-  const target = (now - t0 + LOOKAHEAD) * cps;
+  const target = (now - t0 + lookahead) * cps;
   if (target <= cursor) return;
   let haps: Hap[] = [];
   try {
@@ -829,11 +848,24 @@ export async function zaltzEvaluate(
       cursor = 0;
       pausedAt = null;
       startTimer();
-    } else if (newCps !== cps && cps > 0) {
-      sdTrace("evaluate TEMPO-PIVOT");
-      // tempo change mid-flight: keep the CYCLE position, re-anchor the clock
-      const cyclesNow = (ac.currentTime - t0) * cps;
-      t0 = ac.currentTime - cyclesNow / newCps;
+    } else {
+      // DEEP-QUEUE GUARD: if the hidden-tab lookahead left seconds of the OLD
+      // pattern pre-scheduled (tab just came back, or the eval arrived while
+      // hidden), a plain swap wouldn't be HEARD until the queue drains. Fade
+      // that pre-scheduled tail fast and land the new pattern from now —
+      // phase preserved (t0 untouched), one 120ms seam instead of a stale
+      // stretch. Normal foreground swaps (cursor ≤ one lookahead ahead) are
+      // untouched.
+      const nowCycles = (ac.currentTime - t0) * cps;
+      if (cursor > nowCycles + (LOOKAHEAD + 0.1) * cps) {
+        node?.port.postMessage({ retire: 0.12 });
+        cursor = nowCycles;
+      }
+      if (newCps !== cps && cps > 0) {
+        sdTrace("evaluate TEMPO-PIVOT");
+        // tempo change mid-flight: keep the CYCLE position, re-anchor the clock
+        t0 = ac.currentTime - nowCycles / newCps;
+      }
     }
     cps = newCps;
     if (timer && pattern) sdTrace("evaluate SWAP");
