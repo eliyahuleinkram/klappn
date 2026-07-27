@@ -251,6 +251,68 @@ const CodePane = forwardRef<
   useEffect(followCaret, [followCaret, value]);
   useEffect(updateFades, [updateFades, value, ghost]);
 
+  // ── UNDO / REDO — the pane's own history (user 07-28: ⌘Z must work like a
+  // code editor's). The textarea is controlled, and every programmatic
+  // rewrite (a ✦ fix, a seeded starter, a restored draft) resets the
+  // browser's native stack — so the pane keeps its own: every state lands
+  // here, quick keystrokes coalesce into one step, bulk moves (paste, take,
+  // fix) each stand alone, and ⌘Z/⇧⌘Z walk it in both directions — through
+  // the machine's moves too.
+  const hist = useRef<{ v: string; caret: number }[]>([]);
+  const histIdx = useRef(0);
+  const histAt = useRef(0);
+  const histKind = useRef<"type" | "bulk">("bulk");
+  const restoring = useRef(false);
+  if (hist.current.length === 0) hist.current = [{ v: value, caret: value.length }];
+  useEffect(() => {
+    if (restoring.current) {
+      restoring.current = false;
+      return;
+    }
+    const cur = hist.current[histIdx.current];
+    if (!cur || cur.v === value) return;
+    const caret = taRef.current?.selectionStart ?? value.length;
+    const now = Date.now();
+    const typing = Math.abs(value.length - cur.v.length) <= 2;
+    hist.current.length = histIdx.current + 1; // a new edit burns the redo branch
+    if (
+      typing &&
+      histKind.current === "type" &&
+      now - histAt.current < 700 &&
+      histIdx.current > 0
+    ) {
+      hist.current[histIdx.current] = { v: value, caret };
+    } else {
+      hist.current.push({ v: value, caret });
+      histIdx.current++;
+      if (hist.current.length > 200) {
+        hist.current.shift();
+        histIdx.current--;
+      }
+    }
+    histKind.current = typing ? "type" : "bulk";
+    histAt.current = now;
+  }, [value]);
+  const timeTravel = useCallback(
+    (dir: -1 | 1) => {
+      const entry = hist.current[histIdx.current + dir];
+      if (!entry) return;
+      histIdx.current += dir;
+      histKind.current = "bulk"; // the next keystroke starts a fresh step
+      restoring.current = true;
+      onGhostDismiss?.();
+      onChange(entry.v);
+      requestAnimationFrame(() => {
+        const t = taRef.current;
+        if (!t) return;
+        const c = Math.min(entry.caret, entry.v.length);
+        t.setSelectionRange(c, c);
+        followCaret();
+      });
+    },
+    [onChange, onGhostDismiss, followCaret],
+  );
+
   // ── the copilot's cue: typing pauses (anywhere), or a summon ─────────────
   // READ THE DOM, NEVER THE PROP: the cue timer is armed inside onChange,
   // whose closure still holds the PREVIOUS render's `value` — one character
@@ -372,6 +434,18 @@ const CodePane = forwardRef<
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     const mod = e.metaKey || e.ctrlKey;
+    // ⌘Z / ⇧⌘Z (and ⌘Y) — the pane's own history; native undo is dead the
+    // moment the buffer is rewritten programmatically, so ours answers.
+    if (mod && (e.key === "z" || e.key === "Z")) {
+      e.preventDefault();
+      timeTravel(e.shiftKey ? 1 : -1);
+      return;
+    }
+    if (mod && (e.key === "y" || e.key === "Y")) {
+      e.preventDefault();
+      timeTravel(1);
+      return;
+    }
     if (mod && e.key === "Enter") {
       e.preventDefault();
       onRun();
