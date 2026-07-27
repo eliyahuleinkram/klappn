@@ -1016,6 +1016,15 @@ export default function ZaltzIDE({
   // carries its OWN ✕ segment for letting them go completely. Two moves,
   // both legible before the tap.
   const [takeFolded, setTakeFolded] = useState(false);
+  // The capsule's ✕ ARMS before it fires (user 07-28, third steer): first
+  // tap turns the segment into the question — "let go?" — and only that
+  // second, legible tap discards. A few quiet seconds un-ask it.
+  const [discardArmed, setDiscardArmed] = useState(false);
+  useEffect(() => {
+    if (!discardArmed) return;
+    const t = setTimeout(() => setDiscardArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [discardArmed]);
   const [, tapeTick] = useState(0);
   useEffect(() => {
     if (!taping) return;
@@ -1045,6 +1054,7 @@ export default function ZaltzIDE({
       if (r && r.files.length) {
         setTake(r);
         setTakeFolded(false); // fresh grains always arrive poured out
+        setDiscardArmed(false);
       }
       else
         setNotice(
@@ -1626,40 +1636,40 @@ export default function ZaltzIDE({
           keep-safe was right) — they tuck into the capsule below; letting
           them go completely is the capsule's own ✕ segment. */}
       {take && takeFolded && (
-        /* THE GRAINS, PUT AWAY — one segmented capsule (the seam law: label
-           │ hairline │ verb), wearing the card's own crown so it still reads
-           as the same machined object at rest: tap the grains to pour them
-           back out; tap ✕ to let them go for good (saved files stay saved). */
-        <div className="pill-pop fixed bottom-4 left-4 z-[18] flex items-stretch overflow-hidden rounded-full border border-accent/30 bg-black/45 shadow-[0_14px_44px_-12px_rgba(224,49,156,.55),inset_0_1px_0_rgba(255,255,255,.14)] backdrop-blur-xl backdrop-saturate-[1.6]">
+        /* THE GRAINS, PUT AWAY — one QUIET segmented capsule (user 07-28,
+           third steer: the loud pour was wrong at rest — "it must fuck
+           cleanly"). Slim glass, muted ink, one hairline seam: tap the
+           grains to pour them back out; the ✕ segment ASKS first — it arms
+           into "let go?" and only the second tap discards (saved files stay
+           saved). */
+        <div className="pill-pop fixed bottom-4 left-4 z-[18] flex items-stretch overflow-hidden rounded-full border border-white/[0.14] bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,.09)] backdrop-blur-xl backdrop-saturate-[1.6]">
           <button
-            onClick={() => setTakeFolded(false)}
+            onClick={() => {
+              setDiscardArmed(false);
+              setTakeFolded(false);
+            }}
             title="The grains — pour them back out"
-            className="group flex items-center gap-2 py-2 pl-3.5 pr-3 transition hover:bg-accent/[0.09] active:scale-[.97]"
+            className="flex items-center gap-1.5 py-1.5 pl-3 pr-2.5 text-[11.5px] text-muted/70 transition hover:bg-white/[0.05] hover:text-accent-strong active:scale-[.97]"
           >
-            {/* the grain at rest — the master's own hot speck, breathing
-                softly so the capsule reads as HOLDING something alive */}
-            <span className="relative flex h-[7px] w-[7px] shrink-0" aria-hidden>
-              <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-accent/70 blur-[3px]" />
-              <span
-                className="relative inline-flex h-[7px] w-[7px] rounded-full shadow-[0_0_10px_rgba(224,49,156,.8)]"
-                style={{ backgroundImage: "linear-gradient(135deg,#ff63c1,#b3126f)" }}
-              />
-            </span>
-            <span className="wordmark bg-gradient-to-r from-[#ff63c1] via-[#e0319c] to-[#b3126f] bg-clip-text text-[13px] leading-none text-transparent">
-              grains
-            </span>
-            <span className="text-[11.5px] tabular-nums text-muted/60">
-              · {take.files.length}
-            </span>
+            grains
+            <span className="tabular-nums text-muted/50">· {take.files.length}</span>
           </button>
           <span className="w-px self-stretch bg-white/[0.1]" aria-hidden />
           <button
-            onClick={() => setTake(null)}
-            className="px-3 py-2 text-[12px] text-muted/50 transition hover:bg-white/[0.06] hover:text-foreground active:scale-[.94]"
-            aria-label="Let the grains go"
-            title="Let them go — anything you saved stays saved"
+            onClick={() => (discardArmed ? setTake(null) : setDiscardArmed(true))}
+            aria-label={discardArmed ? "Yes — let the grains go" : "Let the grains go"}
+            title={
+              discardArmed
+                ? "Tap again and they're gone — anything you saved stays saved"
+                : "Let them go — it asks once first"
+            }
+            className={`py-1.5 transition active:scale-[.94] ${
+              discardArmed
+                ? "bg-red-400/[0.12] px-2.5 text-[11px] font-medium text-red-300 hover:bg-red-400/[0.2]"
+                : "px-2.5 text-[11.5px] text-muted/50 hover:bg-white/[0.05] hover:text-foreground"
+            }`}
           >
-            ✕
+            {discardArmed ? "let go?" : "✕"}
           </button>
         </div>
       )}
