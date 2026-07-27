@@ -1584,7 +1584,27 @@ export default function ZaltzIDE({
                 : { backgroundImage: "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)" }
             }
           >
-            {transportOn ? "■ stop" : waking ? "waking…" : "▶ play"}
+            {/* REAL GEOMETRY, not font glyphs (user 07-27: "the stop icon is
+                not centered on the same point as the play icon"): ▶ and ■
+                were text, each with its own advance width and baseline, so
+                the mark JUMPED when the state flipped. Now both marks are
+                drawn on the same SVG center in a fixed slot, and the word
+                sits in a fixed-width cell — play↔stop swaps with nothing
+                moving but the shape itself. */}
+            {waking ? (
+              "waking…"
+            ) : (
+              <span className="flex items-center justify-center gap-1.5">
+                <svg viewBox="0 0 14 14" className="h-[13px] w-[13px] shrink-0" aria-hidden>
+                  {transportOn ? (
+                    <rect x="2.5" y="2.5" width="9" height="9" rx="1.4" fill="currentColor" />
+                  ) : (
+                    <path d="M4 2.8 L11.4 7 L4 11.2 Z" fill="currentColor" />
+                  )}
+                </svg>
+                <span className="w-[31px] text-left">{transportOn ? "stop" : "play"}</span>
+              </span>
+            )}
           </button>
           <span className="w-px bg-black/30" aria-hidden />
           <button
