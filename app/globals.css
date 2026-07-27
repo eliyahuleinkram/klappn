@@ -936,6 +936,21 @@ body.ide-stage.ide-solo #k1-canvas {
   pointer-events: none;
 }
 
+/* THE TAKE PILL'S ARRIVAL — a whisper lands and its handle POPS into the
+   air beside it: a quick overshoot settle, the same hand as the desk pour.
+   Every arrival is felt, never a mere appearance. */
+@keyframes pill-pop {
+  0% { opacity: 0; transform: translateY(5px) scale(0.82); }
+  60% { opacity: 1; transform: translateY(-1px) scale(1.05); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.pill-pop {
+  animation: pill-pop 0.28s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pill-pop { animation: none; }
+}
+
 /* The salt shaker's SHAKE — tap it and it shakes like the real thing:
    quick decaying wobbles about its foot. */
 @keyframes shaker-shake {

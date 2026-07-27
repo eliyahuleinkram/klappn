@@ -479,6 +479,10 @@ const CodePane = forwardRef<
                 className="absolute z-[3] cursor-pointer bg-transparent"
               />
             ))}
+          {/* The pill is a DROP of the brand — the one hot gradient poured
+              into machined glass: a lit crown, a grounded underside, a rim,
+              and an aura that breathes off the picture. It pops in with the
+              whisper (pill-pop) so every arrival is felt. */}
           {ghost && pillPos && (
             <button
               onPointerDown={(e) => {
@@ -490,9 +494,9 @@ const CodePane = forwardRef<
                 top: pillPos.top,
                 left: pillPos.left,
                 backgroundImage:
-                  "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)",
+                  "linear-gradient(165deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)",
               }}
-              className="absolute z-[3] rounded-full px-3 py-1.5 text-[12.5px] font-medium text-white shadow-[0_0_30px_-8px_rgba(224,49,156,.9)] transition active:scale-[.96]"
+              className="pill-pop absolute z-[3] rounded-full px-3.5 py-1.5 text-[12.5px] font-medium text-white ring-1 ring-white/25 shadow-[0_2px_10px_-2px_rgba(179,18,111,.85),0_0_38px_-6px_rgba(224,49,156,.85),inset_0_1px_0_rgba(255,255,255,.4),inset_0_-1px_2px_rgba(0,0,0,.3)] transition hover:brightness-[1.08] hover:shadow-[0_3px_14px_-2px_rgba(179,18,111,.9),0_0_48px_-6px_rgba(224,49,156,.95),inset_0_1px_0_rgba(255,255,255,.45),inset_0_-1px_2px_rgba(0,0,0,.3)] active:scale-[.94]"
             >
               <span className="[@media(pointer:coarse)]:hidden">⇥ </span>take
             </button>
