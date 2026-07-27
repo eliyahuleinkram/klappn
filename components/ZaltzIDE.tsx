@@ -1011,6 +1011,11 @@ export default function ZaltzIDE({
   const [tapeStart, setTapeStart] = useState(0);
   const [tapePrinting, setTapePrinting] = useState(false);
   const [take, setTake] = useState<TakeResult | null>(null);
+  // ✕ PUTS THEM AWAY (user 07-28, second steer — the fold came back): the
+  // card tucks into a corner capsule and the grains wait there; the capsule
+  // carries its OWN ✕ segment for letting them go completely. Two moves,
+  // both legible before the tap.
+  const [takeFolded, setTakeFolded] = useState(false);
   const [, tapeTick] = useState(0);
   useEffect(() => {
     if (!taping) return;
@@ -1037,7 +1042,10 @@ export default function ZaltzIDE({
       setTapePrinting(true);
       const r = await stopTake();
       setTapePrinting(false);
-      if (r && r.files.length) setTake(r);
+      if (r && r.files.length) {
+        setTake(r);
+        setTakeFolded(false); // fresh grains always arrive poured out
+      }
       else
         setNotice(
           r ? "The room never made a sound — nothing to keep." : "The take was lost mid-grind.",
@@ -1613,10 +1621,49 @@ export default function ZaltzIDE({
           ground into grains, presented like something machined: the house
           gradient poured along the crown, thin smoke over the live picture,
           the master on top of the pour. Every row is a file — the label says
-          what it is, the size what it weighs, one tap and it's yours. ✕ LETS
-          THEM GO (user 07-28: they must not squat in the corner) — the card
-          leaves; anything already saved stays saved. */}
-      {take && (
+          what it is, the size what it weighs, one tap and it's yours. The
+          card's ✕ PUTS THEM AWAY (user 07-28, second steer: the corner
+          keep-safe was right) — they tuck into the capsule below; letting
+          them go completely is the capsule's own ✕ segment. */}
+      {take && takeFolded && (
+        /* THE GRAINS, PUT AWAY — one segmented capsule (the seam law: label
+           │ hairline │ verb), wearing the card's own crown so it still reads
+           as the same machined object at rest: tap the grains to pour them
+           back out; tap ✕ to let them go for good (saved files stay saved). */
+        <div className="pill-pop fixed bottom-4 left-4 z-[18] flex items-stretch overflow-hidden rounded-full border border-accent/30 bg-black/45 shadow-[0_14px_44px_-12px_rgba(224,49,156,.55),inset_0_1px_0_rgba(255,255,255,.14)] backdrop-blur-xl backdrop-saturate-[1.6]">
+          <button
+            onClick={() => setTakeFolded(false)}
+            title="The grains — pour them back out"
+            className="group flex items-center gap-2 py-2 pl-3.5 pr-3 transition hover:bg-accent/[0.09] active:scale-[.97]"
+          >
+            {/* the grain at rest — the master's own hot speck, breathing
+                softly so the capsule reads as HOLDING something alive */}
+            <span className="relative flex h-[7px] w-[7px] shrink-0" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-accent/70 blur-[3px]" />
+              <span
+                className="relative inline-flex h-[7px] w-[7px] rounded-full shadow-[0_0_10px_rgba(224,49,156,.8)]"
+                style={{ backgroundImage: "linear-gradient(135deg,#ff63c1,#b3126f)" }}
+              />
+            </span>
+            <span className="wordmark bg-gradient-to-r from-[#ff63c1] via-[#e0319c] to-[#b3126f] bg-clip-text text-[13px] leading-none text-transparent">
+              grains
+            </span>
+            <span className="text-[11.5px] tabular-nums text-muted/60">
+              · {take.files.length}
+            </span>
+          </button>
+          <span className="w-px self-stretch bg-white/[0.1]" aria-hidden />
+          <button
+            onClick={() => setTake(null)}
+            className="px-3 py-2 text-[12px] text-muted/50 transition hover:bg-white/[0.06] hover:text-foreground active:scale-[.94]"
+            aria-label="Let the grains go"
+            title="Let them go — anything you saved stays saved"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {take && !takeFolded && (
         <div className="pill-pop fixed bottom-4 left-4 z-[18] w-[290px] overflow-hidden rounded-[26px] border border-accent/30 bg-black/45 shadow-[0_24px_80px_-18px_rgba(224,49,156,.6),inset_0_1px_0_rgba(255,255,255,.12)] backdrop-blur-2xl backdrop-saturate-[1.6]">
           {/* the crown — one thread of the hot gradient along the top edge,
               the same pour as every machined object in the house */}
@@ -1634,10 +1681,10 @@ export default function ZaltzIDE({
               </span>
               <span className="flex-1" />
               <button
-                onClick={() => setTake(null)}
+                onClick={() => setTakeFolded(true)}
                 className="-m-1.5 p-1.5 text-[13px] text-muted/60 transition hover:text-foreground active:scale-[.92]"
-                aria-label="Let the grains go"
-                title="Let them go — anything you saved stays saved"
+                aria-label="Put the grains away"
+                title="Put them away — they wait in the corner"
               >
                 ✕
               </button>
