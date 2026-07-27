@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CHANNELS, filterDisplay, type Channel } from "@/lib/set-live";
 import DeckSlider from "./DeckSlider";
 
@@ -201,9 +201,16 @@ export default function ZaltzMixer({
   light: LightDials;
   onLight: (patch: Partial<LightDials>) => void;
 }) {
-  // The tap's shake — the shaker keeps shaking while the desk rises, and only
-  // then hands the circle over to the ✕.
+  // The tap's shake — the shaker keeps shaking while the desk rises.
   const [shaking, setShaking] = useState(false);
+  // FOLDED (user 07-27: "hide the DJ controls from the panel itself"): the
+  // desk's own grabber lays the controller flat — a slim glass bar stays
+  // centre-stage where the desk was, one tap raises it again. The shaker
+  // never learns this verb; a fresh show always opens with the desk up.
+  const [folded, setFolded] = useState(false);
+  useEffect(() => {
+    if (!open) setFolded(false);
+  }, [open]);
   // The light holds are the desk's own (pure view): press remembers the
   // dialled look, release hands it back exactly.
   const [heldLight, setHeldLight] = useState<string | null>(null);
@@ -227,7 +234,24 @@ export default function ZaltzMixer({
           inside the show, where the writing room has stepped aside, so it
           takes the natural DJ position — front and centre, the picture
           burning all around it. Phones keep full width. */}
-      {open && (
+      {open && folded && (
+        /* THE DESK, FOLDED FLAT — the grabber alone stays where the desk
+           was: the universal "something rises from here" object. One tap
+           and the controller is back in your hands. */
+        <button
+          onClick={() => setFolded(false)}
+          aria-label="Raise the desk"
+          title="Raise the desk"
+          className="desk-pour fixed z-20 flex h-7 w-28 items-center justify-center rounded-full border border-white/[0.14] bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,.09)] backdrop-blur-xl backdrop-saturate-[1.6] transition hover:bg-black/50 active:scale-[.96]"
+          style={{
+            left: "calc(50% - 3.5rem)",
+            bottom: "calc(max(0.75rem, env(safe-area-inset-bottom)) + 3.9rem)",
+          }}
+        >
+          <span className="h-1 w-10 rounded-full bg-white/30" />
+        </button>
+      )}
+      {open && !folded && (
         <div
           className="desk-pour fixed inset-x-3 z-20 sm:inset-x-0 sm:mx-auto sm:w-[640px]"
           style={{
@@ -243,7 +267,17 @@ export default function ZaltzMixer({
               picture must pour through it — thin smoke, saturated backdrop
               (same alive-glass law as the panes), machined top highlight.
               The controls carry their own contrast (white/[0.06] pills). */}
-          <div className="h-[440px] max-h-[74dvh] overflow-y-auto rounded-[22px] border border-white/[0.14] bg-black/35 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.09)] backdrop-blur-2xl backdrop-saturate-[1.6] sm:h-[360px] sm:max-h-[56dvh]">
+          <div className="h-[464px] max-h-[78dvh] overflow-y-auto rounded-[22px] border border-white/[0.14] bg-black/35 p-4 pt-1.5 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.09)] backdrop-blur-2xl backdrop-saturate-[1.6] sm:h-[384px] sm:max-h-[60dvh]">
+          {/* THE GRABBER — the sheet's universal fold: tap and the desk lies
+              flat (the picture stays; the bar below raises it again). */}
+          <button
+            onClick={() => setFolded(true)}
+            aria-label="Fold the desk"
+            title="Fold the desk — the picture stays"
+            className="group mb-1 flex w-full items-center justify-center py-1.5"
+          >
+            <span className="h-1 w-10 rounded-full bg-white/20 transition group-hover:bg-white/40" />
+          </button>
           {/* ONE segmented capsule — two equal halves of the same machined
               control, not two loose pills. */}
           <div className="mb-3.5 flex rounded-full bg-white/[0.04] p-1">
@@ -504,7 +538,7 @@ export default function ZaltzMixer({
         }}
         title={
           open
-            ? "Put the desk down — the picture stays"
+            ? "Leave the show — back to the bench (Esc)"
             : "The show — the picture full-on, the desk in hand"
         }
         aria-expanded={open}

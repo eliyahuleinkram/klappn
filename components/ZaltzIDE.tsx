@@ -1891,33 +1891,14 @@ export default function ZaltzIDE({
           fullscreen (desktop; phones have no API and just get the desk). */}
       {(hasVoices || hydra.trim()) && (
         <div className="ide-live contents">
-        {/* The show's one exit object — a quiet glass ✕, top-right, same
-            meaning as Esc. (The shaker toggles the DESK; this leaves the
-            SHOW — two objects, two verbs.) */}
-        {show && (
-          <button
-            onClick={exitShow}
-            title="Leave the show (Esc)"
-            aria-label="Leave the show"
-            className="fixed z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/[0.14] bg-black/35 text-[15px] text-muted/80 shadow-[inset_0_1px_0_rgba(255,255,255,.09)] backdrop-blur-xl backdrop-saturate-[1.6] transition hover:text-foreground active:scale-[.94]"
-            style={{
-              top: "max(0.75rem, env(safe-area-inset-top))",
-              right: "max(0.75rem, env(safe-area-inset-right))",
-            }}
-          >
-            ✕
-          </button>
-        )}
+        {/* ONE object, ONE toggle (user 07-27, fourth steer — the ✕ is dead):
+            the shaker opens the show and the shaker closes it. Wanting the
+            picture without the desk is the DESK's own affair — its grabber
+            folds it flat (ZaltzMixer), the shaker never learns a second
+            verb. Esc stays as the keyboard's word for the same exit. */}
         <ZaltzMixer
           open={mixerOpen}
-          onToggle={() => {
-            if (!mixerOpen) {
-              if (show) setMixerOpen(true); // pick the controller back up
-              else enterShow(); // the door: show + desk in one gesture
-            } else {
-              setMixerOpen(false); // controller down — the picture stays (cinema)
-            }
-          }}
+          onToggle={() => (show ? exitShow() : enterShow())}
           tab={mixerTab}
           onTab={setMixerTab}
           playing={playing}
