@@ -65,14 +65,6 @@ import { ZALTZ_GITHUB_URL } from "@/lib/links";
  * rides onto your email whenever you claim it.
  */
 
-interface Sketch {
-  id: string;
-  title: string;
-  strudel: string;
-  hydra: string;
-  updated_at: string;
-}
-
 interface Me {
   signedIn: boolean;
   poolOpen?: boolean;
@@ -167,10 +159,6 @@ $: note("<[e3,g3,b3] [c3,e3,g3] [g2,b2,d3] [a2,c3,e3]>").s("triangle").attack(2)
 
 const DRAFT_KEY = "zaltz-ide-draft-v1";
 
-/** A bench that still holds a starter byte-for-byte is a DEMO, not work. */
-const isUntouchedStarter = (s: string, h: string, t: string) =>
-  STARTERS.some((p) => p.name === t && p.strudel === s && p.hydra === h);
-
 /** Engine errors arrive as raw JS strings — translate the known classes into
  *  one line a live coder can act on mid-set. The raw text stays in the
  *  tooltip; unknown classes pass through untouched (never hide the truth). */
@@ -263,13 +251,8 @@ export default function ZaltzIDE({
 }) {
   const [strudel, setStrudel] = useState(STARTERS[0].strudel);
   const [hydra, setHydra] = useState(STARTERS[0].hydra);
-  const [title, setTitle] = useState(STARTERS[0].name);
-  const [sketchId, setSketchId] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const [me, setMe] = useState<Me | null>(initialMe);
-  const [sketches, setSketches] = useState<Sketch[]>([]);
 
   // Phones OVERLAY the keyboard — without this the transport (and the ⇥ take
   // pill) vanish behind it the moment a pane focuses.
@@ -310,9 +293,6 @@ export default function ZaltzIDE({
 
 
   const [sheet, setSheet] = useState<null | "tokens" | "signin">(null);
-  // The project switcher — a plain ▾ beside the name (user 07-27: no fancy
-  // noun, just a straightforward way to open old work).
-  const [projOpen, setProjOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<PaneId>("strudel");
   const [sFlash, setSFlash] = useState(0);
   const [hFlash, setHFlash] = useState(0);
@@ -323,12 +303,10 @@ export default function ZaltzIDE({
   const stateRef = useRef({
     strudel,
     hydra,
-    title,
-    sketchId,
     playing,
     visualsLive,
   });
-  stateRef.current = { strudel, hydra, title, sketchId, playing, visualsLive };
+  stateRef.current = { strudel, hydra, playing, visualsLive };
 
   // ── boot / teardown ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -342,47 +320,21 @@ export default function ZaltzIDE({
     } catch {
       /* default on */
     }
-    // Restore the last unsaved bench state, else open on the first starter.
+    // ONE LIVE ROOM (user 07-28: projects/renaming/choosing are gone — the
+    // page IS the piece, always live): the bench restores exactly where you
+    // left it, else opens on the first starter. Nothing to name, nothing to
+    // pick.
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (raw) {
-        const d = JSON.parse(raw) as {
-          strudel?: string;
-          hydra?: string;
-          title?: string;
-          sketchId?: string | null;
-        };
+        const d = JSON.parse(raw) as { strudel?: string; hydra?: string };
         if (typeof d.strudel === "string") setStrudel(scrubLegacyHints(d.strudel));
         if (typeof d.hydra === "string") setHydra(scrubLegacyHints(d.hydra));
-        if (typeof d.title === "string" && d.title) setTitle(d.title);
-        setSketchId(d.sketchId ?? null);
       }
     } catch {
       /* a bad draft never blocks the bench */
     }
-    // Identity first, then the crate — the sketches call is session-gated.
-    void (async () => {
-      await refreshMe();
-      // A RETURNING ACCOUNT LANDS ON A FRESH PROJECT (user 07-27): the boot
-      // starter is first-contact demo material, not the account's work — left
-      // on the bench, its first edit autosaves as yet another "Basement
-      // pressure" grain on every machine and session. A signed-in (non-guest)
-      // visit whose bench is an untouched, unsaved starter opens clean; real
-      // drafts and saved sketches restore exactly as before.
-      const { strudel: s, hydra: h, title: t, sketchId: id } = stateRef.current;
-      if (
-        meRef.current?.signedIn &&
-        !meRef.current.isGuest &&
-        !id &&
-        isUntouchedStarter(s, h, t)
-      ) {
-        setStrudel("");
-        setHydra("");
-        setTitle("untitled");
-        setDirty(false);
-      }
-      await refreshSketches();
-    })();
+    void refreshMe();
     return () => {
       document.body.classList.remove("ide-stage");
       runId.current++;
@@ -413,16 +365,13 @@ export default function ZaltzIDE({
   useEffect(() => {
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(
-          DRAFT_KEY,
-          JSON.stringify({ strudel, hydra, title, sketchId }),
-        );
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ strudel, hydra }));
       } catch {
-        /* storage full/blocked — the DB save still works */
+        /* storage full/blocked — the bench just won't survive a reload */
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [strudel, hydra, title, sketchId]);
+  }, [strudel, hydra]);
 
   useEffect(() => {
     if (!busy) {
@@ -439,20 +388,6 @@ export default function ZaltzIDE({
       if (res.ok) setMe((await res.json()) as Me);
     } catch {
       /* offline — chips degrade */
-    }
-  }
-
-  async function refreshSketches() {
-    // Signed out there is nothing to list — and an uncaught 401 in the console
-    // reads like a broken page to anyone who opens devtools.
-    if (!meRef.current?.signedIn) return;
-    try {
-      const res = await fetch("/api/sketches");
-      if (!res.ok) return;
-      const d = openDeep((await res.json()) as { sketches: Sketch[] });
-      setSketches(d.sketches ?? []);
-    } catch {
-      /* list is cosmetic */
     }
   }
 
@@ -693,8 +628,9 @@ export default function ZaltzIDE({
   transportRef.current = transport;
 
 
-  // ⌘. stops and ⌘S saves from anywhere (not just inside a pane); Esc closes
-  // whatever's open.
+  // ⌘. stops from anywhere (not just inside a pane); Esc closes whatever's
+  // open. ⌘S is swallowed — the bench keeps itself; the browser's save
+  // dialog mid-set would be a jump scare.
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === ".") {
@@ -703,7 +639,6 @@ export default function ZaltzIDE({
         cutTapeRef.current(); // ⌘. is a stop — the tape follows the transport
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "s" || e.key === "S")) {
         e.preventDefault();
-        void saveRef.current();
       } else if (e.key === "Escape") {
         setSheet(null);
       } else if (e.key === " " || e.code === "Space") {
@@ -727,97 +662,11 @@ export default function ZaltzIDE({
     return () => window.removeEventListener("keydown", onKey);
   }, [halt]);
 
-  // ── save / load ────────────────────────────────────────────────────────────
-  // Every edit bumps the rev; a save only marks the bench clean if nothing
-  // landed while it was in flight.
-  const revRef = useRef(0);
-  const markDirty = useCallback(() => {
-    revRef.current++;
-    setDirty(true);
-  }, []);
-
-  const save = useCallback(
-    async (auto = false) => {
-      if (saving) return;
-      // Autosave rides an EXISTING session only; the explicit ⌘S may mint the
-      // guest. (In practice the copilot mints one at the first typing pause,
-      // so autosave engages almost immediately anyway.)
-      if (!meRef.current?.signedIn) {
-        if (auto) return;
-        if (!(await ensureSession())) return;
-      }
-      const rev = revRef.current;
-      setSaving(true);
-      try {
-        const { strudel: s, hydra: h, title: t, sketchId: id } = stateRef.current;
-        // An untouched starter never autosaves — a demo isn't a grain (the
-        // "Basement pressure piles up in the crate" bug). ⌘S still saves.
-        if (auto && !id && isUntouchedStarter(s, h, t)) return;
-        const body = JSON.stringify({ title: t, strudel: s, hydra: h });
-        let res = await fetch(id ? `/api/sketches/${id}` : "/api/sketches", {
-          method: id ? "PATCH" : "POST",
-          headers: { "content-type": "application/json" },
-          body,
-        });
-        // A stale id (another session's sketch, or one deleted elsewhere) 404s —
-        // the work on the bench is still real: save it as a fresh sketch.
-        if (id && res.status === 404) {
-          res = await fetch("/api/sketches", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body,
-          });
-        }
-        const d = openDeep(
-          (await res.json().catch(() => ({}))) as { sketch?: Sketch; error?: string },
-        );
-        if (!res.ok || !d.sketch) {
-          if (!auto) setNotice(d.error || "Couldn't save — try again.");
-          return;
-        }
-        setSketchId(d.sketch.id);
-        if (revRef.current === rev) setDirty(false); // nothing landed mid-save
-        void refreshSketches();
-      } finally {
-        setSaving(false);
-      }
-    },
-    [ensureSession, saving],
-  );
-  const saveRef = useRef(save);
-  saveRef.current = save;
-
-  // AUTOSAVE — there is no Save button; work is simply KEPT. 2.5s after the
-  // last edit the bench writes itself to the crate (create-on-first-save).
-  useEffect(() => {
-    if (!dirty) return;
-    const t = setTimeout(() => void saveRef.current(true), 2500);
-    return () => clearTimeout(t);
-  }, [dirty, strudel, hydra, title]);
-
-  function loadSketch(s: Sketch) {
-    setStrudel(scrubLegacyHints(s.strudel));
-    setHydra(scrubLegacyHints(s.hydra));
-    setTitle(s.title);
-    setSketchId(s.id);
-    setDirty(false);
-    setSheet(null);
-  }
-
-  function newSketch() {
-    setStrudel("");
-    setHydra("");
-    setTitle("untitled");
-    setSketchId(null);
-    setDirty(false);
-    setSheet(null);
-  }
-
-  async function removeSketch(id: string) {
-    setSketches((xs) => xs.filter((x) => x.id !== id));
-    if (stateRef.current.sketchId === id) setSketchId(null);
-    await fetch(`/api/sketches/${id}`, { method: "DELETE" }).catch(() => {});
-  }
+  // (The whole projects apparatus — names, renaming, ＋ New, the saved-grains
+  // crate and its /api/sketches calls — died 2026-07-28, user: "everything is
+  // just on the one page… every time it is live, that is the whole point."
+  // The bench persists itself to localStorage above; the tape ● is how a
+  // moment is kept.)
 
   // ── the copilot (ghost completions) ────────────────────────────────────────
   const requestGhost = useCallback(
@@ -1162,10 +1011,6 @@ export default function ZaltzIDE({
   const [tapeStart, setTapeStart] = useState(0);
   const [tapePrinting, setTapePrinting] = useState(false);
   const [take, setTake] = useState<TakeResult | null>(null);
-  // ✕ FOLDS, NEVER FORGETS (user 07-27: "someone might mistake-click ✕") —
-  // the card collapses to a small glass chip and the grains stay reachable
-  // until a NEW take replaces them. Same law as the desk's grabber.
-  const [takeFolded, setTakeFolded] = useState(false);
   const [, tapeTick] = useState(0);
   useEffect(() => {
     if (!taping) return;
@@ -1192,10 +1037,7 @@ export default function ZaltzIDE({
       setTapePrinting(true);
       const r = await stopTake();
       setTapePrinting(false);
-      if (r && r.files.length) {
-        setTake(r);
-        setTakeFolded(false); // fresh grains always arrive unfolded
-      }
+      if (r && r.files.length) setTake(r);
       else
         setNotice(
           r ? "The room never made a sound — nothing to keep." : "The take was lost mid-grind.",
@@ -1326,7 +1168,6 @@ export default function ZaltzIDE({
     setSiEmail("");
     setNotice("Claimed — everything here is yours forever now.");
     await refreshMe();
-    await refreshSketches();
   }
 
   // ── derived bits ───────────────────────────────────────────────────────────
@@ -1347,13 +1188,11 @@ export default function ZaltzIDE({
   // register first.
   const seedMusic = () => {
     setStrudel(MUSIC_SEED);
-    markDirty();
     setSFlash((f) => f + 1); // you SEE the hint land
     setTimeout(() => strudelPane.current?.summon(), 90);
   };
   const seedVisuals = () => {
     setHydra(VISUALS_SEED);
-    markDirty();
     setHFlash((f) => f + 1);
     setTimeout(() => hydraPane.current?.summon(), 90);
   };
@@ -1392,7 +1231,6 @@ export default function ZaltzIDE({
       }
       if (pane === "hydra") setHydra(fixed);
       else setStrudel(fixed);
-      markDirty();
       (pane === "hydra" ? setHFlash : setSFlash)((f) => f + 1);
       setErr(null);
       // The mend proves itself: re-run the pane it healed.
@@ -1463,94 +1301,10 @@ export default function ZaltzIDE({
             zaltz
           </span>
         </Link>
-        {/* THE NAME IS THE DOOR (user 07-27, the ▾ is dead): one tap on the
-            name opens everything a piece could want — rename it right there,
-            start a new one, or step into a saved grain. One control, three
-            moves, nothing to learn. */}
-        <div className="relative min-w-0 flex-1 sm:flex-none">
-          <button
-            onClick={() => {
-              setProjOpen((o) => !o);
-              if (!projOpen) void refreshSketches();
-            }}
-            title="Rename, start new, or open a saved piece"
-            className={`block w-full max-w-full truncate rounded-xl px-2 py-1 text-left text-[15px] transition sm:w-64 ${
-              projOpen ? "bg-white/[0.05]" : "hover:bg-white/[0.04]"
-            } ${title ? "text-foreground" : "text-muted/40"}`}
-          >
-            {title || "name it"}
-          </button>
-          {projOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setProjOpen(false)}
-                aria-hidden
-              />
-              <div className="absolute left-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
-                {/* The name, editable the moment the door opens — every
-                    keystroke lands live (same autosave as ever); ↵ or Esc
-                    just closes the door. */}
-                <input
-                  autoFocus
-                  value={title}
-                  onChange={(e) => {
-                    setTitle(e.target.value);
-                    markDirty();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === "Escape") setProjOpen(false);
-                  }}
-                  spellCheck={false}
-                  placeholder="name it"
-                  className="mb-1 w-full rounded-lg bg-white/[0.05] px-3 py-2 text-[14px] text-foreground outline-none transition placeholder:text-muted/40 focus:bg-white/[0.08]"
-                />
-                <button
-                  onClick={() => {
-                    newSketch();
-                    setProjOpen(false);
-                  }}
-                  className="block w-full rounded-lg px-3 py-2 text-left text-[14px] text-accent-strong transition hover:bg-accent/[0.08]"
-                >
-                  ＋ New
-                </button>
-                {sketches.length > 0 && <div className="mx-2 my-1 h-px bg-white/[0.06]" />}
-                <ul className="max-h-[46dvh] overflow-y-auto">
-                  {sketches.map((s) => (
-                    <li key={s.id} className="group flex items-center">
-                      <button
-                        onClick={() => {
-                          loadSketch(s);
-                          setProjOpen(false);
-                        }}
-                        className={`min-w-0 flex-1 truncate rounded-lg px-3 py-2 text-left text-[14px] transition hover:bg-white/[0.06] ${
-                          s.id === sketchId ? "text-accent-strong" : "text-foreground/85"
-                        }`}
-                      >
-                        {s.title}
-                      </button>
-                      <button
-                        onClick={() => void removeSketch(s.id)}
-                        className="px-2 py-1 text-[12px] text-muted/40 opacity-0 transition hover:text-red-300 group-hover:opacity-100"
-                        aria-label={`Delete ${s.title}`}
-                      >
-                        ✕
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                {sketches.length === 0 && (
-                  <p className="px-3 py-2 text-[12px] leading-relaxed text-muted/60">
-                    Nothing saved yet — play, and the work keeps itself here.
-                  </p>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-        {/* Desktop: the name is a name, not a runway — fixed width, the air
-            in the middle belongs to the room. */}
-        <span className="hidden flex-1 sm:block" />
+        {/* NO NAME, NO CRATE (user 07-28): the room isn't a document — it's
+            the instrument, live every time. Nothing up here to rename, pick
+            or file; the air in the middle belongs to the room. */}
+        <span className="min-w-0 flex-1" />
         {/* THE TRANSPORT CAPSULE — play and tape are ONE machined object
             (the seam law: one capsule, one hairline). ▶/■ rules the room;
             ● is its tape deck, fused to it because they share one life:
@@ -1740,10 +1494,8 @@ export default function ZaltzIDE({
             onChange={(v) => {
               if (ghost?.pane === "strudel") killGhost();
               setStrudel(v);
-              markDirty();
             }}
             onRun={() => void runMusic()}
-            onSave={() => void save()}
             flash={sFlash}
             pondering={pondering === "strudel" && ghost?.pane !== "strudel"}
             ghost={ghost?.pane === "strudel" ? ghost.text : null}
@@ -1776,10 +1528,8 @@ export default function ZaltzIDE({
             onChange={(v) => {
               if (ghost?.pane === "hydra") killGhost();
               setHydra(v);
-              markDirty();
             }}
             onRun={runVisuals}
-            onSave={() => void save()}
             flash={hFlash}
             pondering={pondering === "hydra" && ghost?.pane !== "hydra"}
             ghost={ghost?.pane === "hydra" ? ghost.text : null}
@@ -1859,74 +1609,92 @@ export default function ZaltzIDE({
       )}
 
 
-      {/* ── the GRAINS card (user 07-27: the take's files ARE grains) — the
-          tape, cut and ground into grains. Every row is a file: the label says what it
-          is, the size says what it weighs, one tap and it's yours. ✕ forgets
-          it (files already saved stay saved). */}
-      {take && takeFolded && (
-        /* THE GRAINS, PUT AWAY — a slim glass chip where the card stood; one
-           tap and they pour back out. A stray ✕ can never lose a take. */
-        <button
-          onClick={() => setTakeFolded(false)}
-          title="The grains — open them back up"
-          className="animate-rise fixed bottom-4 left-4 z-[18] flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-black/35 px-3 py-1.5 text-[11.5px] text-muted/70 shadow-[inset_0_1px_0_rgba(255,255,255,.09)] backdrop-blur-xl backdrop-saturate-[1.6] transition hover:text-accent-strong active:scale-[.96]"
-        >
-          grains
-          <span className="tabular-nums text-muted/50">· {take.files.length}</span>
-        </button>
-      )}
-      {take && !takeFolded && (
-        <div className="animate-rise fixed bottom-4 left-4 z-[18] w-[280px] rounded-3xl border border-accent/25 bg-black/[.88] p-4 shadow-[0_0_60px_-16px_rgba(224,49,156,.55),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
-          <div className="flex items-baseline gap-2">
-            <span className="text-[11.5px] font-semibold uppercase tracking-[0.18em] text-foreground">
-              Grains
-            </span>
-            <span className="text-[12px] tabular-nums text-muted">{fmtClock(take.seconds)}</span>
-            <span className="flex-1" />
-            <button
-              onClick={() => setTakeFolded(true)}
-              className="text-[12px] text-muted/60 transition hover:text-foreground"
-              aria-label="Put the grains away"
-              title="Put the grains away — the chip brings them back"
-            >
-              ✕
-            </button>
-          </div>
-          <ul className="mt-2.5 space-y-1">
-            {take.files.map((f) => (
-              <li key={f.name}>
-                <button
-                  onClick={() => saveTakeFile(f)}
-                  className="group flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition hover:bg-white/[0.06] active:scale-[.99]"
-                  title={`Save ${f.filename}`}
-                >
-                  <span
-                    className={`min-w-0 flex-1 truncate text-[13px] ${
-                      f.kind === "stem" ? "text-foreground/85" : "font-medium text-foreground"
-                    }`}
+      {/* ── the GRAINS card (user 07-28: "it must fuck") — the tape, cut and
+          ground into grains, presented like something machined: the house
+          gradient poured along the crown, thin smoke over the live picture,
+          the master on top of the pour. Every row is a file — the label says
+          what it is, the size what it weighs, one tap and it's yours. ✕ LETS
+          THEM GO (user 07-28: they must not squat in the corner) — the card
+          leaves; anything already saved stays saved. */}
+      {take && (
+        <div className="pill-pop fixed bottom-4 left-4 z-[18] w-[290px] overflow-hidden rounded-[26px] border border-accent/30 bg-black/45 shadow-[0_24px_80px_-18px_rgba(224,49,156,.6),inset_0_1px_0_rgba(255,255,255,.12)] backdrop-blur-2xl backdrop-saturate-[1.6]">
+          {/* the crown — one thread of the hot gradient along the top edge,
+              the same pour as every machined object in the house */}
+          <span
+            aria-hidden
+            className="block h-[2px] w-full bg-gradient-to-r from-[#ff63c1] via-[#e0319c] to-[#b3126f] opacity-90"
+          />
+          <div className="p-4">
+            <div className="flex items-baseline gap-2">
+              <span className="wordmark bg-gradient-to-r from-[#ff63c1] via-[#e0319c] to-[#b3126f] bg-clip-text text-[17px] leading-none text-transparent">
+                grains
+              </span>
+              <span className="text-[12px] tabular-nums text-muted/80">
+                {fmtClock(take.seconds)}
+              </span>
+              <span className="flex-1" />
+              <button
+                onClick={() => setTake(null)}
+                className="-m-1.5 p-1.5 text-[13px] text-muted/60 transition hover:text-foreground active:scale-[.92]"
+                aria-label="Let the grains go"
+                title="Let them go — anything you saved stays saved"
+              >
+                ✕
+              </button>
+            </div>
+            <ul className="mt-3 space-y-0.5">
+              {take.files.map((f) => (
+                <li key={f.name}>
+                  <button
+                    onClick={() => saveTakeFile(f)}
+                    className="group flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition hover:bg-accent/[0.09] active:scale-[.99]"
+                    title={`Save ${f.filename}`}
                   >
-                    {f.label}
-                  </span>
-                  <span className="shrink-0 text-[11px] tabular-nums text-muted/60">
-                    {fmtMB(f.bytes)}
-                  </span>
-                  <span className="shrink-0 text-[13px] text-muted/50 transition group-hover:text-accent-strong">
-                    ⤓
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {take.files.length > 1 && (
-            <button
-              onClick={() =>
-                take.files.forEach((f, i) => setTimeout(() => saveTakeFile(f), i * 350))
-              }
-              className="mt-2 w-full rounded-full bg-white/[0.06] px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-white/[0.1] active:scale-[.98]"
-            >
-              ⤓ every file
-            </button>
-          )}
+                    {/* the grain itself — a speck of the pour; the stems'
+                        specks sit quieter than the master's */}
+                    <span
+                      className={`h-[7px] w-[7px] shrink-0 rounded-full transition ${
+                        f.kind === "stem"
+                          ? "bg-white/25 group-hover:bg-accent/70"
+                          : "shadow-[0_0_10px_rgba(224,49,156,.8)]"
+                      }`}
+                      style={
+                        f.kind === "stem"
+                          ? undefined
+                          : { backgroundImage: "linear-gradient(135deg,#ff63c1,#b3126f)" }
+                      }
+                      aria-hidden
+                    />
+                    <span
+                      className={`min-w-0 flex-1 truncate text-[13px] ${
+                        f.kind === "stem"
+                          ? "text-foreground/80"
+                          : "font-semibold tracking-wide text-foreground"
+                      }`}
+                    >
+                      {f.label}
+                    </span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted/55">
+                      {fmtMB(f.bytes)}
+                    </span>
+                    <span className="shrink-0 text-[13px] text-muted/45 transition group-hover:text-accent-strong">
+                      ⤓
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {take.files.length > 1 && (
+              <button
+                onClick={() =>
+                  take.files.forEach((f, i) => setTimeout(() => saveTakeFile(f), i * 350))
+                }
+                className="btn-primary mt-3 w-full rounded-full px-3 py-2 text-[13px] font-medium transition active:scale-[.98]"
+              >
+                ⤓ every grain
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -2103,7 +1871,7 @@ export default function ZaltzIDE({
                       <span className="text-foreground/85">
                         Everything you&apos;ve made here becomes yours forever
                       </span>{" "}
-                      — sketches, tokens, all of it, on any machine.
+                      — your tokens, all of it, on any machine.
                     </p>
                     <form onSubmit={sendCode} className="mt-3 flex gap-2">
                       <input
