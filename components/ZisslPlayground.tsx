@@ -18,9 +18,7 @@ import { useEffect, useRef, useState } from "react";
 const PRESETS: { name: string; code: string }[] = [
   {
     name: "swarm",
-    code: `// one MILLION agents on compute shaders — sensing the picture,
-// steering toward light, drawing living filaments over it.
-// WebGL Hydra has no compute; this is the new machine talking.
+    code: `// one million agents on compute — the part WebGL never had
 osc(6, 0.08, 1.4).kaleid(5).rotate(0, 0.02).out(o0);
 swarm(1000000, o0, 1.4, 1.6)
   .color(0.45, 0.8, 1.5)
@@ -75,6 +73,9 @@ export default function ZisslPlayground() {
   const [err, setErr] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [noGpu, setNoGpu] = useState(false);
+  // Phones open with the editor tucked away — the picture is the show; the
+  // `code` pill unfolds it. Desktop's rail always shows it (md:block).
+  const [codeOpen, setCodeOpen] = useState(false);
   const codeRef = useRef(code);
   codeRef.current = code;
 
@@ -95,8 +96,8 @@ export default function ZisslPlayground() {
         // ordinary retina fullscreens, proportional on cinema displays.
         const dims = () => {
           const s = Math.min(window.devicePixelRatio || 1, 2);
-          let w = Math.max(640, window.innerWidth * s);
-          let h = Math.max(360, window.innerHeight * s);
+          const w = Math.max(640, window.innerWidth * s);
+          const h = Math.max(360, window.innerHeight * s);
           const k = Math.min(1, Math.sqrt((3456 * 2160) / (w * h)));
           return { w: Math.floor(w * k), h: Math.floor(h * k) };
         };
@@ -215,7 +216,7 @@ export default function ZisslPlayground() {
                   }
                 }}
                 spellCheck={false}
-                className="mt-3 h-[30vh] min-h-[120px] w-full flex-none resize-none rounded-lg border border-[#7c63ff]/15 bg-black/40 p-3 text-[12.5px] leading-[1.55] text-[#e8e6f2] outline-none focus:border-[#7c63ff]/40 md:h-auto md:flex-1 md:text-[13px]"
+                className={`mt-3 h-[19vh] min-h-[110px] w-full flex-none resize-none rounded-lg border border-[#7c63ff]/15 bg-black/40 p-3 text-[12.5px] leading-[1.55] text-[#e8e6f2] outline-none focus:border-[#7c63ff]/40 md:block md:h-auto md:flex-1 md:text-[13px] ${codeOpen ? "" : "hidden"}`}
                 style={{ tabSize: 2 }}
               />
 
@@ -227,7 +228,13 @@ export default function ZisslPlayground() {
                 >
                   run
                 </button>
-                <span className="text-[11px] text-[#6f6a85]">⌘⏎ runs it</span>
+                <button
+                  onClick={() => setCodeOpen((v) => !v)}
+                  className="rounded-lg border border-[#7c63ff]/40 px-4 py-2 text-[#a89ee0] transition-colors hover:bg-[#7c63ff]/10 md:hidden"
+                >
+                  {codeOpen ? "hide code" : "code"}
+                </button>
+                <span className="hidden text-[11px] text-[#6f6a85] md:inline">⌘⏎ runs it</span>
                 {!ready && !noGpu && <span className="ml-auto text-[11px] text-[#6f6a85]">warming the device…</span>}
               </div>
               {err && (
@@ -237,14 +244,23 @@ export default function ZisslPlayground() {
           )}
 
           <div className="mt-4 border-t border-[#7c63ff]/12 pt-3 text-[11px] leading-relaxed text-[#6f6a85] md:mt-auto">
-            One file of WGSL. Every Hydra source and transform — 55/55 sketches
-            pixel-identical to hydra-synth, 52 bit-exact. H() locked to
-            Strudel&apos;s clock, and a million-agent swarm the old machine
-            could never run. The same package paints{" "}
-            <a href="https://klappn.com" className={link}>
-              klappn.com
-            </a>{" "}
-            behind the scenes.{" "}
+            <span className="hidden md:inline">
+              One file of WGSL. Every Hydra source and transform — 55/55
+              sketches pixel-identical to hydra-synth, 52 bit-exact. H() locked
+              to Strudel&apos;s clock, and a million-agent swarm the old
+              machine could never run. The same package paints{" "}
+              <a href="https://klappn.com" className={link}>
+                klappn.com
+              </a>{" "}
+              behind the scenes.{" "}
+            </span>
+            <span className="md:hidden">
+              55/55 pixel-identical to hydra-synth · paints{" "}
+              <a href="https://klappn.com" className={link}>
+                klappn.com
+              </a>{" "}
+              ·{" "}
+            </span>
             <a href="https://github.com/eliyahuleinkram/zissl" className={link}>
               AGPL, on GitHub
             </a>
