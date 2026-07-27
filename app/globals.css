@@ -173,6 +173,32 @@ body::before {
   }
 }
 
+/* The mixer desk POURS out of the shaker's corner — anchored bottom-right,
+   a fast rise with one soft overshoot, like something shaken loose. */
+@keyframes desk-pour {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.88);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(-5px) scale(1.012);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.desk-pour {
+  animation: desk-pour 0.42s cubic-bezier(0.22, 1.15, 0.36, 1) both;
+  transform-origin: 100% 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .desk-pour {
+    animation: none;
+  }
+}
+
 /* Faint film grain over the whole canvas — gives the dark "tooth" and depth.
    Behind all content, never visible as noise, never intercepts clicks. */
 body::after {

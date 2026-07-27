@@ -166,6 +166,10 @@ $: note("<[e3,g3,b3] [c3,e3,g3] [g2,b2,d3] [a2,c3,e3]>").s("triangle").attack(2)
 
 const DRAFT_KEY = "zaltz-ide-draft-v1";
 
+/** A bench that still holds a starter byte-for-byte is a DEMO, not work. */
+const isUntouchedStarter = (s: string, h: string, t: string) =>
+  STARTERS.some((p) => p.name === t && p.strudel === s && p.hydra === h);
+
 /** Engine errors arrive as raw JS strings — translate the known classes into
  *  one line a live coder can act on mid-set. The raw text stays in the
  *  tooltip; unknown classes pass through untouched (never hide the truth). */
@@ -187,13 +191,13 @@ function humanizeEngineError(raw: string): string {
 // (The deck's pads, gradient and dial grid live in components/ZaltzMixer —
 // this file keeps only the wiring they pull on.)
 
-/** SALTBAE's mark — one bold spark (the sign everyone reads as "AI") shedding
- *  two grains of salt: the house's copilot in a single glance. Gradient id is
- *  per-instance (useId — the shared-id/display:none trap left the mobile twin
+/** The Copilot's mark — one bold spark, the sign everyone reads as "AI"
+ *  (the same ✦ that fronts the fix chip). Gradient id is per-instance
+ *  (useId — the shared-id/display:none trap left the mobile twin
  *  unpainted once). */
-function SaltbaeMark({ on }: { on: boolean }) {
+function CopilotMark({ on }: { on: boolean }) {
   const uid = useId();
-  const grad = `saltbae-${uid.replace(/[^a-zA-Z0-9]/g, "")}`;
+  const grad = `copilot-${uid.replace(/[^a-zA-Z0-9]/g, "")}`;
   const fill = on ? `url(#${grad})` : "currentColor";
   return (
     <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] shrink-0" aria-hidden>
@@ -205,12 +209,10 @@ function SaltbaeMark({ on }: { on: boolean }) {
         </linearGradient>
       </defs>
       <path
-        d="M11 2 C12.2 7.6 14.4 9.8 20 11 C14.4 12.2 12.2 14.4 11 20 C9.8 14.4 7.6 12.2 2 11 C7.6 9.8 9.8 7.6 11 2 Z"
+        d="M12 3 C13.2 8.6 15.4 10.8 21 12 C15.4 13.2 13.2 15.4 12 21 C10.8 15.4 8.6 13.2 3 12 C8.6 10.8 10.8 8.6 12 3 Z"
         fill={fill}
         opacity={on ? 1 : 0.55}
       />
-      <circle cx="17.6" cy="17.2" r="1.1" fill={fill} opacity={on ? 0.8 : 0.45} />
-      <circle cx="20.2" cy="20.6" r="0.9" fill={fill} opacity={on ? 0.55 : 0.3} />
     </svg>
   );
 }
@@ -258,6 +260,7 @@ export default function ZaltzIDE({
   const touch = useIsMobile("(pointer: coarse)");
 
   const [playing, setPlaying] = useState(false);
+  const [visualsLive, setVisualsLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [waking, setWaking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -304,8 +307,9 @@ export default function ZaltzIDE({
     title,
     sketchId,
     playing,
+    visualsLive,
   });
-  stateRef.current = { strudel, hydra, title, sketchId, playing };
+  stateRef.current = { strudel, hydra, title, sketchId, playing, visualsLive };
 
   // ── boot / teardown ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -340,6 +344,24 @@ export default function ZaltzIDE({
     // Identity first, then the crate — the sketches call is session-gated.
     void (async () => {
       await refreshMe();
+      // A RETURNING ACCOUNT LANDS ON A FRESH PROJECT (user 07-27): the boot
+      // starter is first-contact demo material, not the account's work — left
+      // on the bench, its first edit autosaves as yet another "Basement
+      // pressure" grain on every machine and session. A signed-in (non-guest)
+      // visit whose bench is an untouched, unsaved starter opens clean; real
+      // drafts and saved sketches restore exactly as before.
+      const { strudel: s, hydra: h, title: t, sketchId: id } = stateRef.current;
+      if (
+        meRef.current?.signedIn &&
+        !meRef.current.isGuest &&
+        !id &&
+        isUntouchedStarter(s, h, t)
+      ) {
+        setStrudel("");
+        setHydra("");
+        setTitle("untitled");
+        setDirty(false);
+      }
       await refreshSketches();
     })();
     return () => {
@@ -442,7 +464,7 @@ export default function ZaltzIDE({
   }, []);
 
   // ── play / eval ────────────────────────────────────────────────────────────
-  const runMusic = useCallback(async () => {
+  const runMusic = useCallback(async (auto = false) => {
     const { strudel: code, hydra: sketch } = stateRef.current;
     if (!code.trim()) {
       // No music yet — let the pane speak for itself; run visuals if present.
@@ -457,8 +479,14 @@ export default function ZaltzIDE({
     setBusy(true);
     setErr(null);
     setSFlash((f) => f + 1);
-    ghostSeq.current++;
-    setGhost(null); // the send outranks any whisper
+    // An EXPLICIT send outranks any whisper — but the live room's own
+    // auto re-eval must never touch the ghost: it fires 100ms after the
+    // ghost cue on every typing pause, and killing here would silence the
+    // copilot for as long as the music plays.
+    if (!auto) {
+      ghostSeq.current++;
+      setGhost(null);
+    }
     try {
       // THE DECK'S ROUTING, applied at play time only — the pane's code is
       // never touched. Every layer lands on its channel's orbit decade, so
@@ -482,6 +510,7 @@ export default function ZaltzIDE({
         return;
       }
       setPlaying(true);
+      lastMusicRun.current = code;
       // The deck's posture survives every re-eval: kills back on their buses,
       // perf dials back on the master chain.
       try {
@@ -511,7 +540,6 @@ export default function ZaltzIDE({
   // The visuals get their own transport too (user 07-27: "hydra should also
   // have a stop") — run paints, stop goes dark; either always re-arms the
   // global visuals gate first so a stop never sticks.
-  const [visualsLive, setVisualsLive] = useState(false);
   const runVisuals = useCallback(() => {
     const { hydra: sketch, playing: live } = stateRef.current;
     setErr(null);
@@ -526,6 +554,7 @@ export default function ZaltzIDE({
     if (live) void updateVisuals(program);
     else void startIdleVisual(program);
     setVisualsLive(true);
+    lastVisualRun.current = sketch;
   }, []);
   const stopVisuals = useCallback(() => {
     try {
@@ -546,6 +575,69 @@ export default function ZaltzIDE({
     setPlaying(false);
     setBusy(false);
   }, []);
+
+  // ── THE LIVE ROOM (user 07-27) ────────────────────────────────────────────
+  // While the transport is on, the code IS the mix: every edit — adds and
+  // deletes alike — lands by itself, a breath after the last keystroke. Gated
+  // on a clean static pass so half-typed lines never reach the engine (the
+  // pane just waits for the sentence to finish), and riding the same seamless
+  // swap as ⌘↵, so the set never restarts. An emptied pane is a move too:
+  // no music code = silence, no hydra code = dark.
+  const lastMusicRun = useRef<string | null>(null);
+  const lastVisualRun = useRef<string | null>(null);
+  useEffect(() => {
+    // Gated on the whole transport, not just the music half: an emptied pane
+    // that went silent comes back the moment real code returns, and typing a
+    // beat into a room that's only painting brings the sound in too.
+    if (!(playing || visualsLive) || busy) return;
+    if (strudel === lastMusicRun.current) return;
+    const t = setTimeout(async () => {
+      const code = stateRef.current.strudel;
+      if (code === lastMusicRun.current) return; // a take already landed it
+      if (!code.trim()) {
+        lastMusicRun.current = code;
+        // Silence is what the empty pane says — but only if music was sounding
+        // (halt on a visuals-only room would be a no-op churn).
+        if (stateRef.current.playing) halt();
+        return;
+      }
+      try {
+        // Syntax ONLY — the generation pipeline's full validator also polices
+        // sound names and audibility, which would silently refuse live edits
+        // the engine plays fine. Here the only question is "can this eval?";
+        // everything else is the error chip's job.
+        const { parse } = await import("acorn");
+        parse(code, { ecmaVersion: 2022, sourceType: "module" });
+      } catch {
+        return; // mid-sentence — wait for the line to finish
+      }
+      if (stateRef.current.strudel !== code) return; // superseded by typing
+      void runMusic(true);
+    }, 700);
+    return () => clearTimeout(t);
+  }, [strudel, playing, visualsLive, busy, runMusic, halt]);
+  useEffect(() => {
+    if (!(playing || visualsLive)) return;
+    if (hydra === lastVisualRun.current) return;
+    const t = setTimeout(async () => {
+      const sketch = stateRef.current.hydra;
+      if (sketch === lastVisualRun.current) return;
+      if (!sketch.trim()) {
+        lastVisualRun.current = sketch;
+        if (stateRef.current.visualsLive) stopVisuals(); // emptied = dark
+        return;
+      }
+      try {
+        const { hydraServerErrors } = await import("@/lib/hydra-eval");
+        if (hydraServerErrors(sketch).length) return; // mid-sentence — wait
+      } catch {
+        /* gate falls to the engine */
+      }
+      if (stateRef.current.hydra !== sketch) return;
+      runVisuals();
+    }, 700);
+    return () => clearTimeout(t);
+  }, [hydra, playing, visualsLive, runVisuals, stopVisuals]);
 
   // THE TRANSPORT — one ▶/■ in the top bar for the WHOLE room (user 07-27:
   // music and picture play and stop together; per-pane transport is gone).
@@ -621,6 +713,9 @@ export default function ZaltzIDE({
       setSaving(true);
       try {
         const { strudel: s, hydra: h, title: t, sketchId: id } = stateRef.current;
+        // An untouched starter never autosaves — a demo isn't a grain (the
+        // "Basement pressure piles up in the crate" bug). ⌘S still saves.
+        if (auto && !id && isUntouchedStarter(s, h, t)) return;
         const body = JSON.stringify({ title: t, strudel: s, hydra: h });
         let res = await fetch(id ? `/api/sketches/${id}` : "/api/sketches", {
           method: id ? "PATCH" : "POST",
@@ -668,15 +763,6 @@ export default function ZaltzIDE({
     setHydra(scrubLegacyHints(s.hydra));
     setTitle(s.title);
     setSketchId(s.id);
-    setDirty(false);
-    setSheet(null);
-  }
-
-  function loadStarter(p: (typeof STARTERS)[number]) {
-    setStrudel(p.strudel);
-    setHydra(p.hydra);
-    setTitle(p.name);
-    setSketchId(null);
     setDirty(false);
     setSheet(null);
   }
@@ -935,7 +1021,7 @@ export default function ZaltzIDE({
     // Key rides the CODE — re-eval a beat after the finger settles (crossfade).
     if (stateRef.current.playing) {
       if (keyReeval.current) clearTimeout(keyReeval.current);
-      keyReeval.current = setTimeout(() => void runMusic(), 350);
+      keyReeval.current = setTimeout(() => void runMusic(true), 350);
     }
   };
   const padDown = (name: string, patch: Partial<typeof perf>) => {
@@ -1265,33 +1351,22 @@ export default function ZaltzIDE({
             zaltz
           </span>
         </Link>
-        <input
-          value={title}
-          onChange={(e) => {
-            setTitle(e.target.value);
-            markDirty();
-          }}
-          spellCheck={false}
-          className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-1 text-[15px] text-foreground outline-none transition placeholder:text-muted/40 hover:bg-white/[0.04] focus:bg-white/[0.05] sm:w-64 sm:flex-none"
-          placeholder="name it"
-        />
-        {/* ▾ — the project switcher lives WITH the name it switches: your
-            saved pieces and a ＋ New, nothing to learn. */}
-        <div className="relative shrink-0">
+        {/* THE NAME IS THE DOOR (user 07-27, the ▾ is dead): one tap on the
+            name opens everything a piece could want — rename it right there,
+            start a new one, or step into a saved grain. One control, three
+            moves, nothing to learn. */}
+        <div className="relative min-w-0 flex-1 sm:flex-none">
           <button
             onClick={() => {
               setProjOpen((o) => !o);
               if (!projOpen) void refreshSketches();
             }}
-            title="Your saved pieces"
-            aria-label="Open a saved piece"
-            className={`flex h-8 w-8 items-center justify-center rounded-full text-[12px] transition ${
-              projOpen
-                ? "bg-accent/[0.14] text-accent-strong"
-                : "bg-white/[0.05] text-muted/60 hover:text-foreground"
-            }`}
+            title="Rename, start new, or open a saved piece"
+            className={`block w-full max-w-full truncate rounded-xl px-2 py-1 text-left text-[15px] transition sm:w-64 ${
+              projOpen ? "bg-white/[0.05]" : "hover:bg-white/[0.04]"
+            } ${title ? "text-foreground" : "text-muted/40"}`}
           >
-            ▾
+            {title || "name it"}
           </button>
           {projOpen && (
             <>
@@ -1300,7 +1375,24 @@ export default function ZaltzIDE({
                 onClick={() => setProjOpen(false)}
                 aria-hidden
               />
-              <div className="absolute left-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+              <div className="absolute left-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+                {/* The name, editable the moment the door opens — every
+                    keystroke lands live (same autosave as ever); ↵ or Esc
+                    just closes the door. */}
+                <input
+                  autoFocus
+                  value={title}
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    markDirty();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === "Escape") setProjOpen(false);
+                  }}
+                  spellCheck={false}
+                  placeholder="name it"
+                  className="mb-1 w-full rounded-lg bg-white/[0.05] px-3 py-2 text-[14px] text-foreground outline-none transition placeholder:text-muted/40 focus:bg-white/[0.08]"
+                />
                 <button
                   onClick={() => {
                     newSketch();
@@ -1373,9 +1465,9 @@ export default function ZaltzIDE({
               ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
               : "bg-white/[0.05] text-muted/60 hover:text-foreground"
           }`}
-          title="Saltbae, your AI copilot — ghosts as you type: ⇥ takes them, ⌥\ summons one, Esc bins them"
+          title="Copilot — ghosts as you type: ⇥ takes them, ⌥\ summons one, Esc bins them"
         >
-          <SaltbaeMark on={copilot} />Saltbae</button>
+          <CopilotMark on={copilot} />Copilot</button>
         {/* (The Grains pill is gone — saved work now lives in the ▾ beside
             the name, where a project switcher belongs.) */}
         {/* ⛶ — plain and whole: the page, furniture and all, goes fullscreen
@@ -1433,7 +1525,7 @@ export default function ZaltzIDE({
               : "bg-white/[0.05] text-muted/60"
           }`}
         >
-          <SaltbaeMark on={copilot} />Saltbae</button>
+          <CopilotMark on={copilot} />Copilot</button>
       </div>
 
       {/* ── the panes (all gone in solo — the picture alone) ────────────── */}

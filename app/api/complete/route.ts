@@ -71,22 +71,20 @@ export async function POST(req: Request) {
   );
   const sink = makeCallSink();
   try {
-    // SONNET 5 (2026-07-26 return, user: "as fast and as cheap as possible"):
-    // 0.6× Opus's rate — billed to the user at Sonnet's own rate via
-    // MODEL_COST_FACTOR — and snappier no-thinking latency. The wrong-ghost
-    // era that forced Opus predates the gate as it stands now (differential
-    // validation, chain-after-.out() rule, newline salvage, repair pass) —
-    // a bad ghost dies server-side instead of shipping.
+    // OPUS 5, thinking off (2026-07-27, launch call): ghost quality over
+    // pennies — billed at Opus's own rate via MODEL_COST_FACTOR. Thinking
+    // stays off; the tight cap keeps latency in ghost territory.
     const cfg = {
-      model: "sonnet",
+      model: "opus",
       onUsage: (t: number) => void addTokenUsage(userId, t),
       onCall: sink.onCall,
     };
     // NO fast mode (2× price for 2.5× tok/s — not worth it here): thinking-off
-    // + a tight cap IS the latency lever; a ghost is ~3 lines, 300 tokens is roomy.
+    // + a tight cap IS the latency lever. 400 gives a ~6-line ghost real room —
+    // a cap-truncated ghost only dies at the gate AFTER burning a repair pass.
     const opts = {
       thinking: false,
-      maxTokens: 300,
+      maxTokens: 400,
       ...(stable ? { cacheStable: stable } : {}),
     } as const;
     let ghost = cleanCompletion(

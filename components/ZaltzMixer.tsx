@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CHANNELS, filterDisplay, type Channel } from "@/lib/set-live";
 import DeckSlider from "./DeckSlider";
 
@@ -94,6 +94,70 @@ const PADS: { name: string; hint: string; patch: Partial<PerfDials> }[] = [
   { name: "WASH", hint: "drown it", patch: { space: 0.55, echo: 0.25 } },
 ];
 
+/** The light desk's own momentary throws — same grammar as the sound holds:
+ *  press and the room changes, let go and it snaps back. All of them ride the
+ *  existing CSS-filter dials, so release restores the dialled look exactly. */
+const LIGHT_PADS: { name: string; hint: string; patch: Partial<LightDials> }[] = [
+  { name: "CUT", hint: "lights out", patch: { bright: 0 } },
+  { name: "XRAY", hint: "negative", patch: { invert: 1 } },
+  { name: "SMEAR", hint: "wet glass", patch: { blur: 7 } },
+  { name: "BLEACH", hint: "overexpose", patch: { bright: 1.8, sat: 0.25 } },
+];
+
+/** One momentary pad — the desk's shared hold control (sound and light wear
+ *  the same button; lit = the hot gradient, always). */
+function HoldPad({
+  name,
+  hint,
+  held,
+  onDown,
+  onUp,
+}: {
+  name: string;
+  hint: string;
+  held: boolean;
+  onDown: () => void;
+  onUp: () => void;
+}) {
+  return (
+    <button
+      onPointerDown={onDown}
+      onPointerUp={onUp}
+      onPointerLeave={() => held && onUp()}
+      onPointerCancel={onUp}
+      onContextMenu={(e) => e.preventDefault()}
+      title="Hold — release to snap back"
+      className={`flex h-11 select-none flex-col items-center justify-center rounded-2xl transition ${
+        held ? "text-white" : "bg-white/[0.04] hover:bg-white/[0.08]"
+      }`}
+      style={{
+        touchAction: "none",
+        ...(held
+          ? {
+              backgroundImage: HOT_GRADIENT,
+              boxShadow: "0 0 30px -8px rgba(224,49,156,0.9)",
+            }
+          : {}),
+      }}
+    >
+      <span
+        className={`text-[11px] font-medium tracking-[0.12em] ${
+          held ? "text-white" : "text-foreground/85"
+        }`}
+      >
+        {name}
+      </span>
+      <span
+        className={`max-w-full overflow-hidden whitespace-nowrap px-1 text-[8px] uppercase tracking-[0.08em] sm:text-[9px] sm:tracking-[0.14em] ${
+          held ? "text-white/70" : "text-muted/45"
+        }`}
+      >
+        hold · {hint}
+      </span>
+    </button>
+  );
+}
+
 export default function ZaltzMixer({
   open,
   onToggle,
@@ -140,20 +204,40 @@ export default function ZaltzMixer({
   // The tap's shake — the shaker keeps shaking while the desk rises, and only
   // then hands the circle over to the ✕.
   const [shaking, setShaking] = useState(false);
+  // The light holds are the desk's own (pure view): press remembers the
+  // dialled look, release hands it back exactly.
+  const [heldLight, setHeldLight] = useState<string | null>(null);
+  const prevLight = useRef<LightDials | null>(null);
+  const lightPadDown = (name: string, patch: Partial<LightDials>) => {
+    if (!prevLight.current) prevLight.current = { ...light };
+    setHeldLight(name);
+    onLight(patch);
+  };
+  const lightPadUp = () => {
+    setHeldLight(null);
+    if (prevLight.current) {
+      onLight(prevLight.current);
+      prevLight.current = null;
+    }
+  };
   return (
     <>
       {/* THE DESK — a glass slab floating up from the shaker's corner (user
           07-27: the panes own the floor now; the mixer rises over them). */}
       {open && (
         <div
-          className="animate-rise fixed inset-x-3 z-20 sm:inset-x-auto sm:right-4 sm:w-[620px]"
+          className="desk-pour fixed inset-x-3 z-20 sm:inset-x-auto sm:right-4 sm:w-[620px]"
           style={{
             bottom: "calc(max(0.75rem, env(safe-area-inset-bottom)) + 3.9rem)",
           }}
         >
           {/* FIXED height — Sound and Visual are the same size slab, so the
               tab switch never jolts the glass (user 07-27: "feels glitchy"). */}
-          <div className="h-[360px] max-h-[56dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/80 to-black/60 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl">
+          {/* Taller on the phone so every control is IN VIEW — a desk you
+              scroll isn't a desk (user 07-27); desktop keeps its 360. And the
+              glass is smoked darker (same user pass): a mixing desk is a
+              solid thing — the room glows through its edges, not its face. */}
+          <div className="h-[440px] max-h-[74dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/[0.93] to-black/[0.85] p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl sm:h-[360px] sm:max-h-[56dvh]">
           {/* ONE segmented capsule — two equal halves of the same machined
               control, not two loose pills. */}
           <div className="mb-3.5 flex rounded-full bg-white/[0.04] p-1">
@@ -210,44 +294,14 @@ export default function ZaltzMixer({
               </div>
               <div className="grid grid-cols-4 gap-1.5">
                 {PADS.map((pad) => (
-                  <button
+                  <HoldPad
                     key={pad.name}
-                    onPointerDown={() => onPadDown(pad.name, pad.patch)}
-                    onPointerUp={onPadUp}
-                    onPointerLeave={() => heldPad === pad.name && onPadUp()}
-                    onPointerCancel={onPadUp}
-                    onContextMenu={(e) => e.preventDefault()}
-                    title="Hold — release to snap back"
-                    className={`flex h-11 select-none flex-col items-center justify-center rounded-2xl transition ${
-                      heldPad === pad.name
-                        ? "text-white"
-                        : "bg-white/[0.04] hover:bg-white/[0.08]"
-                    }`}
-                    style={{
-                      touchAction: "none",
-                      ...(heldPad === pad.name
-                        ? {
-                            backgroundImage: HOT_GRADIENT,
-                            boxShadow: "0 0 30px -8px rgba(224,49,156,0.9)",
-                          }
-                        : {}),
-                    }}
-                  >
-                    <span
-                      className={`text-[11px] font-medium tracking-[0.12em] ${
-                        heldPad === pad.name ? "text-white" : "text-foreground/85"
-                      }`}
-                    >
-                      {pad.name}
-                    </span>
-                    <span
-                      className={`max-w-full overflow-hidden whitespace-nowrap px-1 text-[8px] uppercase tracking-[0.08em] sm:text-[9px] sm:tracking-[0.14em] ${
-                        heldPad === pad.name ? "text-white/70" : "text-muted/45"
-                      }`}
-                    >
-                      hold · {pad.hint}
-                    </span>
-                  </button>
+                    name={pad.name}
+                    hint={pad.hint}
+                    held={heldPad === pad.name}
+                    onDown={() => onPadDown(pad.name, pad.patch)}
+                    onUp={onPadUp}
+                  />
                 ))}
               </div>
               {/* the dials — the deck's grid: whispered label, mono readout,
@@ -347,14 +401,31 @@ export default function ZaltzMixer({
               </div>
             </>
           ) : (
-            // VISUAL — six dials given the whole slab: vertically centred with
-            // generous air, so the fixed height reads as intention, not
-            // emptiness.
+            // VISUAL — the light desk speaks the sound desk's grammar: a row
+            // of momentary holds up top (press changes the room, release
+            // hands the dialled look straight back), then the six dials with
+            // the rest of the slab's air.
             <div className="flex h-[calc(100%-3.25rem)] flex-col">
+              <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
+                holds
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {LIGHT_PADS.map((pad) => (
+                  <HoldPad
+                    key={pad.name}
+                    name={pad.name}
+                    hint={pad.hint}
+                    held={heldLight === pad.name}
+                    onDown={() => lightPadDown(pad.name, pad.patch)}
+                    onUp={lightPadUp}
+                  />
+                ))}
+              </div>
+              <div className="flex flex-1 flex-col justify-center">
               <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
                 dials
               </div>
-              <div className="grid flex-1 grid-cols-2 content-center gap-x-5 gap-y-8 sm:grid-cols-3 sm:gap-x-6">
+              <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3 sm:gap-x-6">
               <DeckSlider
                 label="Hue"
                 value={light.hue}
@@ -409,6 +480,7 @@ export default function ZaltzMixer({
                 display={light.invert === 0 ? "—" : `${Math.round(light.invert * 100)}%`}
                 onChange={(v) => onLight({ invert: v })}
               />
+              </div>
               </div>
             </div>
           )}

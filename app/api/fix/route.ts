@@ -46,9 +46,9 @@ export async function POST(req: Request) {
       pane === "hydra" ? FIX_HYDRA_SYSTEM : FIX_STRUDEL_SYSTEM,
       fixUserText(code, error),
       {
-        // Sonnet 5 like the ghost (cheap + fast); the differential gate below
-        // still decides whether the mend ships.
-        model: "sonnet",
+        // Opus 5 no-thinking like the ghost (2026-07-27); the differential
+        // gate below still decides whether the mend ships.
+        model: "opus",
         onUsage: (t: number) => void addTokenUsage(userId, t),
         onCall: sink.onCall,
       },
