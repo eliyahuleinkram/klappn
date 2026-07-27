@@ -164,7 +164,6 @@ export default function ZaltzMixer({
   tab,
   onTab,
   playing,
-  showDoor,
   kills,
   onKill,
   heldPad,
@@ -186,8 +185,6 @@ export default function ZaltzMixer({
   tab: MixerTab;
   onTab: (t: MixerTab) => void;
   playing: boolean;
-  /** Desktop: opening the desk takes the room fullscreen — the title says so. */
-  showDoor?: boolean;
   kills: Record<Channel, boolean>;
   onKill: (ch: Channel) => void;
   heldPad: string | null;
@@ -225,11 +222,14 @@ export default function ZaltzMixer({
   };
   return (
     <>
-      {/* THE DESK — a glass slab floating up from the shaker's corner (user
-          07-27: the panes own the floor now; the mixer rises over them). */}
+      {/* THE DESK — centre-stage now (user 07-27: "it does not need to remain
+          in the corner — the whole page is clear"): the desk only ever rises
+          inside the show, where the writing room has stepped aside, so it
+          takes the natural DJ position — front and centre, the picture
+          burning all around it. Phones keep full width. */}
       {open && (
         <div
-          className="desk-pour fixed inset-x-3 z-20 sm:inset-x-auto sm:right-4 sm:w-[620px]"
+          className="desk-pour fixed inset-x-3 z-20 sm:inset-x-0 sm:mx-auto sm:w-[640px]"
           style={{
             bottom: "calc(max(0.75rem, env(safe-area-inset-bottom)) + 3.9rem)",
           }}
@@ -504,10 +504,8 @@ export default function ZaltzMixer({
         }}
         title={
           open
-            ? "Put the desk down"
-            : showDoor
-              ? "The show — fullscreen picture, desk in hand"
-              : "The mixer — kills, pads, dials"
+            ? "Put the desk down — the picture stays"
+            : "The show — the picture full-on, the desk in hand"
         }
         aria-expanded={open}
         className={`fixed z-20 flex h-12 w-12 items-center justify-center rounded-full border backdrop-blur-xl transition active:scale-[.94] ${

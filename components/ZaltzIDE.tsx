@@ -1086,37 +1086,63 @@ export default function ZaltzIDE({
   };
 
   // THE SHOW (user 07-27, third steer — the movie rule and the ⛶ are DEAD):
-  // the salt shaker is the one door. Press it and the room goes FULLSCREEN,
-  // the panes and the bar step aside, the picture owns every pixel, and the
-  // glass desk rises under your hands — you're not editing anymore, you're
-  // performing. The desk's ✕ puts the controller down (the picture stays —
-  // cinema); the shaker picks it back up; Esc leaves the show and the bench
-  // returns exactly as you left it. Phones can't fullscreen (no API) — the
-  // shaker just raises the desk there, as ever.
-  const [fullscreen, setFullscreen] = useState(false);
+  // the salt shaker is the one door. Press it and the writing room steps
+  // aside — panes, bar, chips gone, the picture owns every pixel — and the
+  // glass desk rises CENTRE-STAGE under your hands. You're not editing
+  // anymore, you're performing. The show is its OWN state, not fullscreen's:
+  // desktop rides requestFullscreen on top of it (denial is a rejected
+  // promise, caught — the show goes on unfullscreened); phones have no API
+  // and don't need one — the page already owns the screen, so the same
+  // posture lands everywhere. Ways back, all equivalent: the ✕ that appears
+  // top-right, Esc, or (desktop) the browser's own fullscreen exit. The
+  // shaker itself only toggles the DESK inside the show — controller down,
+  // picture stays: cinema.
+  const [show, setShow] = useState(false);
+  const exitShow = useCallback(() => {
+    setShow(false);
+    setMixerOpen(false);
+    try {
+      if (document.fullscreenElement) document.exitFullscreen()?.catch(() => {});
+    } catch {
+      /* already out */
+    }
+  }, []);
   useEffect(() => {
+    // Desktop's native exits (Esc in fullscreen, the OS control) end the show.
     const on = () => {
-      const fs = !!document.fullscreenElement;
-      setFullscreen(fs);
-      if (!fs) setMixerOpen(false); // leaving the show puts the controller down
+      if (!document.fullscreenElement) {
+        setShow(false);
+        setMixerOpen(false);
+      }
     };
     document.addEventListener("fullscreenchange", on);
     return () => document.removeEventListener("fullscreenchange", on);
   }, []);
+  useEffect(() => {
+    // Esc leaves the show even where fullscreen never engaged (phones with
+    // keyboards, denied fullscreen) — same key, same meaning everywhere.
+    if (!show) return;
+    const on = (e: KeyboardEvent) => {
+      if (e.key === "Escape") exitShow();
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, [show, exitShow]);
   const enterShow = () => {
-    // requestFullscreen DENIES as a rejected promise, not a throw — an
-    // uncaught rejection here was the dev overlay's "Permissions check
-    // failed". Denied is fine: the desk still rises, just not fullscreen.
-    try {
-      document.documentElement.requestFullscreen?.()?.catch(() => {});
-    } catch {
-      /* older engines throw synchronously instead */
+    setShow(true);
+    setMixerOpen(true);
+    if (!touch) {
+      try {
+        document.documentElement.requestFullscreen?.()?.catch(() => {});
+      } catch {
+        /* older engines throw synchronously instead */
+      }
     }
   };
   useEffect(() => {
-    document.body.classList.toggle("ide-solo", fullscreen); // canvas to full brightness
+    document.body.classList.toggle("ide-solo", show); // canvas to full brightness
     return () => document.body.classList.remove("ide-solo");
-  }, [fullscreen]);
+  }, [show]);
 
   // Does the pane have voices to mix at all? (The handle hides on an empty bench.)
   const hasVoices = useMemo(() => /^\s*_?\$:/m.test(strudel), [strudel]);
@@ -1397,7 +1423,7 @@ export default function ZaltzIDE({
   return (
     <main
       className={`ide-safe ide-root relative flex h-dvh flex-col overflow-hidden ${
-        fullscreen ? "ide-dimmed" : ""
+        show ? "ide-dimmed" : ""
       }`}
       style={kbInset ? { paddingBottom: kbInset + 12 } : undefined}
     >
@@ -1865,17 +1891,36 @@ export default function ZaltzIDE({
           fullscreen (desktop; phones have no API and just get the desk). */}
       {(hasVoices || hydra.trim()) && (
         <div className="ide-live contents">
+        {/* The show's one exit object — a quiet glass ✕, top-right, same
+            meaning as Esc. (The shaker toggles the DESK; this leaves the
+            SHOW — two objects, two verbs.) */}
+        {show && (
+          <button
+            onClick={exitShow}
+            title="Leave the show (Esc)"
+            aria-label="Leave the show"
+            className="fixed z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/[0.14] bg-black/35 text-[15px] text-muted/80 shadow-[inset_0_1px_0_rgba(255,255,255,.09)] backdrop-blur-xl backdrop-saturate-[1.6] transition hover:text-foreground active:scale-[.94]"
+            style={{
+              top: "max(0.75rem, env(safe-area-inset-top))",
+              right: "max(0.75rem, env(safe-area-inset-right))",
+            }}
+          >
+            ✕
+          </button>
+        )}
         <ZaltzMixer
           open={mixerOpen}
           onToggle={() => {
-            const opening = !mixerOpen;
-            setMixerOpen(opening);
-            if (opening && !touch && !document.fullscreenElement) enterShow();
+            if (!mixerOpen) {
+              if (show) setMixerOpen(true); // pick the controller back up
+              else enterShow(); // the door: show + desk in one gesture
+            } else {
+              setMixerOpen(false); // controller down — the picture stays (cinema)
+            }
           }}
           tab={mixerTab}
           onTab={setMixerTab}
           playing={playing}
-          showDoor={!touch}
           kills={kills}
           onKill={toggleKill}
           heldPad={heldPad}

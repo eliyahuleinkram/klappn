@@ -191,7 +191,7 @@ body::before {
 }
 .desk-pour {
   animation: desk-pour 0.42s cubic-bezier(0.22, 1.15, 0.36, 1) both;
-  transform-origin: 100% 100%;
+  transform-origin: 50% 100%; /* centre-stage: the desk rises to your hands */
 }
 @media (prefers-reduced-motion: reduce) {
   .desk-pour {
