@@ -882,7 +882,7 @@ export default function ZaltzIDE({
           if (!spentToldRef.current) {
             spentToldRef.current = true;
             setNotice(
-              "The tokens ran dry \u2014 the ghosts went quiet. Feed the machine and they come back.",
+              "The tokens ran dry \u2014 the whispers went quiet. Feed the machine and they come back.",
             );
           }
           void refreshMe(); // the chip flips to its burning 0
@@ -1404,7 +1404,10 @@ export default function ZaltzIDE({
   // code with a name, lit while its half of the room is live.
   // MOBILE WEARS NO HEADER (user 07-27): the pill tabs above the pane already
   // say STRUDEL/HYDRA — saying it twice costs a code line of glass.
-  const paneHeader = (label: string, hint: string, active: boolean) => (
+  // The hint is a HANDLE, not a caption (user 07-27: "you should be able to
+  // accept the change at the top") — clicking it takes the whisper, same act
+  // as ⇥.
+  const paneHeader = (label: string, hint: string, active: boolean, onHint?: () => void) => (
     <div className="hidden items-center gap-2 border-b border-white/[0.09] px-3.5 py-2.5 sm:flex">
       <span
         className={`text-[11.5px] font-semibold uppercase tracking-[0.18em] ${
@@ -1415,7 +1418,15 @@ export default function ZaltzIDE({
       </span>
       <span className="flex-1" />
       {!touch && hint && (
-        <span className="hidden text-[11px] text-muted/45 sm:inline">{hint}</span>
+        <button
+          onPointerDown={(e) => {
+            e.preventDefault(); // the pane must not blur — that hushes the very whisper being taken
+            onHint?.();
+          }}
+          className="hidden text-[11px] text-muted/45 transition hover:text-accent-strong sm:inline"
+        >
+          {hint}
+        </button>
       )}
     </div>
   );
@@ -1621,7 +1632,7 @@ export default function ZaltzIDE({
               ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
               : "bg-white/[0.05] text-muted/60 hover:text-foreground"
           }`}
-          title="Copilot — ghosts as you type: ⇥ takes them, ⌥\ summons one, Esc bins them"
+          title="Copilot — it whispers as you type: ⇥ takes it, ⌥\ summons one, Esc hushes it"
         >
           <CopilotMark on={copilot} />Copilot</button>
         {/* The GitHub mark — the door to the open source (user 07-27: the
@@ -1693,8 +1704,9 @@ export default function ZaltzIDE({
         >
           {paneHeader(
             "strudel",
-            ghost?.pane === "strudel" ? "⇥ takes the ghost" : "",
+            ghost?.pane === "strudel" ? "⇥ take the whisper" : "",
             playing,
+            () => strudelPane.current?.take(),
           )}
           <CodePane
             ref={strudelPane}
@@ -1732,8 +1744,9 @@ export default function ZaltzIDE({
         >
           {paneHeader(
             "hydra",
-            ghost?.pane === "hydra" ? "⇥ takes the ghost" : "",
+            ghost?.pane === "hydra" ? "⇥ take the whisper" : "",
             visualsLive && !!hydra.trim(),
+            () => hydraPane.current?.take(),
           )}
           <CodePane
             ref={hydraPane}
@@ -1946,7 +1959,7 @@ export default function ZaltzIDE({
                         ? "the machine waits — feed it"
                         : `${fmtTokens(Math.max(0, remaining ?? 0))} left · ~${Math.floor(
                             Math.max(0, remaining ?? 0) / TOKENS_PER_GHOST,
-                          ).toLocaleString()} ghosts`
+                          ).toLocaleString()} whispers`
                         : "the instrument is free — the machine is prepaid"}
                   </span>
                 </div>

@@ -68,9 +68,12 @@ export interface CaretContext {
   forced?: boolean;
 }
 
-/** The parent's handle on a pane — one verb: summon a ghost right now. */
+/** The parent's handle on a pane: summon a whisper, or take what's grey. */
 export interface CodePaneHandle {
   summon: () => void;
+  /** Accept the standing whisper (or, on an empty pane, the hint) — the same
+   *  act as ⇥, callable from furniture outside the pane. */
+  take: () => void;
 }
 
 const CodePane = forwardRef<
@@ -294,8 +297,17 @@ const CodePane = forwardRef<
         }
         summonGhost(true);
       },
+      take: () => {
+        // The same act as ⇥ — grey text is grey text, wherever the tap lands.
+        if (ghost) {
+          insertText(ghost);
+          onGhostAccept?.();
+        } else if (!value.trim() && placeholder && onTakeHint) {
+          onTakeHint();
+        }
+      },
     }),
-    [summonGhost],
+    [summonGhost, ghost, value, placeholder, onTakeHint, onGhostAccept],
   );
 
   // Any caret drift away from where the ghost was minted kills it.
