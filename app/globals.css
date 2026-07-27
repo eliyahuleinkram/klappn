@@ -928,7 +928,10 @@ body.ide-stage.ide-solo #k1-canvas {
 .ide-root > * {
   transition: opacity 0.8s ease;
 }
-.ide-root.ide-dimmed > * {
+/* THE SHOW (07-27): fullscreen hides the writing furniture — panes, bar,
+   chips — but never the performance's own hands: the desk and its shaker
+   ride inside .ide-live and stay. */
+.ide-root.ide-dimmed > *:not(.ide-live) {
   opacity: 0;
   pointer-events: none;
 }

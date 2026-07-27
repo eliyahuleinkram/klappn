@@ -164,6 +164,7 @@ export default function ZaltzMixer({
   tab,
   onTab,
   playing,
+  showDoor,
   kills,
   onKill,
   heldPad,
@@ -185,6 +186,8 @@ export default function ZaltzMixer({
   tab: MixerTab;
   onTab: (t: MixerTab) => void;
   playing: boolean;
+  /** Desktop: opening the desk takes the room fullscreen — the title says so. */
+  showDoor?: boolean;
   kills: Record<Channel, boolean>;
   onKill: (ch: Channel) => void;
   heldPad: string | null;
@@ -234,10 +237,13 @@ export default function ZaltzMixer({
           {/* FIXED height — Sound and Visual are the same size slab, so the
               tab switch never jolts the glass (user 07-27: "feels glitchy"). */}
           {/* Taller on the phone so every control is IN VIEW — a desk you
-              scroll isn't a desk (user 07-27); desktop keeps its 360. And the
-              glass is smoked darker (same user pass): a mixing desk is a
-              solid thing — the room glows through its edges, not its face. */}
-          <div className="h-[440px] max-h-[74dvh] overflow-y-auto rounded-[22px] border border-accent/25 bg-gradient-to-b from-black/[0.93] to-black/[0.85] p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl sm:h-[360px] sm:max-h-[56dvh]">
+              scroll isn't a desk (user 07-27); desktop keeps its 360. */}
+          {/* GLASS DESK (user 07-27, the show pass — walks back the solid
+              smoke): in fullscreen the desk floats ON the picture, so the
+              picture must pour through it — thin smoke, saturated backdrop
+              (same alive-glass law as the panes), machined top highlight.
+              The controls carry their own contrast (white/[0.06] pills). */}
+          <div className="h-[440px] max-h-[74dvh] overflow-y-auto rounded-[22px] border border-white/[0.14] bg-black/35 p-4 shadow-[0_0_70px_-18px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.09)] backdrop-blur-2xl backdrop-saturate-[1.6] sm:h-[360px] sm:max-h-[56dvh]">
           {/* ONE segmented capsule — two equal halves of the same machined
               control, not two loose pills. */}
           <div className="mb-3.5 flex rounded-full bg-white/[0.04] p-1">
@@ -496,7 +502,13 @@ export default function ZaltzMixer({
           setTimeout(() => setShaking(false), 700); // backstop if the animation can't run
           onToggle();
         }}
-        title={open ? "Close the mixer" : "The mixer — kills, pads, dials"}
+        title={
+          open
+            ? "Put the desk down"
+            : showDoor
+              ? "The show — fullscreen picture, desk in hand"
+              : "The mixer — kills, pads, dials"
+        }
         aria-expanded={open}
         className={`fixed z-20 flex h-12 w-12 items-center justify-center rounded-full border backdrop-blur-xl transition active:scale-[.94] ${
           open

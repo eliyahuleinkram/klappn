@@ -1085,77 +1085,38 @@ export default function ZaltzIDE({
     el.style.filter = f.join(" ");
   };
 
-  // FULLSCREEN — one ⛶ in the top bar, plain and whole (user 07-27, final
-  // round: the page with all its furniture goes fullscreen; the picture-only
-  // posture belongs to the MOVIE RULE below, not a button). Hidden where the
-  // API doesn't exist (iPhone Safari).
+  // THE SHOW (user 07-27, third steer — the movie rule and the ⛶ are DEAD):
+  // the salt shaker is the one door. Press it and the room goes FULLSCREEN,
+  // the panes and the bar step aside, the picture owns every pixel, and the
+  // glass desk rises under your hands — you're not editing anymore, you're
+  // performing. The desk's ✕ puts the controller down (the picture stays —
+  // cinema); the shaker picks it back up; Esc leaves the show and the bench
+  // returns exactly as you left it. Phones can't fullscreen (no API) — the
+  // shaker just raises the desk there, as ever.
   const [fullscreen, setFullscreen] = useState(false);
-  const [canFullscreen, setCanFullscreen] = useState(false);
-  // INSTANT CINEMA needs a LOCK, not just a set: the ⛶ click is always
-  // followed by mouse noise (the hand leaving the button, the fullscreen
-  // resize jitter), and the movie rule's arm() un-dimmed the room the same
-  // frame it went dark — "the button does nothing". For a beat after entering
-  // fullscreen, pointer noise cannot wake the furniture; a REAL move after
-  // that beat restores as ever.
-  const dimLockUntil = useRef(0);
   useEffect(() => {
-    setCanFullscreen(!!document.documentElement.requestFullscreen);
     const on = () => {
       const fs = !!document.fullscreenElement;
       setFullscreen(fs);
-      // INSTANT CINEMA (user 07-27, second steer — on ⛶, not on ▶): entering
-      // fullscreen while the picture plays IS the "just watch" gesture — the
-      // furniture steps aside at once, no waiting out the idle timer.
-      if (fs && stateRef.current.visualsLive) {
-        dimLockUntil.current = Date.now() + 1500;
-        setDimmed(true);
-      } else {
-        dimLockUntil.current = 0;
-      }
+      if (!fs) setMixerOpen(false); // leaving the show puts the controller down
     };
     document.addEventListener("fullscreenchange", on);
     return () => document.removeEventListener("fullscreenchange", on);
   }, []);
-  const toggleFullscreen = () => {
+  const enterShow = () => {
+    // requestFullscreen DENIES as a rejected promise, not a throw — an
+    // uncaught rejection here was the dev overlay's "Permissions check
+    // failed". Denied is fine: the desk still rises, just not fullscreen.
     try {
-      if (document.fullscreenElement) void document.exitFullscreen();
-      else void document.documentElement.requestFullscreen();
+      document.documentElement.requestFullscreen?.()?.catch(() => {});
     } catch {
-      /* denied — nothing breaks */
+      /* older engines throw synchronously instead */
     }
   };
-
-  // THE MOVIE RULE (user 07-27): on desktop, while the room plays and the
-  // hands rest, every panel fades away and the picture owns the glass at full
-  // brightness — the first touch of the mouse brings the controls back, like
-  // a video player. Never while a sheet or the mixer is open, never on touch
-  // (a phone's tap is already the wake gesture).
-  const [dimmed, setDimmed] = useState(false);
   useEffect(() => {
-    if (touch || !(playing || visualsLive) || sheet !== null || mixerOpen) {
-      setDimmed(false);
-      return;
-    }
-    let t: ReturnType<typeof setTimeout>;
-    const arm = () => {
-      if (Date.now() < dimLockUntil.current) return; // instant cinema holds
-      setDimmed(false);
-      clearTimeout(t);
-      t = setTimeout(() => setDimmed(true), 4000);
-    };
-    const evs = ["pointermove", "pointerdown", "keydown", "wheel"] as const;
-    evs.forEach((e) => window.addEventListener(e, arm, { passive: true }));
-    arm();
-    return () => {
-      clearTimeout(t);
-      evs.forEach((e) => window.removeEventListener(e, arm));
-      setDimmed(false);
-    };
-  }, [touch, playing, visualsLive, sheet, mixerOpen]);
-  useEffect(() => {
-    document.body.classList.toggle("ide-solo", dimmed); // canvas to full brightness
+    document.body.classList.toggle("ide-solo", fullscreen); // canvas to full brightness
     return () => document.body.classList.remove("ide-solo");
-  }, [dimmed]);
+  }, [fullscreen]);
 
   // Does the pane have voices to mix at all? (The handle hides on an empty bench.)
   const hasVoices = useMemo(() => /^\s*_?\$:/m.test(strudel), [strudel]);
@@ -1436,7 +1397,7 @@ export default function ZaltzIDE({
   return (
     <main
       className={`ide-safe ide-root relative flex h-dvh flex-col overflow-hidden ${
-        dimmed ? "ide-dimmed" : ""
+        fullscreen ? "ide-dimmed" : ""
       }`}
       style={kbInset ? { paddingBottom: kbInset + 12 } : undefined}
     >
@@ -1638,8 +1599,7 @@ export default function ZaltzIDE({
         >
           <CopilotMark on={copilot} />Copilot</button>
         {/* The GitHub mark — the door to the open source (user 07-27: the
-            repo must be one tap from the playground). Bare glyph, furniture
-            like the ⛶ beside it. */}
+            repo must be one tap from the playground). Bare glyph. */}
         <a
           href={ZALTZ_GITHUB_URL}
           target="_blank"
@@ -1651,23 +1611,6 @@ export default function ZaltzIDE({
             <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
           </svg>
         </a>
-        {/* ⛶ — plain and whole: the page, furniture and all, goes fullscreen
-            (the picture-only posture is the movie rule's job, not a button's).
-            Bare glyph, no pill; DESKTOP ONLY (user 07-27) — on a phone the
-            page already owns the screen. */}
-        {canFullscreen && (
-          <button
-            onClick={toggleFullscreen}
-            title={fullscreen ? "Leave fullscreen" : "Fullscreen"}
-            className={`hidden shrink-0 px-1 text-[19px] leading-none transition active:scale-[.95] sm:block ${
-              fullscreen
-                ? "text-accent-strong"
-                : "text-muted/70 hover:text-foreground"
-            }`}
-          >
-            ⛶
-          </button>
-        )}
         {/* ONE door for the person — klappn.com's own AccountMenu, worn
             unchanged (user 07-27: "it must look the same"): email · Tokens &
             usage · Sign out, the guest's claim path, or a sign-in door. The
@@ -1915,14 +1858,24 @@ export default function ZaltzIDE({
 
       {/* ── the desk — the Sets deck's machinery worn by the instrument:
           SEASON TO TASTE (components/ZaltzMixer). Pure view; the audio wiring
-          (kills, master chain, scheduler nudge, canvas filters) stays here. */}
+          (kills, master chain, scheduler nudge, canvas filters) stays here.
+          The .ide-live wrapper keeps the desk AND the shaker alive through
+          the show's dim — they're the performance, not the furniture. The
+          shaker is the show's door: opening the desk takes the room
+          fullscreen (desktop; phones have no API and just get the desk). */}
       {(hasVoices || hydra.trim()) && (
+        <div className="ide-live contents">
         <ZaltzMixer
           open={mixerOpen}
-          onToggle={() => setMixerOpen((o) => !o)}
+          onToggle={() => {
+            const opening = !mixerOpen;
+            setMixerOpen(opening);
+            if (opening && !touch && !document.fullscreenElement) enterShow();
+          }}
           tab={mixerTab}
           onTab={setMixerTab}
           playing={playing}
+          showDoor={!touch}
           kills={kills}
           onKill={toggleKill}
           heldPad={heldPad}
@@ -1939,6 +1892,7 @@ export default function ZaltzIDE({
           light={light}
           onLight={moveLight}
         />
+        </div>
       )}
 
       {/* ── sheets ──────────────────────────────────────────────────────── */}
