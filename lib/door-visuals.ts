@@ -286,25 +286,66 @@ function frame(now: number): void {
 
 async function build(): Promise<boolean> {
   if (typeof window === "undefined") return false;
-  try {
-    // hydra-synth is authored for Node and touches `global` at import time.
-    const g = globalThis as Record<string, unknown>;
-    if (typeof g.global === "undefined") g.global = globalThis;
-    const mod = await import("hydra-synth");
-    const Hydra = (mod as { default?: any }).default ?? mod;
+  const makeCanvas = () => {
     canvas = document.createElement("canvas");
     canvas.id = CANVAS_ID;
     canvas.style.cssText =
       "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:-1;opacity:0;transition:opacity .8s ease";
     document.body.prepend(canvas);
     sizeCanvas();
+    return canvas;
+  };
+
+  // ZISSL-FIRST (WebGPU): our engine, instance-scoped exactly like this file
+  // wants it — no globals, OUR loop (autoLoop:false + tick), the same synth
+  // surface the pieces paint on. hydra-synth below is the WebGL fallback.
+  try {
+    const { zisslAllowed } = await import("./zissl-boot");
+    if (zisslAllowed()) {
+      const { default: Zissl } = await import("zissl");
+      makeCanvas();
+      const z = await Zissl.create({
+        canvas: canvas!,
+        width: canvas!.width,
+        height: canvas!.height,
+        autoLoop: false,
+        makeGlobal: false,
+      });
+      hydra = {
+        synth: z, // z.osc/z.src/z.o0/z.speed — the same surface the pieces use
+        tick: (dt: number) => z.tick(dt),
+        setResolution: (w: number, h: number) => z.setResolution(w, h),
+        _zissl: z, // teardown handle (dispose frees the device)
+      };
+      hydra.synth.speed = baseSpeed();
+      lastFrameAt = 0;
+      raf = requestAnimationFrame(frame);
+      if (!resizeBound) {
+        resizeBound = true;
+        window.addEventListener("resize", sizeCanvas);
+      }
+      return true;
+    }
+  } catch (e) {
+    console.warn("[klappn] zissl door boot failed — falling back to hydra", e);
+    canvas?.remove();
+    canvas = null;
+  }
+
+  try {
+    // hydra-synth is authored for Node and touches `global` at import time.
+    const g = globalThis as Record<string, unknown>;
+    if (typeof g.global === "undefined") g.global = globalThis;
+    const mod = await import("hydra-synth");
+    const Hydra = (mod as { default?: any }).default ?? mod;
+    makeCanvas();
     hydra = new Hydra({
       canvas,
       makeGlobal: false,
       detectAudio: false,
       autoLoop: false,
-      width: canvas.width,
-      height: canvas.height,
+      width: canvas!.width,
+      height: canvas!.height,
     });
     hydra.synth.speed = baseSpeed();
     lastFrameAt = 0;
@@ -426,6 +467,11 @@ function teardownEngine(): void {
   raf = 0;
   try {
     hydra?.synth?.hush?.();
+  } catch {
+    /* cosmetic */
+  }
+  try {
+    hydra?._zissl?.dispose?.(); // zissl path — frees the WebGPU device
   } catch {
     /* cosmetic */
   }

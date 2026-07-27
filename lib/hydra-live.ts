@@ -52,6 +52,52 @@ const STREAM_LATENCY_S = 0.45;
 export async function initLiveHydra(pixelRatio = 1): Promise<boolean> {
   if (inited) return true;
   if (typeof window === "undefined") return false;
+
+  // ZISSL-FIRST (WebGPU): our own engine speaks the same language on the same
+  // canvas id — the DJ's exact code renders here too, just on the new machine.
+  // hydra-synth below stays as the WebGL fallback (?zissl=0 forces it).
+  try {
+    const { zisslAllowed, ensureVisualCanvas } = await import("./zissl-boot");
+    if (zisslAllowed()) {
+      const g = globalThis as Record<string, unknown>;
+      const [{ default: Zissl }, core] = await Promise.all([
+        import("zissl"),
+        import("@strudel/core") as Promise<Record<string, unknown>>,
+      ]);
+      const canvas = ensureVisualCanvas("hydra-canvas", pixelRatio);
+      const z = await Zissl.create({
+        canvas,
+        width: Math.max(1, Math.floor(window.innerWidth * pixelRatio)),
+        height: Math.max(1, Math.floor(window.innerHeight * pixelRatio)),
+        makeGlobal: true,
+      });
+      for (const k of SIGNAL_KEYS) if (core[k] !== undefined) g[k] = core[k];
+      // BOTH clocks point at the reconstructed transport: zissl's H samples it
+      // directly, and @strudel/core's getTime() serves any code reading it raw.
+      z.setTime(() => currentCycle());
+      (core.setTime as (fn: () => number) => void)(() => currentCycle());
+      // Total H — a sick clock instant must hold the last frame, never throw.
+      const rawH = z.H;
+      g.H = (p: unknown) => {
+        const inner = rawH(p as never);
+        let last = 0;
+        return () => {
+          try {
+            const v = inner();
+            if (typeof v === "number" && Number.isFinite(v)) last = v;
+          } catch {
+            /* hold the last good value */
+          }
+          return last;
+        };
+      };
+      inited = true;
+      return true;
+    }
+  } catch (e) {
+    console.warn("[klappn] zissl live boot failed — falling back to hydra", e);
+  }
+
   try {
     const g = globalThis as Record<string, unknown>;
     if (typeof g.global === "undefined") g.global = globalThis;

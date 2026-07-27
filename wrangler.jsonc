@@ -42,7 +42,7 @@
 		"not_found_handling": "none",
 		// The icon paths ride worker-first so zaltz.klappn.com can answer them
 		// with the grain (host-aware favicon rewrite in worker/index.ts).
-		"run_worker_first": ["/", "/song/*", "/api/*", "/engine", "/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"]
+		"run_worker_first": ["/", "/song/*", "/api/*", "/engine", "/zissl", "/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"]
 	},
 	// Non-secret config. Secrets (ANTHROPIC_API_KEY, BETTER_AUTH_SECRET,
 	// BETTER_AUTH_URL, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, EMAIL_FROM,
@@ -76,7 +76,10 @@
 		{ "pattern": "www.klappn.com", "custom_domain": true },
 		// The engine's front door — the Worker rewrites its root to /engine
 		// (the playground; /zaltz itself IS the wasm binary, extensionless).
-		{ "pattern": "zaltz.klappn.com", "custom_domain": true }
+		{ "pattern": "zaltz.klappn.com", "custom_domain": true },
+		// The picture's front door — the Worker rewrites its root to /zissl
+		// (the sweet counterpart: Hydra's language on WebGPU).
+		{ "pattern": "zissl.klappn.com", "custom_domain": true }
 	],
 	// DB: lib/db.ts reads this Hyperdrive binding's connectionString at runtime
 	// (via `cloudflare:workers` env), so no DATABASE_URL secret is needed in prod.

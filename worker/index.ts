@@ -76,6 +76,21 @@ export default {
       }
     }
 
+    // zissl's front door — the sweet counterpart: same shape as zaltz's,
+    // sugar crystal instead of the grain.
+    if (url.hostname === "zissl.klappn.com") {
+      if (url.pathname === "/") {
+        url.pathname = "/zissl";
+        req = new Request(url.toString(), request);
+      } else if (url.pathname === "/favicon.ico") {
+        url.pathname = "/zissl-favicon.ico";
+        req = new Request(url.toString(), request);
+      } else if (url.pathname === "/apple-touch-icon.png" || url.pathname === "/apple-touch-icon-precomposed.png") {
+        url.pathname = "/zissl-icon-180.png";
+        req = new Request(url.toString(), request);
+      }
+    }
+
     // Every request gets its own Postgres scope (see lib/db.ts). We BUFFER the
     // response body before returning so that all server-component / RSC database
     // work runs INSIDE this request's I/O context — a connection opened here

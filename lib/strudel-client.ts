@@ -3133,6 +3133,10 @@ let hydraInstance: {
   setResolution?: (w: number, h: number) => void;
   hush?: () => void;
 } | null = null;
+// Which machine is painting: zissl (our WebGPU engine — same language, same
+// globals, same canvas id) or hydra-synth (the WebGL fallback). Teardown
+// differs (dispose() vs WEBGL_lose_context), nothing else does.
+let visualEngine: "zissl" | "hydra" | null = null;
 // HYDRA'S OWN GLOBALS, captured the instant initHydra stamps them (2026-07-26).
 // The strudel repl's evalScope ALSO writes shared names (shape, noise, osc, …)
 // onto globalThis at boot/eval — whoever stamps LAST wins, so page-scope
@@ -3277,6 +3281,68 @@ async function ensureHydra(): Promise<boolean> {
   }
   if (typeof window === "undefined") return false;
   installConsoleGate(); // capture swallowed shader-compile errors + mute engine chatter in prod
+
+  // ZISSL-FIRST (WebGPU): our own engine — Hydra's language rebuilt on WebGPU
+  // (the sweet counterpart of zaltz) — under the SAME canvas id and globals,
+  // so every show/hide/resize/heal path below works unchanged. hydra-synth
+  // remains the WebGL fallback; ?zissl=0 forces it (see lib/zissl-boot.ts).
+  try {
+    const { zisslAllowed, ensureVisualCanvas } = await import("./zissl-boot");
+    if (zisslAllowed()) {
+      const [{ default: Zissl }, core] = await Promise.all([
+        import("zissl"),
+        import("@strudel/core"),
+      ]);
+      const canvas = ensureVisualCanvas("hydra-canvas", hydraDpr());
+      const z = await Zissl.create({
+        canvas,
+        width: Math.max(1, Math.floor(window.innerWidth * hydraDpr())),
+        height: Math.max(1, Math.floor(window.innerHeight * hydraDpr())),
+        makeGlobal: true,
+      });
+      if (isMobileDevice()) z.fps = HYDRA_FPS_MOBILE;
+      // H rides the SAME transport strudel plays from — patterns sample the
+      // musical moment, not the wall clock (this is klappn's whole visual law).
+      z.setTime(() => (core as unknown as { getTime: () => number }).getTime());
+      installSafeH(globalThis as Record<string, unknown>, z.H);
+      // Device loss is WebGPU's context loss: drop the canvas and flag a fresh
+      // init on the next play, exactly like the webglcontextlost handler.
+      z.onerror = (msg: string) => {
+        console.warn("[klappn] zissl device lost — visuals re-init on next play:", msg);
+        try {
+          document.getElementById("hydra-canvas")?.remove();
+        } catch {
+          /* ignore */
+        }
+        try {
+          z.dispose();
+        } catch {
+          /* ignore */
+        }
+        hydraInstance = null;
+        hydraReady = false;
+      };
+      hydraInstance = z as unknown as typeof hydraInstance;
+      visualEngine = "zissl";
+      hydraLoaded = true; // globals + H are live — preload has nothing left to do
+      fitHydra();
+      captureHydraGlobals(); // zissl just stamped the same generator names
+      armVisualYield();
+      if (!resizeBound) {
+        resizeBound = true;
+        window.addEventListener("resize", () => {
+          if (resizeTimer) clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(fitHydra, 150);
+        });
+      }
+      hydraReady = true;
+      bindHydraUnloadRelease();
+      return true;
+    }
+  } catch (e) {
+    console.warn("[klappn] zissl boot failed — falling back to hydra-synth", e);
+  }
+
   try {
     if (!hydraLoaded) {
       // hydra-synth is authored for Node and references the `global` object,
@@ -3328,6 +3394,7 @@ async function ensureHydra(): Promise<boolean> {
       });
     }
     hydraReady = true;
+    visualEngine = "hydra";
     bindHydraContextLoss(); // recover gracefully if the GPU drops this context
     bindHydraUnloadRelease(); // free the context on real page teardown
     return true;
@@ -3346,6 +3413,17 @@ async function ensureHydra(): Promise<boolean> {
  *  and best-effort — if it fails, play just lazy-loads as before. */
 export async function preloadHydra(): Promise<void> {
   if (hydraLoaded || typeof window === "undefined") return;
+  try {
+    // zissl path: the module is the only heavy part — warm it and stop
+    // (canvas + device still come up on the first play, in ensureHydra).
+    const { zisslAllowed } = await import("./zissl-boot");
+    if (zisslAllowed()) {
+      await import("zissl");
+      return;
+    }
+  } catch {
+    /* fall through to the hydra warm below */
+  }
   try {
     const g = globalThis as Record<string, unknown>;
     if (typeof g.global === "undefined") g.global = globalThis;
@@ -3445,6 +3523,14 @@ function clearVisuals(): void {
  *  detached canvas keeps its context). Used on real page teardown. */
 function releaseHydraContext(): void {
   if (typeof document === "undefined") return;
+  if (visualEngine === "zissl") {
+    try {
+      (hydraInstance as unknown as { dispose?: () => void })?.dispose?.();
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
   try {
     const canvas = document.getElementById(
       "hydra-canvas",

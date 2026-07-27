@@ -38,7 +38,8 @@
     "next": "16.2.10",
     "postgres": "^3.4.9",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "zissl": "file:../zissl"
   },
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",
