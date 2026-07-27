@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import ZisslPlayground from "@/components/ZisslPlayground";
 
 export const metadata: Metadata = {
-  title: "zissl — the picture, rebuilt",
+  // zaltz is "the instrument you type" — zissl is its light. One family,
+  // one grammar: you type, the room answers.
+  title: "zissl — the light you type",
   description:
     "Hydra's language on WebGPU: one file of WGSL, the H() bridge to Strudel time, and a million-agent swarm the old machine could never run. Type a chain — the room lights up.",
   icons: {
