@@ -1035,6 +1035,15 @@ function finalTap(): AudioNode | undefined {
   return (perfFxAlive() ? perfFx?.out : undefined) ?? outputTap ?? masterNode();
 }
 
+/** The take recorder's tap (lib/take-record): forces the master chain into
+ *  its FINAL shape first — limiter + perf-FX splice, both bit-transparent at
+ *  rest — so a chain installed mid-take can never route sound around a tap
+ *  taken too early. Null until the engine has a master. */
+export function getTakeTap(): AudioNode | null {
+  ensurePerfFx();
+  return finalTap() ?? null;
+}
+
 // --- PLAY DIAGNOSTIC (klappnDebug only) ----------------------------------------
 // A self-diagnosing recorder for the play-start glitch hunt: at every fresh
 // play (with localStorage.klappnDebug = "1") a tiny capture worklet taps the

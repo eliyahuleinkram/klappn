@@ -212,6 +212,69 @@ export function zaltzOrbitGains(): [number, number][] {
   return [...lastOrbitGain];
 }
 
+// ---- STEM TAP (the take's track separation) ---------------------------------
+// While armed, the worklet mirrors every used orbit's post-FX block into
+// pooled batches (engine/zaltz.worklet.js captureStems) and posts them here.
+// One sink at a time — the take recorder (lib/take-record).
+export interface StemBatch {
+  /** 16 slots × 8192 interleaved-stereo floats; slot s = orbits[s]. */
+  pcm: Float32Array;
+  orbits: number[];
+  quanta: number; // 128-frame quanta actually filled (≤32; the tail is partial)
+  startFrame: number; // context frame clock — aligns with the master tap
+  slotFloats: number;
+}
+let stemSink: ((b: StemBatch) => void) | null = null;
+let stemEndSink: (() => void) | null = null;
+// STICKY ARM: ● on a silent room tapes BEFORE the first evaluate, and the
+// engine node is only born inside that evaluate — so the want is remembered
+// and ensureNode arms the tap the moment the worklet boots (before the first
+// downbeat's events post). A mid-take engine rebuild re-arms the same way.
+let stemsWanted = false;
+
+/** Arm the engine's stem tap — immediately if the worklet is up, otherwise
+ *  the moment it boots. A session whose engine never boots (superdough
+ *  fallback) simply yields a master-only take. */
+export function zaltzStemsStart(onBatch: (b: StemBatch) => void, onEnd: () => void): void {
+  stemSink = onBatch;
+  stemEndSink = onEnd;
+  stemsWanted = true;
+  node?.port.postMessage({ stemsOn: true });
+}
+
+/** Disarm: the worklet flushes its partial tail, then stemEnd fires the
+ *  onEnd callback exactly once (port order is the contract). No node ever
+ *  came up = nothing buffered — end fires right here. */
+export function zaltzStemsStop(): void {
+  stemsWanted = false;
+  if (node) {
+    node.port.postMessage({ stemsOn: false });
+  } else {
+    const end = stemEndSink;
+    stemSink = null;
+    stemEndSink = null;
+    end?.();
+  }
+}
+
+/** Hand a spent batch buffer back to the worklet's pool — the capture path
+ *  allocates nothing in steady state. */
+export function zaltzStemRecycle(pcm: Float32Array): void {
+  node?.port.postMessage({ stemRecycle: pcm.buffer }, [pcm.buffer]);
+}
+
+// While a take rolls, tick() notes which SOUNDS play on which orbit — the
+// stems get human names ("bd·hh", "supersaw") instead of bus numbers.
+let orbitSounds: Map<number, Set<string>> | null = null;
+export function zaltzBeginOrbitLog(): void {
+  orbitSounds = new Map();
+}
+export function zaltzTakeOrbitLog(): Map<number, Set<string>> {
+  const m = orbitSounds ?? new Map<number, Set<string>>();
+  orbitSounds = null;
+  return m;
+}
+
 /** Fire ONE voice through the engine right now — the live MIDI path. Returns
  *  false when the engine isn't ready or the sound is still loading (caller
  *  falls back to superdough for that press). */
@@ -346,8 +409,25 @@ async function ensureNode(ac: AudioContext, out?: AudioNode | null): Promise<voi
         console.warn("[zaltz] scrubbed non-finite samples:", e.data.scrubbed);
       else if (e.data?.clock != null) {
         if (timer) tick(); // timer doubles as the "playing" flag — paused stays paused
+      } else if (e.data?.stemBatch) {
+        const d = e.data;
+        stemSink?.({
+          pcm: d.stemBatch as Float32Array,
+          orbits: d.orbits as number[],
+          quanta: d.quanta as number,
+          startFrame: d.startFrame as number,
+          slotFloats: d.slotFloats as number,
+        });
+      } else if (e.data?.stemEnd) {
+        const end = stemEndSink;
+        stemSink = null;
+        stemEndSink = null;
+        end?.();
       }
     };
+    // a take armed before this boot (or across a rebuild) starts taping now —
+    // ahead of the first evaluate's event batch, so the downbeat is on tape
+    if (stemsWanted) node!.port.postMessage({ stemsOn: true });
   })();
   nodeReady = nodeReady.catch((e) => {
     // BOOT failure: this browser can't run the engine (no AudioWorklet, or
@@ -711,6 +791,17 @@ function tick(): void {
       const tAbs = t0 + beginCycles / cps;
       const kv = hapKv(h.value, h.duration.valueOf() / cps);
       if (kv) batch.push({ ev: kv, t: tAbs });
+      if (kv && orbitSounds) {
+        // stem naming: note the sound landing on this orbit (engine default 1).
+        // BARE names — "bd", never "RolandTR909_bd": the label is a word on a
+        // card, not a sample path.
+        const v = h.value;
+        const o = typeof v.orbit === "number" ? v.orbit : 1;
+        const s = typeof v.s === "string" ? v.s : "triangle";
+        let set = orbitSounds.get(o);
+        if (!set) orbitSounds.set(o, (set = new Set()));
+        if (set.size < 4) set.add(s);
+      }
     } catch {
       /* one bad hap must not kill the walk */
     }
