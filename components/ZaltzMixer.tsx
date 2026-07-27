@@ -542,12 +542,12 @@ export default function ZaltzMixer({
             : "The show — the picture full-on, the desk in hand"
         }
         aria-expanded={open}
-        className={`fixed z-20 flex h-12 w-12 items-center justify-center rounded-full border backdrop-blur-xl transition active:scale-[.94] ${
+        className={`fixed z-20 flex h-12 w-12 items-center justify-center rounded-full border bg-black/35 backdrop-blur-xl backdrop-saturate-[1.6] transition active:scale-[.94] ${
           open
-            ? "border-accent/50 bg-black/70 text-accent-strong shadow-[0_0_44px_-10px_rgba(224,49,156,.8)]"
+            ? "border-accent/50 text-accent-strong shadow-[0_0_44px_-10px_rgba(224,49,156,.8),inset_0_1px_0_rgba(255,255,255,.16)]"
             : playing
-              ? "border-accent/40 bg-black/55 text-accent-strong shadow-[0_0_36px_-10px_rgba(224,49,156,.7)] hover:border-accent/60"
-              : "border-white/[0.1] bg-black/50 text-muted/80 hover:border-accent/40 hover:text-accent-strong"
+              ? "border-accent/40 text-accent-strong shadow-[0_0_36px_-10px_rgba(224,49,156,.7),inset_0_1px_0_rgba(255,255,255,.14)] hover:border-accent/60"
+              : "border-white/[0.14] text-muted/80 shadow-[inset_0_1px_0_rgba(255,255,255,.12)] hover:border-accent/40 hover:text-accent-strong hover:shadow-[0_0_30px_-10px_rgba(224,49,156,.6),inset_0_1px_0_rgba(255,255,255,.14)]"
         }`}
         style={{
           right: "max(0.75rem, env(safe-area-inset-right))",
