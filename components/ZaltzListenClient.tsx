@@ -78,8 +78,8 @@ export default function ZaltzListenClient({
       return;
     }
     applyMediaSession({
-      title: title || "live from zaltz",
-      subtitle: "Live on zaltz — the instrument you type",
+      title: title || "the boiler room",
+      subtitle: "Live on Klappn — the boiler room",
       album: "Live",
       playing: !paused && !userPaused,
       onPause: () => pauseLocal(),
@@ -291,7 +291,7 @@ export default function ZaltzListenClient({
             {title}
           </h1>
           <p className="mt-3 text-[14px] leading-relaxed text-muted">
-            Someone is playing the instrument you type —
+            Someone is in the boiler room —
             <br />
             code becoming sound, as it happens.
           </p>
@@ -340,7 +340,7 @@ export default function ZaltzListenClient({
             {title}
           </h1>
           <p className="mt-4 min-h-6 text-[15px] text-foreground/90">
-            live from zaltz — the instrument you type
+            the boiler room — code becoming sound, live
           </p>
         </>
       )}

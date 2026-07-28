@@ -51,6 +51,8 @@ import {
   type MicFx,
 } from "@/components/DeckKit";
 import { isDead, publishStream, type Broadcast } from "@/lib/rtc";
+import { extractHydra } from "@/lib/hydra-embed";
+import BoilerLineup, { type LineupHit } from "@/components/BoilerLineup";
 import {
   disableLiveMidi,
   enableLiveMidi,
@@ -1169,6 +1171,218 @@ export default function ZaltzIDE({
     void endLive();
   };
 
+  // THE LINEUP — the boiler room's crate (2026-07-28, user: Sets folds into
+  // the room). Your hits queue up; tapping a row POURS that song's first loop
+  // into the panes (setcpm + music into sound, its hydra into visual) — the
+  // whisper then reads the song for free (the pane IS the context), and
+  // everything live-coded on top leaves with the next pour. The queue lives in
+  // localStorage like the bench; the pour rides the master fade + the live
+  // room's own seamless swap.
+  const [lineup, setLineupState] = useState<{ id: string; title: string }[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = JSON.parse(localStorage.getItem("klappn-lineup-v1") || "[]");
+      return Array.isArray(raw)
+        ? raw.filter((e) => e && typeof e.id === "string" && typeof e.title === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  const setLineup = useCallback(
+    (up: (prev: { id: string; title: string }[]) => { id: string; title: string }[]) => {
+      setLineupState((prev) => {
+        const next = up(prev);
+        try {
+          localStorage.setItem("klappn-lineup-v1", JSON.stringify(next));
+        } catch {
+          /* private mode — the night just doesn't stick */
+        }
+        return next;
+      });
+    },
+    [],
+  );
+  const [lineupIdx, setLineupIdx] = useState<number | null>(null);
+  const [lineupOpen, setLineupOpen] = useState(false);
+  const [lineupHits, setLineupHits] = useState<LineupHit[] | null>(null);
+  const [arranging, setArranging] = useState(false);
+  const hitsMetaRef = useRef(
+    new Map<string, { bpm?: number; key?: string; genre?: string; summary?: string }>(),
+  );
+  const pourCache = useRef(new Map<string, { music: string; visual: string }>());
+  const masterLevelRef = useRef(master);
+  masterLevelRef.current = master;
+  // The crate opens → the library loads once (a session appears if needed).
+  useEffect(() => {
+    if (!lineupOpen || lineupHits !== null) return;
+    (async () => {
+      try {
+        if (!meRef.current?.signedIn && !(await ensureSession())) {
+          setLineupHits([]);
+          return;
+        }
+        const r = await fetch("/api/songs", { cache: "no-store" });
+        if (!r.ok) {
+          setLineupHits([]);
+          return;
+        }
+        const d = openDeep(
+          (await r.json().catch(() => ({}))) as {
+            songs?: {
+              id: string;
+              title?: string | null;
+              status?: string;
+              plan?: { bpm?: number; key?: string; genre?: string; summary?: string };
+            }[];
+          },
+        );
+        const rows = (d.songs ?? []).map((s) => {
+          hitsMetaRef.current.set(s.id, {
+            bpm: s.plan?.bpm,
+            key: s.plan?.key,
+            genre: s.plan?.genre,
+            summary: s.plan?.summary,
+          });
+          return { id: s.id, title: s.title || "Untitled", ready: s.status === "ready" };
+        });
+        setLineupHits(rows);
+      } catch {
+        setLineupHits([]);
+      }
+    })();
+  }, [lineupOpen, lineupHits]);
+  /** Pour lineup row i into the panes — the transition IS the master fade +
+   *  the live room's seamless swap. */
+  const pourSong = useCallback(
+    async (i: number) => {
+      const entry = lineup[i];
+      if (!entry) return;
+      let bundle = pourCache.current.get(entry.id);
+      if (!bundle) {
+        try {
+          const r = await fetch(`/api/songs/${entry.id}`, { cache: "no-store" });
+          if (!r.ok) return;
+          const d = openDeep(
+            (await r.json().catch(() => null)) as {
+              song?: {
+                plan?: {
+                  bpm?: number;
+                  timeSignature?: string;
+                  visual?: { hydra?: string };
+                };
+              };
+              parts?: { status?: string; strudel?: string | null }[];
+            } | null,
+          );
+          const plan = d?.song?.plan ?? {};
+          const part = (d?.parts ?? []).find(
+            (p) => (p.strudel ?? "").trim() && (!p.status || p.status === "ready"),
+          );
+          if (!part?.strudel) {
+            setNotice("Nothing playable in that one yet — it joins when a loop lands.");
+            return;
+          }
+          const code = part.strudel;
+          const metaIdx = code.search(
+            /\/\*\s*@(?:hydra|controls|vcontrols|vlooks|swaps|edits)\b/,
+          );
+          const music = (metaIdx >= 0 ? code.slice(0, metaIdx) : code).trim();
+          const visual = (
+            extractHydra(code) ??
+            (typeof plan.visual?.hydra === "string" ? plan.visual.hydra : "")
+          ).trim();
+          const bpm = typeof plan.bpm === "number" && plan.bpm > 0 ? Math.round(plan.bpm) : 120;
+          const bpb = /^\s*(\d+)/.exec(plan.timeSignature ?? "")?.[1] ?? "4";
+          // Some stored loops already open with their own setcpm — never stack
+          // a second one on top (seen live: a doubled setcpm line).
+          const hasCpm = /^\s*setcpm\s*\(/m.test(music);
+          bundle = { music: hasCpm ? music : `setcpm(${bpm}/${bpb})\n${music}`, visual };
+          pourCache.current.set(entry.id, bundle);
+        } catch {
+          return;
+        }
+      }
+      // The FADE — the master dips under the swap and comes home after it
+      // lands (the auto-eval's ~700ms debounce + evaluate sit inside the dip).
+      if (stateRef.current.playing) {
+        fadeMaster(0.06, 0.45);
+        setTimeout(() => fadeMaster(masterLevelRef.current, 1.2), 1500);
+      }
+      setStrudel(bundle.music);
+      setHydra(bundle.visual);
+      setLineupIdx(i);
+    },
+    [lineup],
+  );
+  const addToLineup = useCallback(
+    (id: string) => {
+      const h = lineupHits?.find((x) => x.id === id);
+      if (!h) return;
+      setLineup((prev) => [...prev, { id, title: h.title }]);
+    },
+    [lineupHits, setLineup],
+  );
+  const removeFromLineup = useCallback(
+    (i: number) => {
+      setLineup((prev) => prev.filter((_, k) => k !== i));
+      setLineupIdx((prev) =>
+        prev == null ? prev : i === prev ? null : i < prev ? prev - 1 : prev,
+      );
+    },
+    [setLineup],
+  );
+  const moveLineup = useCallback(
+    (i: number, dir: -1 | 1) => {
+      const j = i + dir;
+      setLineup((prev) => {
+        if (j < 0 || j >= prev.length) return prev;
+        const next = [...prev];
+        [next[i], next[j]] = [next[j], next[i]];
+        return next;
+      });
+      setLineupIdx((prev) =>
+        prev == null ? prev : prev === i ? j : prev === j ? i : prev,
+      );
+    },
+    [setLineup],
+  );
+  const arrangeLineup = useCallback(async () => {
+    if (arranging || lineup.length < 2) return;
+    setArranging(true);
+    try {
+      // Index-as-id: a song queued twice stays two distinct slots (the Sets
+      // entry-id trick, client-side).
+      const songsMeta = lineup.map((e, idx) => ({
+        id: String(idx),
+        title: e.title,
+        ...hitsMetaRef.current.get(e.id),
+      }));
+      const r = await fetch("/api/lineup/arrange", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ songs: songsMeta }),
+      });
+      if (r.status === 402) {
+        setNotice(
+          "The tokens ran dry — the whispers went quiet. Feed the machine and they come back.",
+        );
+        return;
+      }
+      if (!r.ok) return;
+      const d = (await r.json().catch(() => ({}))) as { order?: string[] };
+      const order = (Array.isArray(d.order) ? d.order : [])
+        .map(Number)
+        .filter((n) => Number.isInteger(n) && n >= 0 && n < lineup.length);
+      for (let k = 0; k < lineup.length; k++) if (!order.includes(k)) order.push(k);
+      const current = lineupIdx;
+      setLineup(() => order.map((k) => lineup[k]));
+      if (current != null) setLineupIdx(order.indexOf(current));
+    } finally {
+      setArranging(false);
+    }
+  }, [arranging, lineup, lineupIdx, setLineup]);
+
   const killGainFor = useCallback(
     (orbit: number): number | undefined => {
       const ch = channelOfOrbit(orbit);
@@ -1875,7 +2089,7 @@ export default function ZaltzIDE({
             (user 07-28: "missing some context"). One hairline, one word. */}
         <span className="flex shrink-0 items-center gap-2.5" aria-hidden>
           <span className="h-4 w-px bg-white/[0.14]" />
-          <span className="text-[13px] text-muted/65">live room</span>
+          <span className="text-[13px] text-muted/65">boiler room</span>
         </span>
         {/* NO NAME, NO CRATE (user 07-28): the room isn't a document — it's
             the instrument, live every time. Nothing up here to rename, pick
@@ -2248,6 +2462,35 @@ export default function ZaltzIDE({
           card's ✕ PUTS THEM AWAY (user 07-28, second steer: the corner
           keep-safe was right) — they tuck into the capsule below; letting
           them go completely is the capsule's own ✕ segment. */}
+      {/* THE LINEUP CHIP — the crate's door, quiet glass in the corner (it
+          steps above the grains when a take holds the floor). */}
+      {!lineupOpen && (
+        <button
+          onClick={() => setLineupOpen(true)}
+          title="The lineup — your hits, ordered for the night; pour one in and play on top"
+          className={`pill-pop fixed left-4 z-[18] flex h-8 items-center rounded-full border border-white/[0.14] bg-black/35 px-3 text-[11.5px] text-muted/70 backdrop-blur-xl backdrop-saturate-[1.6] transition hover:text-foreground active:scale-[.96] ${
+            take ? "bottom-16" : "bottom-4"
+          }`}
+        >
+          lineup{lineup.length > 0 ? ` · ${lineup.length}` : ""}
+        </button>
+      )}
+      <BoilerLineup
+        open={lineupOpen}
+        onClose={() => setLineupOpen(false)}
+        queue={lineup}
+        currentIdx={lineupIdx}
+        hits={lineupHits}
+        onAdd={addToLineup}
+        onRemove={removeFromLineup}
+        onMove={moveLineup}
+        onPlay={(i) => void pourSong(i)}
+        onNext={() => {
+          if (lineupIdx != null) void pourSong(lineupIdx + 1);
+        }}
+        onArrange={() => void arrangeLineup()}
+        arranging={arranging}
+      />
       {take && takeFolded && (
         /* THE GRAINS, PUT AWAY — one QUIET segmented capsule (user 07-28,
            third steer: the loud pour was wrong at rest — "it must fuck

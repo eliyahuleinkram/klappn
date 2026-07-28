@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 // the room is Klappn's own — Klappn title, Klappn mark; "zaltz" stays the
 // ENGINE's name (the repo, the npm package), never this surface's brand.
 export const metadata: Metadata = {
-  title: "Klappn — the instrument you type",
+  title: "Klappn — the boiler room",
   description:
     "Strudel on the left, Hydra on the right, our own engine underneath. Sketches keep themselves, the machine whispers the next line, and every take lands in the running mix. Type a bar — the room moves.",
 };

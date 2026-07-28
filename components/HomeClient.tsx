@@ -34,7 +34,6 @@ import {
 import { useNowPlayingValue } from "@/lib/use-now-playing";
 import { useKeyboardInset } from "@/lib/use-keyboard-inset";
 import { DISCORD_URL, GITHUB_URL, ZALTZ_GITHUB_URL, ZISSL_GITHUB_URL } from "@/lib/links";
-import SaltShaker from "./SaltShaker";
 
 // Evocative, hopeful status lines shown while a loop is being built — they make
 // the (genuinely working) wait feel alive and reassuring.
@@ -481,39 +480,6 @@ export default function HomeClient({
         </span>
         <div className="flex items-center gap-2.5">
           <Link
-            href="/sets"
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
-          >
-            <svg
-              aria-hidden
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="url(#sets-hp)"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            >
-              <defs>
-                <linearGradient
-                  id="sets-hp"
-                  gradientUnits="userSpaceOnUse"
-                  x1="3"
-                  y1="5"
-                  x2="21"
-                  y2="20"
-                >
-                  <stop offset="0" stopColor="#ff63c1" />
-                  <stop offset="1" stopColor="#e0319c" />
-                </linearGradient>
-              </defs>
-              <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
-              <rect x="3" y="13.2" width="4.6" height="6.8" rx="2.3" />
-              <rect x="16.4" y="13.2" width="4.6" height="6.8" rx="2.3" />
-            </svg>
-            Sets
-          </Link>
-          <Link
             href="/events"
             className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
           >
@@ -547,16 +513,15 @@ export default function HomeClient({
             </svg>
             Events
           </Link>
-          {/* LIVE — the room's own pill, wearing the shaker (user 07-28: a
-              bare icon read cryptic, a word beside its object reads itself;
-              Sets · Events · Live is the nav, one family). */}
+          {/* BOILER ROOM (user 07-28: Sets folds into the room — one
+              performance surface, so the Sets pill is gone): the name alone,
+              no icon. Import your hits, order the night, live-code on top. */}
           <Link
             href="/live"
-            title="The live room — the instrument you type, code under your fingers"
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
+            title="The boiler room — your hits underneath, live code on top"
+            className="inline-flex items-center rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
           >
-            <SaltShaker className="h-[15px] w-[15px]" />
-            Live
+            Boiler room
           </Link>
           {isGuest && (
             <Link

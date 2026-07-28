@@ -1519,7 +1519,9 @@ export default function SongClient({
   // Arranging needs at least two loops — fold the surface away if deletes take
   // the song below that (the stack returns on its own).
   useEffect(() => {
-    if (parts.length <= 1) setArrange(false);
+    // Arrange stays legal at ONE loop (07-28 — the option must not pop in and
+    // out of existence); only an empty song closes the surface.
+    if (parts.length === 0) setArrange(false);
   }, [parts.length]);
   const arrangeHoldUntil = useRef(0);
   const arrangeDeleted = useRef<Map<string, number>>(new Map());
@@ -3179,8 +3181,10 @@ export default function SongClient({
                   export-menu object: an anchored glass card where EVERY row
                   is a word plus one quiet line saying what the tap does
                   (touch has no hover — the consequence must be ON the card).
-                  A menu of one never opens: a single-loop song shows Visuals
-                  directly, a composing song shows only Arrange. The sweep
+                  The FULL menu shows from ONE loop up (user 07-28): a loop
+                  loops around itself, so a break lands on the way back and
+                  effects ride a single loop fine — and Arrange stays so no
+                  option "suddenly appears" at loop two. The sweep
                   pill takes the corner whole when a new loop lands (or the
                   menu row summons it) — its words ARE the consequence, the
                   orb'd word spends, ✕ declines. */}
@@ -3221,30 +3225,12 @@ export default function SongClient({
                   <span className="shimmer-text">Sweeping the song…</span>
                 </span>
               ) : busy ? (
-                visibleParts.length > 1 ? (
-                  <button
-                    onClick={() => setArrange(true)}
-                    title="Move anything anywhere — no AI, just your hands"
-                    className="flex h-8 items-center rounded-full px-3 text-[12.5px] font-medium leading-none text-muted/80 transition duration-200 hover:bg-white/[0.06] hover:text-foreground active:scale-95"
-                  >
-                    Arrange
-                  </button>
-                ) : null
-              ) : visibleParts.length <= 1 ? (
                 <button
-                  onClick={() => setVisualsOpen((v) => !v)}
-                  title={
-                    visualsOpen
-                      ? "Close the visuals"
-                      : "One living look across the whole piece"
-                  }
-                  className={`flex h-8 items-center rounded-full px-3 text-[12.5px] font-medium leading-none transition duration-200 active:scale-95 ${
-                    visualsOpen
-                      ? "bg-accent/12 text-accent"
-                      : "text-muted/80 hover:bg-white/[0.06] hover:text-foreground"
-                  }`}
+                  onClick={() => setArrange(true)}
+                  title="Move anything anywhere — no AI, just your hands"
+                  className="flex h-8 items-center rounded-full px-3 text-[12.5px] font-medium leading-none text-muted/80 transition duration-200 hover:bg-white/[0.06] hover:text-foreground active:scale-95"
                 >
-                  Visuals
+                  Arrange
                 </button>
               ) : (
                 <div className="relative">

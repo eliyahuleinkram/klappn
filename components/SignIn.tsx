@@ -170,7 +170,7 @@ export default function SignIn({
               the shaker, the code is under your fingers */}
           <a
             href="/live"
-            title="The live room — the instrument you type, code under your fingers"
+            title="The boiler room — your hits underneath, live code on top"
             className="group flex h-9 w-9 select-none items-center justify-center rounded-full border border-white/[0.14] bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,.1)] backdrop-blur-xl transition hover:border-accent/40 active:scale-[.94]"
           >
             <SaltShaker className="h-[22px] w-[22px]" />
