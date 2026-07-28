@@ -104,6 +104,9 @@ const CodePane = forwardRef<
     /** ✦ explain — select a stretch of code and a quiet chip floats past it;
      *  one tap asks the machine to teach that fragment (strictly on-demand). */
     onExplain?: (sel: string) => void;
+    /** Selection EDIT — the copilot rewrites exactly the selected span
+     *  (07-28): the chip's second segment hands the span up. */
+    onEditSel?: (sel: { text: string; start: number; end: number }) => void;
   }
 >(function CodePane(
   {
@@ -120,6 +123,7 @@ const CodePane = forwardRef<
     onTakeHint,
     onCaretIdle,
     onExplain,
+    onEditSel,
   },
   handleRef,
 ) {
@@ -212,11 +216,13 @@ const CodePane = forwardRef<
     top: number;
     left: number;
     text: string;
+    start: number;
+    end: number;
   } | null>(null);
   const measureSelection = useCallback(() => {
     const ta = taRef.current;
     const content = contentRef.current;
-    if (!ta || !content || !onExplain || ghost) return setSelChip(null);
+    if (!ta || !content || (!onExplain && !onEditSel) || ghost) return setSelChip(null);
     const start = ta.selectionStart ?? 0;
     const end = ta.selectionEnd ?? 0;
     if (end - start < 4) return setSelChip(null);
@@ -250,12 +256,14 @@ const CodePane = forwardRef<
     const last = rects[rects.length - 1];
     if (!last) return setSelChip(null);
     const box = content.getBoundingClientRect();
-    const CHIP_W = 96;
+    const CHIP_W = onEditSel ? 168 : 96;
     const CHIP_H = 28;
     const fitsBeside =
       last.right - box.left + 10 + CHIP_W <= content.clientWidth - 4;
     setSelChip({
       text: ta.value.slice(start, end),
+      start,
+      end,
       ...(fitsBeside
         ? {
             top: last.top - box.top + (last.height - CHIP_H) / 2,
@@ -269,7 +277,7 @@ const CodePane = forwardRef<
             ),
           }),
     });
-  }, [ghost, onExplain]);
+  }, [ghost, onExplain, onEditSel]);
 
   // With a ghost up, the twin renders before + ghost + after; the textarea
   // knows nothing about it (alignment guaranteed by the parent's truncation
@@ -692,18 +700,42 @@ const CodePane = forwardRef<
               one word, nothing shouting. pointerDown so the selection (and
               the pane's focus) survives the tap. */}
           {selChip && !ghost && (
-            <button
-              onPointerDown={(e) => {
-                e.preventDefault();
-                const t = selChip.text;
-                setSelChip(null);
-                onExplain?.(t);
-              }}
+            /* ONE machined capsule, hairline seam (the seam law): the
+               selection's two verbs — understand it, or change it. */
+            <span
               style={{ top: selChip.top, left: selChip.left }}
-              className="pill-pop absolute z-[3] whitespace-nowrap rounded-full border border-white/[0.16] bg-black/55 px-3 py-1.5 text-[12px] font-medium text-foreground/85 shadow-[0_2px_14px_-4px_rgba(0,0,0,.6)] backdrop-blur-xl transition hover:border-accent/40 hover:text-accent-strong active:scale-[.94]"
+              className="pill-pop absolute z-[3] flex items-stretch overflow-hidden whitespace-nowrap rounded-full border border-white/[0.16] bg-black/55 text-[12px] font-medium text-foreground/85 shadow-[0_2px_14px_-4px_rgba(0,0,0,.6)] backdrop-blur-xl"
             >
-              ✦ explain
-            </button>
+              {onExplain && (
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    const t = selChip.text;
+                    setSelChip(null);
+                    onExplain(t);
+                  }}
+                  className="px-3 py-1.5 transition hover:bg-white/[0.06] hover:text-accent-strong active:scale-[.96]"
+                >
+                  ✦ explain
+                </button>
+              )}
+              {onExplain && onEditSel && (
+                <span className="w-px bg-white/[0.14]" aria-hidden />
+              )}
+              {onEditSel && (
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    const c = selChip;
+                    setSelChip(null);
+                    onEditSel({ text: c.text, start: c.start, end: c.end });
+                  }}
+                  className="px-3 py-1.5 transition hover:bg-white/[0.06] hover:text-accent-strong active:scale-[.96]"
+                >
+                  ✎ edit
+                </button>
+              )}
+            </span>
           )}
         </div>
       </div>

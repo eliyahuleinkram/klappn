@@ -130,7 +130,7 @@ export default function OpenPage() {
           you type a sentence and it writes the song: the sound, the picture,
           the code, yours to keep. The{" "}
           <a
-            href="/live"
+            href="/boiler-room"
             className="text-foreground/80 underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
           >
             boiler room

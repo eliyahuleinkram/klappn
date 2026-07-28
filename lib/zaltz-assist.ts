@@ -78,6 +78,38 @@ THE SELECTION TO EXPLAIN:
 ${sel}`;
 }
 
+// ── THE SELECTION EDIT ───────────────────────────────────────────────────────
+// Select a span, say the change, the copilot rewrites EXACTLY that span
+// (2026-07-28, user: "with the AI copilot, you must be able to perform the
+// edit"). An editor's move, not a chat: the reply is the replacement text and
+// nothing else; the route gates it differentially like a ghost.
+
+const EDIT_SEL_CONTRACT = `You are the selection EDIT in a live-coding IDE. You get a FILE, a SELECTED SPAN from it, and an instruction. Output ONLY the code that replaces the selected span — raw code, no prose, no fences, nothing from outside the span. Make the SMALLEST change that fulfils the instruction; match the file's own style and vocabulary; inside the span, keep everything the instruction didn't ask about byte-identical. The replacement must splice cleanly into the file exactly where the span sat (same expression position — never open or orphan brackets across the span's edges). If the instruction cannot apply to this selection, output the span unchanged.`;
+
+export const EDIT_SEL_STRUDEL_SYSTEM = `${EDIT_SEL_CONTRACT}
+
+The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer. Stay in the file's key and grid.
+
+${STRUDEL_SPEC}`;
+
+export const EDIT_SEL_HYDRA_SYSTEM = `${EDIT_SEL_CONTRACT}
+
+The file is a Hydra sketch for this IDE: chains ending in .out() (NOTHING chains after .out()), hydra's own clocks frozen, all motion via H(<strudel signal>).
+
+${HYDRA_SPEC}`;
+
+/** The selection-edit call's user block. */
+export function editSelUserText(code: string, sel: string, ask: string): string {
+  return `THE FILE:
+${code}
+
+THE SELECTED SPAN (replace exactly this):
+${sel}
+
+THE INSTRUCTION:
+${ask}`;
+}
+
 /** The fix call's user block. */
 export function fixUserText(code: string, error: string): string {
   return `THE FILE:

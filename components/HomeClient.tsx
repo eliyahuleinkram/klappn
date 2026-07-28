@@ -519,7 +519,7 @@ export default function HomeClient({
               performance surface, so the Sets pill is gone): the name alone,
               no icon. Import your hits, order the night, live-code on top. */}
           <Link
-            href="/live"
+            href="/boiler-room"
             title="The boiler room — your hits underneath, live code on top"
             className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
           >

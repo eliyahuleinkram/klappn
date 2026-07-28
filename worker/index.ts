@@ -63,12 +63,16 @@ export default {
     let req = request;
     if (url.hostname === "zaltz.klappn.com") {
       url.hostname = "klappn.com";
-      url.pathname = url.pathname === "/" || url.pathname === "/engine" ? "/live" : url.pathname;
+      url.pathname =
+        url.pathname === "/" || url.pathname === "/engine" || url.pathname === "/live"
+          ? "/boiler-room"
+          : url.pathname;
       return Response.redirect(url.toString(), 301);
     }
-    // The room's old address (pre-merge deep links) — one hop, forever.
-    if (url.pathname === "/engine") {
-      url.pathname = "/live";
+    // The room's old addresses (pre-merge and pre-naming deep links) — one
+    // hop, forever. /live/<token> listener links are NOT the room and stay.
+    if (url.pathname === "/engine" || url.pathname === "/live") {
+      url.pathname = "/boiler-room";
       return Response.redirect(url.toString(), 301);
     }
 

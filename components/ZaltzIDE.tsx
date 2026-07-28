@@ -1890,7 +1890,7 @@ export default function ZaltzIDE({
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ usd, back: "/live" }),
+        body: JSON.stringify({ usd, back: "/boiler-room" }),
       });
       const d = (await res.json().catch(() => ({}))) as {
         url?: string;
@@ -2081,6 +2081,74 @@ export default function ZaltzIDE({
       setLesson({ sel, text });
     } catch {
       setLesson(null);
+    }
+  };
+
+  // ✎ EDIT — select code, say the change, THE COPILOT PERFORMS IT (2026-07-28,
+  // user: "with the AI copilot, you must be able to perform the edit"). An
+  // editor's move, not a chat: the reply replaces exactly the selected span,
+  // in place, ⌘Z undoes it as ONE step (CodePane's own history), and while
+  // the room plays the live-room auto-eval lands it seamlessly.
+  const [editSel, setEditSel] = useState<{
+    pane: PaneId;
+    start: number;
+    end: number;
+    text: string;
+  } | null>(null);
+  const [editAsk, setEditAsk] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const openEditSel = (pane: PaneId, sel: { text: string; start: number; end: number }) => {
+    if (spent) return setSheet("tokens");
+    setEditAsk("");
+    setEditSel({ pane, ...sel });
+  };
+  const sendEditSel = async () => {
+    const target = editSel;
+    const ask = editAsk.trim();
+    if (!target || !ask || editBusy) return;
+    setEditBusy(true);
+    try {
+      if (!meRef.current?.signedIn && !(await ensureSession())) return;
+      const base =
+        target.pane === "hydra" ? stateRef.current.hydra : stateRef.current.strudel;
+      // The pane may have moved under the ask (auto-eval never does, but the
+      // hands might) — the span must still read exactly as selected.
+      if (base.slice(target.start, target.end) !== target.text) {
+        setNotice("The code moved under that selection — select it again.");
+        setEditSel(null);
+        return;
+      }
+      const res = await fetch("/api/edit-sel", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          pane: target.pane,
+          code: base,
+          start: target.start,
+          end: target.end,
+          ask,
+        }),
+      });
+      if (res.status === 402) {
+        void refreshMe();
+        setSheet("tokens");
+        return;
+      }
+      const d = openDeep((await res.json().catch(() => ({}))) as { code?: string });
+      const out = d.code ?? "";
+      if (!out.trim()) {
+        setNotice("That edit wouldn't build — say it differently.");
+        return;
+      }
+      const next = base.slice(0, target.start) + out + base.slice(target.end);
+      if (target.pane === "hydra") setHydra(next);
+      else setStrudel(next);
+      snapRoom(target.pane, "edit", next, { ask }); // corpus gold — save save save
+      setEditSel(null);
+    } catch {
+      setNotice("The edit didn't reach the machine — try again.");
+    } finally {
+      setEditBusy(false);
     }
   };
 
@@ -2410,6 +2478,7 @@ export default function ZaltzIDE({
             onTakeHint={seedMusic}
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
             onExplain={(sel) => void explainSel("strudel", sel)}
+            onEditSel={(sel) => openEditSel("strudel", sel)}
             placeholder={`setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then hit ▶ run — the room hears you\n// pause, and the machine whispers the next line${
               touch
                 ? "\n// tap the grey — it becomes yours"
@@ -2446,6 +2515,7 @@ export default function ZaltzIDE({
             onTakeHint={seedVisuals}
             onCaretIdle={(ctx) => void requestGhost("hydra", ctx)}
             onExplain={(sel) => void explainSel("hydra", sel)}
+            onEditSel={(sel) => openEditSel("hydra", sel)}
             placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them${
               touch
                 ? "\n// tap the grey — it becomes yours"
@@ -2516,6 +2586,54 @@ export default function ZaltzIDE({
       {/* ── the lesson — ✦ explain's answer: the selected line quoted, then
           what it does to the ear (or the eye), in plain words. A capsule like
           the error chip's; ✕ closes it (✕ = dismiss, everywhere). */}
+      {/* ✎ THE ASK — the selection edit's one glass bar: the span in mono,
+          your words beside it, the orb'd word spends (07-28). Esc lets go. */}
+      {editSel && (
+        <div className="mt-2 flex items-center gap-2.5 rounded-2xl border border-accent/25 bg-black/55 px-3.5 py-2 shadow-[0_0_44px_-16px_rgba(224,49,156,.45)] backdrop-blur-xl sm:mx-auto sm:max-w-2xl">
+          <span
+            className="max-w-[30%] shrink-0 truncate font-mono text-[11.5px] text-muted/70"
+            title={editSel.text}
+          >
+            {editSel.text}
+          </span>
+          <input
+            autoFocus
+            value={editAsk}
+            onChange={(e) => setEditAsk(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void sendEditSel();
+              if (e.key === "Escape") setEditSel(null);
+            }}
+            placeholder="say the change — it rewrites just this"
+            disabled={editBusy}
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted/40 disabled:opacity-60"
+          />
+          <button
+            onClick={() => void sendEditSel()}
+            disabled={editBusy || !editAsk.trim()}
+            className="flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] font-medium text-accent-strong transition hover:bg-accent/[0.1] active:scale-[.95] disabled:opacity-40"
+          >
+            {editBusy ? (
+              <span className="shimmer-text">reworking…</span>
+            ) : (
+              <>
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--accent)]"
+                />
+                edit
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => setEditSel(null)}
+            className="shrink-0 text-[12px] text-muted/60 transition hover:text-foreground"
+            aria-label="Let it go"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {lesson && (
         <div className="mt-2 flex items-start gap-2.5 rounded-2xl border border-accent/25 bg-black/55 px-3.5 py-2.5 shadow-[0_0_44px_-16px_rgba(224,49,156,.45)] backdrop-blur-xl sm:mx-auto sm:max-w-2xl">
           <span className="mt-0.5 shrink-0 rounded-full bg-accent/[0.14] px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-accent-strong">
