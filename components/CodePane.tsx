@@ -93,6 +93,11 @@ const CodePane = forwardRef<
     pondering?: boolean;
     /** The copilot's suggestion, rendered at the caret. Parent owns its lifecycle. */
     ghost?: string | null;
+    /** THE TRIM WHISPER (07-28) — the copilot offers SUBTRACTION the way it
+     *  offers addition: an existing line wears a quiet strike, its gentler
+     *  rewrite floats in ghost grey beneath ("" = let the line go). Same ⇥,
+     *  same Esc, same lifecycle as a ghost. */
+    trim?: { find: string; replace: string } | null;
     onGhostAccept?: () => void;
     onGhostDismiss?: () => void;
     /** ⇥ on an EMPTY pane takes the placeholder hint (parent seeds the code —
@@ -118,6 +123,7 @@ const CodePane = forwardRef<
     autoFocus,
     pondering,
     ghost,
+    trim,
     onGhostAccept,
     onGhostDismiss,
     onTakeHint,
@@ -161,13 +167,17 @@ const CodePane = forwardRef<
     { top: number; left: number; width: number; height: number }[]
   >([]);
   useLayoutEffect(() => {
-    if (!ghost) {
+    if (!ghost && !trim) {
       setPillPos(null);
       setGhostRects([]);
       return;
     }
     const content = contentRef.current;
-    const el = content?.querySelector(".tok-ghost");
+    // A trim with a rewrite pins the pill at the GREY line (the offer); a
+    // pure removal pins it at the STRUCK line — the grey is the button either
+    // way, one law.
+    const el =
+      content?.querySelector(".tok-ghost") ?? content?.querySelector(".tok-trim");
     if (!content || !el) {
       setPillPos(null);
       setGhostRects([]);
@@ -205,7 +215,7 @@ const CodePane = forwardRef<
             left: Math.max(8, Math.min(last.left - box.left, content.clientWidth - PILL_W - 8)),
           },
     );
-  }, [ghost, value]);
+  }, [ghost, trim, value]);
 
   // ✦ EXPLAIN AT THE SELECTION — the take pill's own geometry trick, turned
   // on the coder's selection: buffer offsets are walked onto the highlight
@@ -222,7 +232,7 @@ const CodePane = forwardRef<
   const measureSelection = useCallback(() => {
     const ta = taRef.current;
     const content = contentRef.current;
-    if (!ta || !content || (!onExplain && !onEditSel) || ghost) return setSelChip(null);
+    if (!ta || !content || (!onExplain && !onEditSel) || ghost || trim) return setSelChip(null);
     const start = ta.selectionStart ?? 0;
     const end = ta.selectionEnd ?? 0;
     if (end - start < 4) return setSelChip(null);
@@ -277,7 +287,7 @@ const CodePane = forwardRef<
             ),
           }),
     });
-  }, [ghost, onExplain, onEditSel]);
+  }, [ghost, trim, onExplain, onEditSel]);
 
   // With a ghost up, the twin renders before + ghost + after; the textarea
   // knows nothing about it (alignment guaranteed by the parent's truncation
@@ -285,6 +295,19 @@ const CodePane = forwardRef<
   // the NATIVE caret instead (ONE cursor on screen, ever; a second bar in the
   // twin read as two cursors — user 2026-07-26).
   const html = useMemo(() => {
+    if (trim && !ghost) {
+      const idx = value.indexOf(trim.find);
+      if (idx >= 0) {
+        const end = idx + trim.find.length;
+        return (
+          highlightCore(value.slice(0, idx)) +
+          `<span class="tok-trim">${esc(trim.find)}</span>` +
+          (trim.replace ? `\n<span class="tok-ghost">${esc(trim.replace)}</span>` : "") +
+          highlightCore(value.slice(end)) +
+          "\n"
+        );
+      }
+    }
     if (ghost) {
       const at =
         ghostCaretRef.current >= 0 ? ghostCaretRef.current : value.length;
@@ -296,7 +319,7 @@ const CodePane = forwardRef<
       );
     }
     return highlightCore(value) + "\n";
-  }, [value, ghost]);
+  }, [value, ghost, trim]);
 
   // Keep the caret's line inside the scroll viewport while typing. Reads the
   // DOM, never the prop — a stale closure value here computed the caret's
@@ -457,6 +480,33 @@ const CodePane = forwardRef<
     [],
   );
 
+  // Take the TRIM: splice the quieter line over the doomed one (or lift the
+  // line out entirely), park the caret at the seam, hand the accept up (the
+  // parent re-evals the live room + files the moment). One history step.
+  const applyTrim = useCallback(() => {
+    if (!trim) return;
+    const idx = value.indexOf(trim.find);
+    if (idx < 0) {
+      onGhostDismiss?.();
+      return;
+    }
+    const end = idx + trim.find.length;
+    const next = trim.replace
+      ? value.slice(0, idx) + trim.replace + value.slice(end)
+      : value.slice(0, idx) + value.slice(end + (value[end] === "\n" ? 1 : 0));
+    onChange(next);
+    const pos = Math.min(idx + trim.replace.length, next.length);
+    requestAnimationFrame(() => {
+      const t = taRef.current;
+      if (!t) return;
+      t.focus();
+      t.setSelectionRange(pos, pos);
+      followCaret();
+    });
+    onGhostAccept?.();
+  }, [trim, value, onChange, onGhostAccept, onGhostDismiss, followCaret]);
+
+
   // The one-verb handle — the ✦ complete button (the ONLY path on phones,
   // where no ⌥\ exists) lands here. Unfocused pane → caret to the end first.
   useImperativeHandle(
@@ -476,12 +526,14 @@ const CodePane = forwardRef<
         if (ghost) {
           insertText(ghost);
           onGhostAccept?.();
+        } else if (trim) {
+          applyTrim();
         } else if (!value.trim() && placeholder && onTakeHint) {
           onTakeHint();
         }
       },
     }),
-    [summonGhost, ghost, value, placeholder, onTakeHint, onGhostAccept],
+    [summonGhost, ghost, trim, applyTrim, value, placeholder, onTakeHint, onGhostAccept],
   );
 
   // Any caret drift away from where the ghost was minted kills it.
@@ -550,7 +602,7 @@ const CodePane = forwardRef<
       onSave?.();
       return;
     }
-    if (e.key === "Escape" && ghost) {
+    if (e.key === "Escape" && (ghost || trim)) {
       e.preventDefault();
       e.stopPropagation(); // the ghost eats this Esc; sheets keep theirs
       onGhostDismiss?.();
@@ -561,6 +613,8 @@ const CodePane = forwardRef<
       if (ghost) {
         insertText(ghost);
         onGhostAccept?.();
+      } else if (trim) {
+        applyTrim();
       } else if (!value.trim() && placeholder && onTakeHint) {
         // Grey text is grey text: on an empty pane, ⇥ takes the hint the same
         // way it takes a ghost — the placeholder's code becomes the buffer.
@@ -655,15 +709,19 @@ const CodePane = forwardRef<
               belongs to the grey text it takes, and scrolls with the code.
               pointerDown (not click) so the textarea never blurs first, which
               would dismiss the very ghost being taken. */}
-          {ghost &&
+          {(ghost || trim) &&
             ghostRects.map((r, i) => (
               <button
                 key={i}
                 aria-label="Take the suggestion"
                 onPointerDown={(e) => {
                   e.preventDefault(); // the textarea must not blur — that kills the ghost
-                  insertText(ghost);
-                  onGhostAccept?.();
+                  if (ghost) {
+                    insertText(ghost);
+                    onGhostAccept?.();
+                  } else {
+                    applyTrim();
+                  }
                 }}
                 style={{
                   top: r.top - 4,
@@ -678,12 +736,16 @@ const CodePane = forwardRef<
               into machined glass: a lit crown, a grounded underside, a rim,
               and an aura that breathes off the picture. It pops in with the
               whisper (pill-pop) so every arrival is felt. */}
-          {ghost && pillPos && (
+          {(ghost || trim) && pillPos && (
             <button
               onPointerDown={(e) => {
                 e.preventDefault();
-                insertText(ghost);
-                onGhostAccept?.();
+                if (ghost) {
+                  insertText(ghost);
+                  onGhostAccept?.();
+                } else {
+                  applyTrim();
+                }
               }}
               style={{
                 top: pillPos.top,
@@ -693,13 +755,14 @@ const CodePane = forwardRef<
               }}
               className="pill-pop absolute z-[3] rounded-full px-3.5 py-1.5 text-[12.5px] font-medium text-white ring-1 ring-white/25 shadow-[0_2px_10px_-2px_rgba(179,18,111,.85),0_0_38px_-6px_rgba(224,49,156,.85),inset_0_1px_0_rgba(255,255,255,.4),inset_0_-1px_2px_rgba(0,0,0,.3)] transition hover:brightness-[1.08] hover:shadow-[0_3px_14px_-2px_rgba(179,18,111,.9),0_0_48px_-6px_rgba(224,49,156,.95),inset_0_1px_0_rgba(255,255,255,.45),inset_0_-1px_2px_rgba(0,0,0,.3)] active:scale-[.94]"
             >
-              <span className="[@media(pointer:coarse)]:hidden">⇥ </span>take
+              <span className="[@media(pointer:coarse)]:hidden">⇥ </span>
+              {trim && !ghost ? (trim.replace ? "quiet it" : "let it go") : "take"}
             </button>
           )}
           {/* ✦ explain — quiet glass past the selection: the AI-spend orb and
               one word, nothing shouting. pointerDown so the selection (and
               the pane's focus) survives the tap. */}
-          {selChip && !ghost && (
+          {selChip && !ghost && !trim && (
             /* ONE machined capsule, hairline seam (the seam law): the
                selection's two verbs — understand it, or change it. */
             <span

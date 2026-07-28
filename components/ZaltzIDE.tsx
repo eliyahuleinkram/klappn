@@ -308,7 +308,14 @@ export default function ZaltzIDE({
 
   // THE COPILOT — ghost completions at the caret (Tab takes, Esc bins).
   const [copilot, setCopilot] = useState(true);
-  const [ghost, setGhost] = useState<{ pane: PaneId; text: string } | null>(null);
+  // A whisper is an INSERTION (text) or a TRIM (an existing line + its
+  // quieter rewrite, "" = let it go) — the machine offers subtraction the
+  // same way it offers addition (user 07-28).
+  const [ghost, setGhost] = useState<{
+    pane: PaneId;
+    text?: string;
+    trim?: { find: string; replace: string };
+  } | null>(null);
   const ghostRef = useRef<typeof ghost>(null);
   ghostRef.current = ghost;
   const ghostSeq = useRef(0);
@@ -322,7 +329,7 @@ export default function ZaltzIDE({
   const [pondering, setPondering] = useState<PaneId | null>(null);
   // Copilot-speed trick #2: an LRU of recent completions — revisiting a spot
   // (dismissed ghost, caret wander-and-return) re-shows instantly, no call.
-  const ghostLRU = useRef(new Map<string, string>());
+  const ghostLRU = useRef(new Map<string, { g: string; t?: { find: string; replace: string } }>());
   // The out-of-tokens line is said ONCE per visit — after that the burning
   // chip and the redirected \u2726 buttons carry it.
   const spentToldRef = useRef(false);
@@ -752,8 +759,12 @@ export default function ZaltzIDE({
       // cache for free.
       const cached = ctx.forced ? undefined : ghostLRU.current.get(cacheKey);
       if (cached !== undefined) {
-        lastCue.current = { key: cueKey, empty: !cached.trim(), at: Date.now() };
-        if (cached.trim()) setGhost({ pane, text: cached });
+        const alive =
+          !!cached.g.trim() ||
+          (!!cached.t && (ctx.before + ctx.after).includes(cached.t.find));
+        lastCue.current = { key: cueKey, empty: !alive, at: Date.now() };
+        if (alive)
+          setGhost(cached.t ? { pane, trim: cached.t } : { pane, text: cached.g });
         return;
       }
       const seq = ++ghostSeq.current;
@@ -792,9 +803,15 @@ export default function ZaltzIDE({
           return;
         }
         if (!res.ok) return; // 429 etc → quiet; the meter chip tells the story
-        const d = openDeep((await res.json().catch(() => ({}))) as { ghost?: string });
+        const d = openDeep(
+          (await res.json().catch(() => ({}))) as {
+            ghost?: string;
+            trim?: { find: string; replace: string };
+          },
+        );
         const g = d.ghost ?? "";
-        ghostLRU.current.set(cacheKey, g);
+        const t = d.trim && typeof d.trim.find === "string" ? d.trim : undefined;
+        ghostLRU.current.set(cacheKey, { g, t });
         if (ghostLRU.current.size > 16) {
           const oldest = ghostLRU.current.keys().next().value;
           if (oldest !== undefined) ghostLRU.current.delete(oldest);
@@ -805,12 +822,13 @@ export default function ZaltzIDE({
         // mid-file ghost pushes the picture down exactly like VS Code, while
         // the caret and every click keep answering to the REAL buffer — and
         // any keystroke or caret move dismisses the ghost and snaps back.
-        lastCue.current = { key: cueKey, empty: !g.trim(), at: Date.now() };
-        if (!g.trim()) return;
+        lastCue.current = { key: cueKey, empty: !g.trim() && !t, at: Date.now() };
+        if (!g.trim() && !t) return;
         if (seq !== ghostSeq.current) return; // superseded by newer typing
         const cur = pane === "strudel" ? stateRef.current.strudel : stateRef.current.hydra;
         if (cur !== ctx.before + ctx.after) return; // the file moved on
-        setGhost({ pane, text: g });
+        if (t && !cur.includes(t.find)) return; // the doomed line already moved
+        setGhost(t ? { pane, trim: t } : { pane, text: g });
       } catch {
         /* aborted or offline — a missing ghost is nothing */
       } finally {
@@ -2467,11 +2485,13 @@ export default function ZaltzIDE({
             }}
             onRun={() => void runMusic()}
             pondering={pondering === "strudel" && ghost?.pane !== "strudel"}
-            ghost={ghost?.pane === "strudel" ? ghost.text : null}
+            ghost={ghost?.pane === "strudel" ? ghost.text ?? null : null}
+            trim={ghost?.pane === "strudel" ? ghost.trim ?? null : null}
             onGhostAccept={() => {
               // an accepted whisper is the corpus's strongest signal
               snapRoom("strudel", "take", stateRef.current.strudel, {
                 ghost: ghost?.text?.slice(0, 2000) ?? "",
+                ...(ghost?.trim ? { trim: ghost.trim } : {}),
               });
               killGhost();
               // THE REAL-TIME LAW: a take made mid-set LANDS mid-set — the new
@@ -2506,10 +2526,12 @@ export default function ZaltzIDE({
             }}
             onRun={runVisuals}
             pondering={pondering === "hydra" && ghost?.pane !== "hydra"}
-            ghost={ghost?.pane === "hydra" ? ghost.text : null}
+            ghost={ghost?.pane === "hydra" ? ghost.text ?? null : null}
+            trim={ghost?.pane === "hydra" ? ghost.trim ?? null : null}
             onGhostAccept={() => {
               snapRoom("hydra", "take", stateRef.current.hydra, {
                 ghost: ghost?.text?.slice(0, 2000) ?? "",
+                ...(ghost?.trim ? { trim: ghost.trim } : {}),
               });
               killGhost();
               // A visual take repaints the room the moment it's taken.

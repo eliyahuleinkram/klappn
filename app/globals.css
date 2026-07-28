@@ -925,6 +925,16 @@ body.ide-stage.ide-solo #k1-canvas {
   opacity: 0.85;
 }
 
+/* The TRIM whisper's mark on the doomed line — a quiet strike, one kiss of
+   the accent so the consequence reads before the tap: this line dims or goes.
+   The grey rewrite beneath is the offer; ⇥ (or a tap) takes it. */
+.tok-trim {
+  opacity: 0.5;
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 99, 193, 0.65);
+  text-decoration-thickness: 1.5px;
+}
+
 /* The copilot's pulse — while a completion is in flight the NATIVE caret
    itself breathes pink (user 2026-07-26, twice: no glyph inside the text, and
    never a second bar — a marker drawn in the highlight twin put TWO cursors on
