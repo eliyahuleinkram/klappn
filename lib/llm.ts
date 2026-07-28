@@ -318,18 +318,14 @@ async function completeAnthropic(
   // The prompt must be answer-only — our pick/copy prompts already say "Output ONLY …", and
   // the callers regex-extract the fields. (effort still maps to "low" below purely to pick
   // the smallest max_tokens tier for these calls.)
-  // 2026-07-28 (user's call, revised same day): Opus 5 thinks at MEDIUM — the
-  // middle ground between the old default-high (slow, pricey) and the brief
-  // fully-disabled experiment (the gates carry more than they should). A call
-  // that asked LOW keeps low (never raise cost); explicit thinking:false
-  // callers stay disabled entirely. Other models keep their requested effort.
-  const noThink = opts?.thinking === false;
-  const requested = opts?.effort ?? "high";
-  const effort = noThink
-    ? "low"
-    : isOpus5 && requested !== "low"
-      ? "medium"
-      : requested;
+  // 2026-07-28 FINAL (user, third revision same day — high → medium → OFF):
+  // thinking is DISABLED for EVERY Opus 5 call. No reasoning tokens anywhere;
+  // the deterministic gates + critique/refine loops are the quality net. The
+  // requested effort survives ONLY as the max_tokens tier (output_config is
+  // never sent with disabled thinking — legal at effort ≤ high, which every
+  // route satisfies). Non-Opus models keep their requested behavior.
+  const noThink = opts?.thinking === false || isOpus5;
+  const effort = opts?.thinking === false ? "low" : (opts?.effort ?? "high");
   // Output budget TIERED BY EFFORT — thinking bills as output ($50/M on the top
   // models), so a flat 64k cap lets one runaway think cost dollars. 64k is only
   // what Anthropic recommends for max/xhigh; lower efforts think far less.

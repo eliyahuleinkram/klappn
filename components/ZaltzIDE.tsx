@@ -88,7 +88,7 @@ import {
   TOKENS_PER_GHOST,
   tokensForUsdCents,
 } from "@/lib/pricing";
-import OpenSourceMenu from "@/components/OpenSourceMenu";
+import BoilerMark from "@/components/BoilerMark";
 
 /**
  * THE ZALTZ IDE — a live-coding surface where the picture is the room and the
@@ -1178,17 +1178,21 @@ export default function ZaltzIDE({
   // everything live-coded on top leaves with the next pour. The queue lives in
   // localStorage like the bench; the pour rides the master fade + the live
   // room's own seamless swap.
-  const [lineup, setLineupState] = useState<{ id: string; title: string }[]>(() => {
-    if (typeof window === "undefined") return [];
+  const [lineup, setLineupState] = useState<{ id: string; title: string }[]>([]);
+  // Hydrate AFTER mount — the page is server-rendered, and a localStorage
+  // read in the initial state makes the header's count differ between the
+  // server's HTML and the client's first paint (seen live: hydration error).
+  useEffect(() => {
     try {
       const raw = JSON.parse(localStorage.getItem("klappn-lineup-v1") || "[]");
-      return Array.isArray(raw)
-        ? raw.filter((e) => e && typeof e.id === "string" && typeof e.title === "string")
-        : [];
+      if (Array.isArray(raw))
+        setLineupState(
+          raw.filter((e) => e && typeof e.id === "string" && typeof e.title === "string"),
+        );
     } catch {
-      return [];
+      /* private mode / bad json — an empty night */
     }
-  });
+  }, []);
   const setLineup = useCallback(
     (up: (prev: { id: string; title: string }[]) => { id: string; title: string }[]) => {
       setLineupState((prev) => {
@@ -2068,33 +2072,65 @@ export default function ZaltzIDE({
       {/* CRISP (user 07-27: zaltz rides the same penthouse as klappn.com):
           the furniture wears klappn's own sizes — 15px type in the bar,
           machined /[0.12] edges on the glass — never smaller, never hazier. */}
-      {/* MERGED INTO KLAPPN (user 07-28): the room is a feature of the house,
-          not a second brand — the header signs KLAPPN and walks home; the
-          shaker (the room's own object) is how you got here. "zaltz" stays
-          the engine's name, on the repo link alone. */}
+      {/* A FEATURE PAGE, NOT A SECOND HOME (user 07-28 final): the room signs
+          itself the way Tokens and Open do — the house ‹ back-link, then the
+          feature's own mark and name. No logo, no code door up here (the
+          brand and the GitHub both live at home). */}
       <header className="flex items-center gap-2.5 py-3">
-        <Link href="/" className="flex shrink-0 items-center gap-2" title="Klappn — back to the studio">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/icon.svg"
-            alt=""
-            className="h-7 w-7 select-none shadow-[0_8px_28px_-8px_rgba(224,49,156,.65)]"
-            style={{ borderRadius: "6px" }}
-          />
-          <span className="wordmark hidden text-[17px] tracking-tight text-foreground sm:inline">
-            Klappn
+        <Link
+          href="/"
+          className="group flex shrink-0 items-center gap-1 text-[15px] text-muted transition hover:text-foreground"
+          title="Back to your hits"
+        >
+          <span className="text-lg leading-none transition group-hover:-translate-x-0.5">
+            ‹
           </span>
+          <span className="hidden sm:inline">Hits</span>
         </Link>
-        {/* WHERE you are, whispered — the brand alone read placeless
-            (user 07-28: "missing some context"). One hairline, one word. */}
-        <span className="flex shrink-0 items-center gap-2.5" aria-hidden>
-          <span className="h-4 w-px bg-white/[0.14]" />
-          <span className="text-[13px] text-muted/65">boiler room</span>
+        <span className="flex min-w-0 shrink-0 items-center gap-2">
+          <BoilerMark className="h-[17px] w-[17px] shrink-0" />
+          <span className="truncate text-[15px] font-medium tracking-tight text-foreground">
+            Boiler room
+          </span>
         </span>
-        {/* NO NAME, NO CRATE (user 07-28): the room isn't a document — it's
-            the instrument, live every time. Nothing up here to rename, pick
-            or file; the air in the middle belongs to the room. */}
+        {/* the air in the middle belongs to the room */}
         <span className="min-w-0 flex-1" />
+        {/* THE LINEUP — the night's structure lives up top with the other
+            room-level controls (user 07-28: the corner chip read wrong).
+            Quiet word; the house dropdown opens beneath it. */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setLineupOpen((o) => !o)}
+            aria-expanded={lineupOpen}
+            title="The lineup — your hits, ordered for the night; pour one in and play on top"
+            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] transition active:scale-[.97] ${
+              lineupOpen
+                ? "bg-white/[0.1] text-foreground"
+                : "bg-white/[0.05] text-muted/60 hover:text-foreground"
+            }`}
+          >
+            Lineup
+            {lineup.length > 0 && (
+              <span className="tabular-nums text-muted/50">{lineup.length}</span>
+            )}
+          </button>
+          <BoilerLineup
+            open={lineupOpen}
+            onClose={() => setLineupOpen(false)}
+            queue={lineup}
+            currentIdx={lineupIdx}
+            hits={lineupHits}
+            onAdd={addToLineup}
+            onRemove={removeFromLineup}
+            onMove={moveLineup}
+            onPlay={(i) => void pourSong(i)}
+            onNext={() => {
+              if (lineupIdx != null) void pourSong(lineupIdx + 1);
+            }}
+            onArrange={() => void arrangeLineup()}
+            arranging={arranging}
+          />
+        </div>
         {/* THE TRANSPORT CAPSULE — play and tape are ONE machined object
             (the seam law: one capsule, one hairline). ▶/■ rules the room;
             ● is its tape deck, fused to it because they share one life:
@@ -2239,9 +2275,6 @@ export default function ZaltzIDE({
           title="Copilot — it whispers as you type: ⇥ takes it, ⌥\ summons one, Esc hushes it"
         >
           <CopilotMark on={copilot} />Copilot</button>
-        {/* The CODE DOOR — one glyph, all three repos with their own lines
-            (user 07-28: a bare zaltz link on a Klappn page read wrong). */}
-        <OpenSourceMenu />
         {/* ONE door for the person — klappn.com's own AccountMenu, worn
             unchanged (user 07-27: "it must look the same"): email · Tokens &
             usage · Sign out, the guest's claim path, or a sign-in door. The
@@ -2462,35 +2495,6 @@ export default function ZaltzIDE({
           card's ✕ PUTS THEM AWAY (user 07-28, second steer: the corner
           keep-safe was right) — they tuck into the capsule below; letting
           them go completely is the capsule's own ✕ segment. */}
-      {/* THE LINEUP CHIP — the crate's door, quiet glass in the corner (it
-          steps above the grains when a take holds the floor). */}
-      {!lineupOpen && (
-        <button
-          onClick={() => setLineupOpen(true)}
-          title="The lineup — your hits, ordered for the night; pour one in and play on top"
-          className={`pill-pop fixed left-4 z-[18] flex h-8 items-center rounded-full border border-white/[0.14] bg-black/35 px-3 text-[11.5px] text-muted/70 backdrop-blur-xl backdrop-saturate-[1.6] transition hover:text-foreground active:scale-[.96] ${
-            take ? "bottom-16" : "bottom-4"
-          }`}
-        >
-          lineup{lineup.length > 0 ? ` · ${lineup.length}` : ""}
-        </button>
-      )}
-      <BoilerLineup
-        open={lineupOpen}
-        onClose={() => setLineupOpen(false)}
-        queue={lineup}
-        currentIdx={lineupIdx}
-        hits={lineupHits}
-        onAdd={addToLineup}
-        onRemove={removeFromLineup}
-        onMove={moveLineup}
-        onPlay={(i) => void pourSong(i)}
-        onNext={() => {
-          if (lineupIdx != null) void pourSong(lineupIdx + 1);
-        }}
-        onArrange={() => void arrangeLineup()}
-        arranging={arranging}
-      />
       {take && takeFolded && (
         /* THE GRAINS, PUT AWAY — one QUIET segmented capsule (user 07-28,
            third steer: the loud pour was wrong at rest — "it must fuck

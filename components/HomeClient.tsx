@@ -34,6 +34,8 @@ import {
 import { useNowPlayingValue } from "@/lib/use-now-playing";
 import { useKeyboardInset } from "@/lib/use-keyboard-inset";
 import { DISCORD_URL, GITHUB_URL, ZALTZ_GITHUB_URL, ZISSL_GITHUB_URL } from "@/lib/links";
+import BoilerMark from "./BoilerMark";
+import OpenSourceMenu from "./OpenSourceMenu";
 
 // Evocative, hopeful status lines shown while a loop is being built — they make
 // the (genuinely working) wait feel alive and reassuring.
@@ -519,10 +521,14 @@ export default function HomeClient({
           <Link
             href="/live"
             title="The boiler room — your hits underneath, live code on top"
-            className="inline-flex items-center rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
           >
+            <BoilerMark className="h-[14px] w-[14px]" />
             Boiler room
           </Link>
+          {/* THE CODE DOOR lives at HOME (user 07-28: it read wrong inside a
+              feature page) — one glyph, all three repos with their lines. */}
+          <OpenSourceMenu />
           {isGuest && (
             <Link
               href="/claim"
