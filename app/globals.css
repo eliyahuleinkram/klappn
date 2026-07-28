@@ -825,7 +825,7 @@ input[type="range"].slider.knob-flex {
 }
 
 /* ── THE ZALTZ IDE ────────────────────────────────────────────────────────────
-   The picture IS the room: on /engine the hydra canvas burns near-full and the
+   The picture IS the room: on /live (the room) the hydra canvas burns near-full and the
    code floats over it on glass. Same law as the door — scrims and blur keep
    the type readable, never opaque panels. */
 body.ide-stage #hydra-canvas,

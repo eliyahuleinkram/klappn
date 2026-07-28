@@ -169,7 +169,7 @@ export default function SignIn({
           {/* the other door, far corner: the live room's own object — press
               the shaker, the code is under your fingers */}
           <a
-            href="/engine"
+            href="/live"
             title="The live room — the instrument you type, code under your fingers"
             className="group flex h-9 w-9 select-none items-center justify-center rounded-full border border-white/[0.14] bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,.1)] backdrop-blur-xl transition hover:border-accent/40 active:scale-[.94]"
           >

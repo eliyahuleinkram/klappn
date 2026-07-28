@@ -86,7 +86,7 @@ import {
   TOKENS_PER_GHOST,
   tokensForUsdCents,
 } from "@/lib/pricing";
-import { ZALTZ_GITHUB_URL } from "@/lib/links";
+import OpenSourceMenu from "@/components/OpenSourceMenu";
 
 /**
  * THE ZALTZ IDE — a live-coding surface where the picture is the room and the
@@ -1617,7 +1617,7 @@ export default function ZaltzIDE({
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ usd, back: "/engine" }),
+        body: JSON.stringify({ usd, back: "/live" }),
       });
       const d = (await res.json().catch(() => ({}))) as {
         url?: string;
@@ -1871,6 +1871,12 @@ export default function ZaltzIDE({
             Klappn
           </span>
         </Link>
+        {/* WHERE you are, whispered — the brand alone read placeless
+            (user 07-28: "missing some context"). One hairline, one word. */}
+        <span className="flex shrink-0 items-center gap-2.5" aria-hidden>
+          <span className="h-4 w-px bg-white/[0.14]" />
+          <span className="text-[13px] text-muted/65">live room</span>
+        </span>
         {/* NO NAME, NO CRATE (user 07-28): the room isn't a document — it's
             the instrument, live every time. Nothing up here to rename, pick
             or file; the air in the middle belongs to the room. */}
@@ -2019,19 +2025,9 @@ export default function ZaltzIDE({
           title="Copilot — it whispers as you type: ⇥ takes it, ⌥\ summons one, Esc hushes it"
         >
           <CopilotMark on={copilot} />Copilot</button>
-        {/* The GitHub mark — the door to the open source (user 07-27: the
-            repo must be one tap from the playground). Bare glyph. */}
-        <a
-          href={ZALTZ_GITHUB_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="zaltz on GitHub — the whole engine, open"
-          className="shrink-0 px-1 text-muted/70 transition hover:text-foreground active:scale-[.95]"
-        >
-          <svg viewBox="0 0 16 16" className="h-[18px] w-[18px]" fill="currentColor" aria-label="GitHub">
-            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
-          </svg>
-        </a>
+        {/* The CODE DOOR — one glyph, all three repos with their own lines
+            (user 07-28: a bare zaltz link on a Klappn page read wrong). */}
+        <OpenSourceMenu />
         {/* ONE door for the person — klappn.com's own AccountMenu, worn
             unchanged (user 07-27: "it must look the same"): email · Tokens &
             usage · Sign out, the guest's claim path, or a sign-in door. The

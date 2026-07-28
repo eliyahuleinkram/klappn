@@ -547,15 +547,16 @@ export default function HomeClient({
             </svg>
             Events
           </Link>
-          {/* THE SALT SHAKER — the live room's own object, no pill, no word
-              (user 07-28): press it and you're in the room, code under your
-              fingers. Same machined shaker the desk wears. */}
+          {/* LIVE — the room's own pill, wearing the shaker (user 07-28: a
+              bare icon read cryptic, a word beside its object reads itself;
+              Sets · Events · Live is the nav, one family). */}
           <Link
-            href="/engine"
+            href="/live"
             title="The live room — the instrument you type, code under your fingers"
-            className="group flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,.1)] transition hover:border-accent/40 hover:shadow-[0_0_30px_-10px_rgba(224,49,156,.6),inset_0_1px_0_rgba(255,255,255,.14)] active:scale-[.94]"
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
           >
-            <SaltShaker className="h-[22px] w-[22px] transition group-hover:drop-shadow-[0_0_8px_rgba(255,99,193,.5)]" />
+            <SaltShaker className="h-[15px] w-[15px]" />
+            Live
           </Link>
           {isGuest && (
             <Link

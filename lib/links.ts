@@ -14,8 +14,8 @@ export const ZALTZ_GITHUB_URL = "https://github.com/eliyahuleinkram/zaltz";
 export const ZALTZ_NPM_URL = "https://www.npmjs.com/package/zaltz";
 // The live room merged INTO klappn 2026-07-28 (user: "it is a feature within
 // klappn") — zaltz stays the ENGINE's name (repo/npm); the room lives at
-// /engine on klappn.com and zaltz.klappn.com 301s there (the Reddit links).
-export const ZALTZ_PLAYGROUND_URL = "https://klappn.com/engine";
+// klappn.com/live and zaltz.klappn.com 301s there (the Reddit links).
+export const ZALTZ_PLAYGROUND_URL = "https://klappn.com/live";
 
 /** ZISSL — the compute swarm that paints the door + the desk's colony. */
 export const ZISSL_GITHUB_URL = "https://github.com/eliyahuleinkram/zissl";

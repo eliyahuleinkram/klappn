@@ -57,13 +57,18 @@ export default {
     }
 
     // zaltz merged INTO klappn (2026-07-28, user: "it is a feature within
-    // klappn"): the room lives at klappn.com/engine, and this host — already
+    // klappn"): the room lives at klappn.com/live, and this host — already
     // posted to Reddit — REDIRECTS there for good. Root lands on the room;
     // any deeper path keeps itself on the apex (one worker serves both).
     let req = request;
     if (url.hostname === "zaltz.klappn.com") {
       url.hostname = "klappn.com";
-      if (url.pathname === "/") url.pathname = "/engine";
+      url.pathname = url.pathname === "/" || url.pathname === "/engine" ? "/live" : url.pathname;
+      return Response.redirect(url.toString(), 301);
+    }
+    // The room's old address (pre-merge deep links) — one hop, forever.
+    if (url.pathname === "/engine") {
+      url.pathname = "/live";
       return Response.redirect(url.toString(), 301);
     }
 
