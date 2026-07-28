@@ -48,6 +48,7 @@ export async function POST(req: Request) {
     after?: unknown;
     context?: unknown;
     midi?: unknown;
+    warm?: unknown;
   } | null;
   const pane = body?.pane === "hydra" ? "hydra" : "strudel";
   const before = typeof body?.before === "string" ? body.before.slice(-4000) : "";
@@ -92,6 +93,26 @@ export async function POST(req: Request) {
       maxTokens: 400,
       ...(stable ? { cacheStable: stable } : {}),
     } as const;
+    // THE PRE-WARM (07-28, user: "the first call takes so long") — the first
+    // completion of a session pays the cache WRITE on the ~14k-token system
+    // spec (the model reads the whole rulebook once; the cache then serves it
+    // ~0.1× for an hour). The room fires this tiny call in the background at
+    // load, so the ingestion happens while the coder is still looking around
+    // — their first REAL whisper lands on a hot cache. Net cost ≈ zero: the
+    // write was owed by the first call either way; this just moves it off the
+    // human path. Metered honestly like every call.
+    if (body?.warm === true) {
+      try {
+        await complete(system, tail, cfg, {
+          ...opts,
+          maxTokens: 8,
+          trace: { kind: "ide-complete", attempt: -1 },
+        });
+      } catch {
+        /* a failed warm is nothing — the first real call just pays the write */
+      }
+      return Response.json({ ghost: "" });
+    }
     const raw = await complete(system, tail, cfg, {
       ...opts,
       trace: { kind: "ide-complete" },

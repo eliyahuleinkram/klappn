@@ -843,6 +843,38 @@ export default function ZaltzIDE({
     setGhost(null);
   }, []);
 
+  // THE PRE-WARM — the session's FIRST whisper used to carry the whole
+  // rulebook ingestion (the ~14k-token spec's cache write) on the human path.
+  // Fire it once in the background shortly after the room opens, while the
+  // coder is still looking around: their first real whisper then lands on a
+  // hot cache (~1.2s, the measured warm figure). Signed-in only — warming
+  // must never mint a guest session for a lurker; net cost ≈ zero (the write
+  // was owed by the first call either way).
+  const warmedRef = useRef(false);
+  useEffect(() => {
+    if (warmedRef.current || !copilot || !me?.signedIn) return;
+    const t = setTimeout(() => {
+      // Marked at FIRE time, not schedule time — strict mode's double-mount
+      // clears the first timer, and a pre-marked ref would skip the retry.
+      if (warmedRef.current) return;
+      warmedRef.current = true;
+      void fetch("/api/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          pane: "strudel",
+          before: "setcpm(120/4)\n",
+          after: "",
+          context: "",
+          midi: "",
+          warm: true,
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [copilot, me?.signedIn]);
+
   // ── THE DECK — the Sets deck's machinery, verbatim concepts (lib/set-live):
   // deterministic, ephemeral, zero AI. Layers are re-bused onto channel orbit
   // DECADES at PLAY TIME (the pane's code is never touched); kills are Web
