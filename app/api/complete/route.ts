@@ -47,12 +47,16 @@ export async function POST(req: Request) {
     before?: unknown;
     after?: unknown;
     context?: unknown;
+    midi?: unknown;
   } | null;
   const pane = body?.pane === "hydra" ? "hydra" : "strudel";
   const before = typeof body?.before === "string" ? body.before.slice(-4000) : "";
   const after = typeof body?.after === "string" ? body.after.slice(0, 2000) : "";
   const context =
     typeof body?.context === "string" ? body.context.slice(0, 2500) : "";
+  // What the hands just played on a connected MIDI wire — note names only,
+  // tightly capped (it rides the non-cached tail).
+  const midi = typeof body?.midi === "string" ? body.midi.slice(0, 200) : "";
   if (!before.trim()) return Response.json({ ghost: "" });
 
   const gate = await assertQuota(userId);
@@ -68,6 +72,7 @@ export async function POST(req: Request) {
     after,
     context,
     pane === "hydra" ? "STRUDEL PANE" : "HYDRA PANE",
+    midi,
   );
   const sink = makeCallSink();
   try {

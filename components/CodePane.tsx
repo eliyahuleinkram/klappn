@@ -101,6 +101,9 @@ const CodePane = forwardRef<
     /** Fired when the caret PARKS (typing pause or a click that settles) and by
      *  summon()/⌥\ — the copilot's cue. */
     onCaretIdle?: (ctx: CaretContext) => void;
+    /** ✦ explain — select a stretch of code and a quiet chip floats past it;
+     *  one tap asks the machine to teach that fragment (strictly on-demand). */
+    onExplain?: (sel: string) => void;
   }
 >(function CodePane(
   {
@@ -116,6 +119,7 @@ const CodePane = forwardRef<
     onGhostDismiss,
     onTakeHint,
     onCaretIdle,
+    onExplain,
   },
   handleRef,
 ) {
@@ -198,6 +202,74 @@ const CodePane = forwardRef<
           },
     );
   }, [ghost, value]);
+
+  // ✦ EXPLAIN AT THE SELECTION — the take pill's own geometry trick, turned
+  // on the coder's selection: buffer offsets are walked onto the highlight
+  // twin's text nodes (byte-aligned by law), a Range measures where the
+  // selection ENDS, and a quiet chip floats just past it. With a ghost up the
+  // twin holds text the buffer doesn't — the chip stands down.
+  const [selChip, setSelChip] = useState<{
+    top: number;
+    left: number;
+    text: string;
+  } | null>(null);
+  const measureSelection = useCallback(() => {
+    const ta = taRef.current;
+    const content = contentRef.current;
+    if (!ta || !content || !onExplain || ghost) return setSelChip(null);
+    const start = ta.selectionStart ?? 0;
+    const end = ta.selectionEnd ?? 0;
+    if (end - start < 4) return setSelChip(null);
+    const pre = content.querySelector("pre");
+    if (!pre) return setSelChip(null);
+    const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+    let acc = 0;
+    let sNode: Text | null = null;
+    let sOff = 0;
+    let eNode: Text | null = null;
+    let eOff = 0;
+    while (walker.nextNode()) {
+      const n = walker.currentNode as Text;
+      const len = n.data.length;
+      if (!sNode && acc + len >= start) {
+        sNode = n;
+        sOff = start - acc;
+      }
+      if (acc + len >= end) {
+        eNode = n;
+        eOff = end - acc;
+        break;
+      }
+      acc += len;
+    }
+    if (!sNode || !eNode) return setSelChip(null);
+    const range = document.createRange();
+    range.setStart(sNode, sOff);
+    range.setEnd(eNode, eOff);
+    const rects = range.getClientRects();
+    const last = rects[rects.length - 1];
+    if (!last) return setSelChip(null);
+    const box = content.getBoundingClientRect();
+    const CHIP_W = 96;
+    const CHIP_H = 28;
+    const fitsBeside =
+      last.right - box.left + 10 + CHIP_W <= content.clientWidth - 4;
+    setSelChip({
+      text: ta.value.slice(start, end),
+      ...(fitsBeside
+        ? {
+            top: last.top - box.top + (last.height - CHIP_H) / 2,
+            left: last.right - box.left + 10,
+          }
+        : {
+            top: last.bottom - box.top + 4,
+            left: Math.max(
+              8,
+              Math.min(last.left - box.left, content.clientWidth - CHIP_W - 8),
+            ),
+          }),
+    });
+  }, [ghost, onExplain]);
 
   // With a ghost up, the twin renders before + ghost + after; the textarea
   // knows nothing about it (alignment guaranteed by the parent's truncation
@@ -556,7 +628,11 @@ const CodePane = forwardRef<
               checkGhostStale();
               scheduleCue();
             }}
-            onBlur={() => ghost && onGhostDismiss?.()}
+            onSelect={measureSelection}
+            onBlur={() => {
+              if (ghost) onGhostDismiss?.();
+              setSelChip(null);
+            }}
             spellCheck={false}
             autoCapitalize="off"
             autoComplete="off"
@@ -610,6 +686,23 @@ const CodePane = forwardRef<
               className="pill-pop absolute z-[3] rounded-full px-3.5 py-1.5 text-[12.5px] font-medium text-white ring-1 ring-white/25 shadow-[0_2px_10px_-2px_rgba(179,18,111,.85),0_0_38px_-6px_rgba(224,49,156,.85),inset_0_1px_0_rgba(255,255,255,.4),inset_0_-1px_2px_rgba(0,0,0,.3)] transition hover:brightness-[1.08] hover:shadow-[0_3px_14px_-2px_rgba(179,18,111,.9),0_0_48px_-6px_rgba(224,49,156,.95),inset_0_1px_0_rgba(255,255,255,.45),inset_0_-1px_2px_rgba(0,0,0,.3)] active:scale-[.94]"
             >
               <span className="[@media(pointer:coarse)]:hidden">⇥ </span>take
+            </button>
+          )}
+          {/* ✦ explain — quiet glass past the selection: the AI-spend orb and
+              one word, nothing shouting. pointerDown so the selection (and
+              the pane's focus) survives the tap. */}
+          {selChip && !ghost && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                const t = selChip.text;
+                setSelChip(null);
+                onExplain?.(t);
+              }}
+              style={{ top: selChip.top, left: selChip.left }}
+              className="pill-pop absolute z-[3] whitespace-nowrap rounded-full border border-white/[0.16] bg-black/55 px-3 py-1.5 text-[12px] font-medium text-foreground/85 shadow-[0_2px_14px_-4px_rgba(0,0,0,.6)] backdrop-blur-xl transition hover:border-accent/40 hover:text-accent-strong active:scale-[.94]"
+            >
+              ✦ explain
             </button>
           )}
         </div>

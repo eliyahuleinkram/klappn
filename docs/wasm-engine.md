@@ -1,6 +1,6 @@
-# ZALTZ — Klappn's audio engine
+# zaltz — Klappn's audio engine
 
-ZALTZ is the synthesizer under every Klappn song: one file of freestanding C
+zaltz is the synthesizer under every Klappn song: one file of freestanding C
 ([engine/zaltz.c](../engine/zaltz.c), ~1,600 lines), compiled to ~165 KB of
 WebAssembly, rendering inside an AudioWorklet. The UI thread can jank, GC, or
 sleep — the render physically cannot glitch, because it never runs there.
@@ -11,7 +11,7 @@ layer) that Klappn songs actually use — a faithful derivative, formula by
 formula (see `NOTICE.md`) — measured against the real thing until
 the two were indistinguishable — then pushed past it wherever superdough's
 Web-Audio-graph architecture couldn't go. The pattern layer (@strudel/core,
-mini, tonal, transpiler) is untouched upstream code; ZALTZ replaces only the
+mini, tonal, transpiler) is untouched upstream code; zaltz replaces only the
 sound.
 
 ## Why not just superdough?
@@ -23,7 +23,7 @@ background-tab timer clamp, and the audio crackles. The fixes (bigger buffers,
 low-CPU "twin" rewrites of every song for phones, reverb capping on mobile)
 were all payments on that architectural debt.
 
-ZALTZ moves the entire render to the audio thread and retires the debt: phones
+zaltz moves the entire render to the audio thread and retires the debt: phones
 play the same full mix as desktops, backgrounded tabs keep playing, and the
 twin pipeline was deleted outright.
 
@@ -69,14 +69,14 @@ Rules that hold everywhere in the engine, learned the hard way:
   uploads are budgeted per quantum, memory growth is chunked and rare.
 - **Quality over superdough-faithfulness.** Parity is the floor, not the
   ceiling: where the reference glitches (regenerating a shared convolver
-  mid-ring, per-hap GC churn), ZALTZ deliberately diverges.
+  mid-ring, per-hap GC churn), zaltz deliberately diverges.
 - **The ear is the acceptance test.** Metrics gate regressions; a human
   listening decides quality.
 
 ## The golden gate
 
 [engine/golden/run.mjs](../engine/golden/run.mjs) renders the same programs
-through superdough (offline, via node-web-audio-api) and through ZALTZ, and
+through superdough (offline, via node-web-audio-api) and through zaltz, and
 compares envelope correlation, level, and brightness per case — synths, ADSR,
 filters, samples, GM zones, delay, reverb, ducking, real pattern queries. It
 caught, among others: a mono-pan stereo law 3.6 dB off, phase-blind envelope
@@ -89,7 +89,7 @@ The superdough side of the comparison ran through a server render service
 that predates this repo's public history (it went with stem rendering, before
 the open-source squash). To re-run the reference side today, point the
 harness at superdough offline via `node-web-audio-api` — the oracle scripts
-under `engine/golden/` show the shape. The ZALTZ side needs only this repo.
+under `engine/golden/` show the shape. The zaltz side needs only this repo.
 
 ## Building
 

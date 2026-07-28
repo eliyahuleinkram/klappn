@@ -201,6 +201,16 @@ const MIC_VOICES: { id: LiveMicVoice; name: string; hint: string }[] = [
 /** The mic's dial positions — plain 0..1; the Web Audio ranges live in
  *  lib/strudel-client (setLiveMicFx). */
 type MicFx = { level: number; echo: number; space: number; drive: number; glow: number };
+/** The light board's dials — CSS filters on the visuals canvas (zaltz's own
+ *  video-DJ vocabulary: Hue/Colour/Contrast/Glow/Smear/Invert). */
+type DeckLightFx = {
+  hue: number;
+  sat: number;
+  contrast: number;
+  bright: number;
+  blur: number;
+  invert: number;
+};
 
 // The LOOKS — one-tap seats for the live voice, same names and order the
 // studio's VOCAL_PRESETS wore (lib/vocal-fx), re-voiced for the live chain
@@ -316,6 +326,10 @@ function DeckControls({
   onMidi,
   onMidiInput,
   onMidiInstrument,
+  lightOpen,
+  onLightToggle,
+  lightFx,
+  onLightFx,
 }: {
   kills: Record<Channel, boolean>;
   onKill: (ch: Channel) => void;
@@ -347,11 +361,25 @@ function DeckControls({
   /** Cycle to the next connected input (the device capsule's tap). */
   onMidiInput: () => void;
   onMidiInstrument: (s: string) => void;
+  /** THE LIGHT — the zaltz desk's video-DJ dials on the set's picture. The
+   *  pill folds the board; the look survives the fold (dot says so). */
+  lightOpen: boolean;
+  onLightToggle: () => void;
+  lightFx: DeckLightFx;
+  onLightFx: (patch: Partial<DeckLightFx>) => void;
 }) {
   // THE MIDI KEYBOARD is a LIVE-SET instrument (this deck is the only place it
   // renders): hidden entirely unless Web MIDI is supported AND a device is
   // actually connected — no dead pill for the keyboard-less majority.
   const midiAvailable = midi.supported && midi.inputs.length > 0;
+  // A worn look keeps its dot lit even with the board folded.
+  const lightTouched =
+    lightFx.hue !== 0 ||
+    lightFx.sat !== 1 ||
+    lightFx.contrast !== 1 ||
+    lightFx.bright !== 1 ||
+    lightFx.blur > 0 ||
+    lightFx.invert > 0;
   // lit = armed AND connected; an unplug hides the section but keeps the arm,
   // so replugging mid-set brings the keyboard straight back.
   const midiOn = midi.enabled && midiAvailable;
@@ -550,7 +578,7 @@ function DeckControls({
           same posture, same live-over-the-mix contract. */}
       <div className="mt-3">
         <div
-          className={`grid gap-1.5 ${midiAvailable ? "grid-cols-2" : "grid-cols-1"}`}
+          className={`grid gap-1.5 ${midiAvailable ? "grid-cols-3" : "grid-cols-2"}`}
         >
         <button
           onClick={onMic}
@@ -599,6 +627,35 @@ function DeckControls({
             MIDI
           </button>
         )}
+        {/* THE VISUAL pill — the light board's fold. The dot stays lit while
+            a look is worn, even folded (never hide live state). */}
+        <button
+          onClick={onLightToggle}
+          aria-pressed={lightOpen}
+          title={
+            lightOpen
+              ? "Fold the light board — the look stays on"
+              : "The light board — dial the picture live"
+          }
+          className={`flex h-9 w-full items-center justify-center gap-2 rounded-full text-[12px] font-medium uppercase tracking-[0.12em] transition ${
+            lightOpen
+              ? "text-white"
+              : "bg-white/[0.06] text-foreground/90 hover:bg-white/[0.1]"
+          }`}
+          style={lightOpen ? LIT_PILL : undefined}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full transition ${
+              lightOpen || lightTouched ? "bg-white" : "bg-white/[0.12]"
+            }`}
+            style={
+              lightOpen || lightTouched
+                ? { boxShadow: "0 0 10px rgba(255,255,255,0.9)" }
+                : undefined
+            }
+          />
+          VISUAL
+        </button>
         </div>
         {micOn && (
           <DeckGroup>
@@ -830,6 +887,79 @@ function DeckControls({
             </button>
           </DeckGroup>
         )}
+        {lightOpen && (
+          <DeckGroup>
+            {/* THE LIGHT BOARD — zaltz's video-DJ dials on the set's own
+                picture: CSS filters on the canvas, live, ephemeral. */}
+            <div>
+              <DeckRowLabel>Light</DeckRowLabel>
+              <div className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 sm:gap-x-6">
+                <DeckSlider
+                  label="Hue"
+                  value={lightFx.hue}
+                  min={0}
+                  max={360}
+                  step={2}
+                  display={lightFx.hue === 0 ? "—" : `${Math.round(lightFx.hue)}°`}
+                  onChange={(v) => onLightFx({ hue: v })}
+                />
+                <DeckSlider
+                  label="Colour"
+                  value={lightFx.sat}
+                  min={0}
+                  max={3}
+                  step={0.05}
+                  display={lightFx.sat === 1 ? "—" : `${lightFx.sat.toFixed(2)}×`}
+                  onChange={(v) => onLightFx({ sat: v })}
+                />
+                <DeckSlider
+                  label="Contrast"
+                  value={lightFx.contrast}
+                  min={0.4}
+                  max={2.5}
+                  step={0.05}
+                  display={
+                    lightFx.contrast === 1 ? "—" : `${lightFx.contrast.toFixed(2)}×`
+                  }
+                  onChange={(v) => onLightFx({ contrast: v })}
+                />
+                <DeckSlider
+                  label="Glow"
+                  value={lightFx.bright}
+                  min={0.4}
+                  max={2}
+                  step={0.05}
+                  display={
+                    lightFx.bright === 1 ? "—" : `${lightFx.bright.toFixed(2)}×`
+                  }
+                  onChange={(v) => onLightFx({ bright: v })}
+                />
+                <DeckSlider
+                  label="Smear"
+                  value={lightFx.blur}
+                  min={0}
+                  max={8}
+                  step={0.25}
+                  display={lightFx.blur === 0 ? "—" : `${lightFx.blur.toFixed(1)}px`}
+                  onChange={(v) => onLightFx({ blur: v })}
+                />
+                <DeckSlider
+                  label="Invert"
+                  value={lightFx.invert}
+                  min={0}
+                  max={1}
+                  step={0.02}
+                  display={
+                    lightFx.invert === 0
+                      ? "—"
+                      : `${Math.round(lightFx.invert * 100)}%`
+                  }
+                  onChange={(v) => onLightFx({ invert: v })}
+                />
+              </div>
+            </div>
+          </DeckGroup>
+        )}
       </div>
     </>
   );
@@ -1019,6 +1149,35 @@ export default function SetClient({
   // The worn LOOK — display state; the fx values above are the truth. Null
   // once a dial moves off it (the studio's activeLook contract).
   const [micLook, setMicLook] = useState<string | null>(null);
+  // THE LIGHT — the zaltz desk's video-DJ board on the set's own picture:
+  // CSS filters on the visuals canvas, ephemeral, cleared when the page is
+  // left (leave-clean law). The pill is a fold — state survives it closing.
+  const [lightOpen, setLightOpen] = useState(false);
+  const [lightFx, setLightFx] = useState({
+    hue: 0,
+    sat: 1,
+    contrast: 1,
+    bright: 1,
+    blur: 0,
+    invert: 0,
+  });
+  const lightFxRef = useRef(lightFx);
+  lightFxRef.current = lightFx;
+  const moveLightFx = (patch: Partial<typeof lightFx>) => {
+    const next = { ...lightFxRef.current, ...patch };
+    lightFxRef.current = next;
+    setLightFx(next);
+    const el = document.getElementById("hydra-canvas");
+    if (!el) return;
+    const f: string[] = [];
+    if (next.hue) f.push(`hue-rotate(${Math.round(next.hue)}deg)`);
+    if (next.sat !== 1) f.push(`saturate(${next.sat})`);
+    if (next.contrast !== 1) f.push(`contrast(${next.contrast})`);
+    if (next.bright !== 1) f.push(`brightness(${next.bright})`);
+    if (next.blur > 0) f.push(`blur(${next.blur}px)`);
+    if (next.invert > 0) f.push(`invert(${next.invert})`);
+    el.style.filter = f.join(" ");
+  };
   // THE HEADPHONES WHISPER — a two-phase fade ("in" ~8s, "out" ~0.7s, gone);
   // armed once per browser, ever (MIC_HINT_KEY).
   const [micHint, setMicHint] = useState<"in" | "out" | null>(null);
@@ -1328,6 +1487,10 @@ export default function SetClient({
       // driving it, the deck's exact posture (kills, dials, nudge, loop mode)
       // is stashed on the session so returning restores what the audio is
       // ALREADY wearing, and the dock carries the transport meanwhile.
+      // The light is page furniture, never part of the ride-along — a tinted
+      // canvas must not follow the music onto the next surface.
+      const canvas = document.getElementById("hydra-canvas");
+      if (canvas) canvas.style.filter = "";
       const np = nowPlaying();
       if (!np || !isSongPlaying()) {
         // Nothing is sounding — leave the engine and the buses clean.
@@ -2950,6 +3113,10 @@ export default function SetClient({
                     onMidi={toggleMidi}
                     onMidiInput={midiInputCycle}
                     onMidiInstrument={setMidiInstrument}
+                    lightOpen={lightOpen}
+                    onLightToggle={() => setLightOpen((v) => !v)}
+                    lightFx={lightFx}
+                    onLightFx={moveLightFx}
                   />
                 </div>
               </div>
@@ -3234,6 +3401,10 @@ export default function SetClient({
                 onMidi={toggleMidi}
                 onMidiInput={midiInputCycle}
                 onMidiInstrument={setMidiInstrument}
+                lightOpen={lightOpen}
+                onLightToggle={() => setLightOpen((v) => !v)}
+                lightFx={lightFx}
+                onLightFx={moveLightFx}
               />
             </div>
           </div>

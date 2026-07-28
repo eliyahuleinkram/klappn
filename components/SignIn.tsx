@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import DoorGallery, { type DoorSong } from "@/components/DoorGallery";
+import { ZALTZ_PLAYGROUND_URL } from "@/lib/links";
 
 /**
  * SIGN-IN — a 6-digit CODE, not a link (2026-07-10). A magic link opens in the
@@ -150,19 +151,31 @@ export default function SignIn({
           className="pointer-events-none fixed inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,.32),transparent_24%,transparent_58%,rgba(0,0,0,.58))]"
         />
         {/* the brand signs the corner — the room belongs to the music */}
-        <div className="relative z-10 flex items-center gap-2.5 pt-6">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/icon.svg"
-            alt=""
-            aria-hidden
-            className="h-8 w-8 select-none shadow-[0_8px_28px_-8px_rgba(224,49,156,.65)]"
-            style={{ borderRadius: "7px" }}
-            draggable={false}
-          />
-          <span className="wordmark text-[22px] tracking-tight text-foreground">
-            Klappn
-          </span>
+        <div className="relative z-10 flex items-center justify-between pt-6">
+          <div className="flex items-center gap-2.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/icon.svg"
+              alt=""
+              aria-hidden
+              className="h-8 w-8 select-none shadow-[0_8px_28px_-8px_rgba(224,49,156,.65)]"
+              style={{ borderRadius: "7px" }}
+              draggable={false}
+            />
+            <span className="wordmark text-[22px] tracking-tight text-foreground">
+              Klappn
+            </span>
+          </div>
+          {/* the other door, far corner: the instrument you type */}
+          <a
+            href={ZALTZ_PLAYGROUND_URL}
+            target="_blank"
+            rel="noreferrer"
+            title="zaltz — the instrument you type. Walk in, the code is under your fingers."
+            className="select-none text-[13px] text-muted/70 transition hover:text-foreground"
+          >
+            zaltz ↗
+          </a>
         </div>
 
         {/* The gallery scatters its boxes across the WHOLE page (fixed field);

@@ -180,7 +180,27 @@ function activeVoices(): number {
 }
 registerMidiActiveProbe(activeVoices);
 
+// RECENT PLAY — a small ring of what the hands just played (sounding notes
+// only; consumed kit pads are controls, not music). The whisper reads it so
+// a completion can answer the phrase on the keys.
+const RECENT_CAP = 24;
+const recentNotes: { note: number; t: number }[] = [];
+
+const RECENT_PITCHES = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"];
+
+/** The last notes played on the wire inside windowMs (oldest first), as
+ *  strudel-spelled names ("d4 f#4 a4") — "" when the keys have been quiet. */
+export function recentMidiNotes(windowMs = 45000): string {
+  const cutoff = performance.now() - windowMs;
+  return recentNotes
+    .filter((r) => r.t >= cutoff)
+    .map((r) => `${RECENT_PITCHES[r.note % 12]}${Math.floor(r.note / 12) - 1}`)
+    .join(" ");
+}
+
 function noteOn(note: number, velocity: number): void {
+  recentNotes.push({ note, t: performance.now() });
+  if (recentNotes.length > RECENT_CAP) recentNotes.shift();
   const duration = instrument.duration * (sustain ? 2.5 : 1);
   if (activeVoices() >= MAX_LIVE_VOICES) return; // see the cap note above
   liveVoiceExpiry.push(performance.now() + duration * 1000);

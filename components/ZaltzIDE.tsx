@@ -20,10 +20,14 @@ import { attachHydraBlock } from "@/lib/hydra-embed";
 import { openDeep } from "@/lib/seal";
 import {
   applyOrbitGains,
+  disableLiveMic,
+  enableLiveMic,
   ensurePerfFx,
   fadeMaster,
+  getLiveMicLevel,
   playPart,
   setLiveCps,
+  setLiveMicFx,
   setLivePerf,
   setLiveSwarm,
   setExplicitVisualsDrive,
@@ -33,12 +37,14 @@ import {
   startIdleVisual,
   stop,
   swarmReady,
+  unlockAudio,
   updateVisuals,
 } from "@/lib/strudel-client";
 import {
   disableLiveMidi,
   enableLiveMidi,
   midiState,
+  recentMidiNotes,
   setMidiCCSink,
   setMidiInput,
   setMidiInstrument,
@@ -375,6 +381,13 @@ export default function ZaltzIDE({
       if (canvas) canvas.style.filter = "";
       setVisuals(false);
       setExplicitVisualsDrive(false);
+      // The mic goes down with the room — hot capture past the door is a
+      // trust problem (the Sets deck's own law).
+      try {
+        disableLiveMic();
+      } catch {
+        /* engine already gone */
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -717,7 +730,10 @@ export default function ZaltzIDE({
         mintTried.current = true;
         if (!(await ensureSession())) return;
       }
-      const cacheKey = `${pane}|${ctx.before.slice(-240)}|${ctx.after.slice(0, 80)}`;
+      // The played-notes ring joins the key — a ghost cached before a phrase
+      // must not answer the cue that comes after it.
+      const midiRecent = pane === "strudel" ? recentMidiNotes() : "";
+      const cacheKey = `${pane}|${ctx.before.slice(-240)}|${ctx.after.slice(0, 80)}|${midiRecent.slice(-60)}`;
       // A DIRECT order (✦/⌥\) never answers from the cache — pressing the
       // button means "another take", never "show me the same one again" (and a
       // cached silence used to mute it entirely). Auto-cues still ride the
@@ -746,6 +762,9 @@ export default function ZaltzIDE({
             // it lights; a strudel ghost, the light it moves under.
             context:
               pane === "strudel" ? stateRef.current.hydra : stateRef.current.strudel,
+            // What the hands just played on the wire — the whisper can answer
+            // the phrase on the keys. Sound pane only; quiet keys send nothing.
+            midi: midiRecent,
           }),
         });
         if (res.status === 402) {
@@ -844,6 +863,62 @@ export default function ZaltzIDE({
   // ref'd like perf/kills — the MIDI kit rides this from a long-lived callback
   const lightRef = useRef(light);
   lightRef.current = light;
+
+  // THE MIC — the Sets deck's own graph (lib live mic) with the monitor OPEN:
+  // in zaltz there is no audience yet, the room itself is who hears you. The
+  // voice rides the engine's broadcast tap, so the day the live door opens,
+  // the mic is already on the wire.
+  const [canMic, setCanMic] = useState(false);
+  useEffect(() => {
+    setCanMic(!!navigator.mediaDevices?.getUserMedia);
+  }, []);
+  const [micOn, setMicOn] = useState(false);
+  const [micFx, setMicFx] = useState({ level: 0.7, echo: 0, space: 0.15 });
+  const micMeterRef = useRef<HTMLDivElement | null>(null);
+  const micMeterLvl = useRef(0);
+  const toggleMic = async () => {
+    if (micOn) {
+      disableLiveMic();
+      setMicOn(false);
+      return;
+    }
+    // The mic needs the engine's tap — wake the room inside the gesture, then
+    // only flip the pill once the mic is actually wired (permission granted).
+    try {
+      await unlockAudio();
+    } catch {
+      /* the engine will say so itself */
+    }
+    const ok = await enableLiveMic(null);
+    if (ok) {
+      setLiveMicFx({ ...micFx, monitor: true }); // monitor OPEN — see above
+      setMicOn(true);
+    }
+  };
+  const micDial = (patch: Partial<typeof micFx>) => {
+    const next = { ...micFx, ...patch };
+    setMicFx(next);
+    setLiveMicFx(next);
+  };
+  // The level meter — style-written from one slow poll, no state, no re-render;
+  // fast attack, ~1.5s release; honest zero.
+  useEffect(() => {
+    if (!micOn) return;
+    const id = setInterval(() => {
+      const lvl = getLiveMicLevel();
+      const s = micMeterLvl.current;
+      micMeterLvl.current = lvl >= s ? lvl : Math.max(lvl, s * 0.72);
+      const fill = micMeterRef.current;
+      if (fill)
+        fill.style.clipPath = `inset(0 ${(100 - Math.min(1, micMeterLvl.current) * 100).toFixed(1)}% 0 0)`;
+    }, 150);
+    return () => {
+      clearInterval(id);
+      micMeterLvl.current = 0;
+      const fill = micMeterRef.current;
+      if (fill) fill.style.clipPath = "inset(0 100% 0 0)";
+    };
+  }, [micOn]);
 
   const killGainFor = useCallback(
     (orbit: number): number | undefined => {
@@ -1445,6 +1520,48 @@ export default function ZaltzIDE({
   // (The header token chip died 2026-07-27 — the profile orb + tokens sheet
   // carry the meter now; less chrome on the instrument.)
 
+  // ✦ EXPLAIN — select code, tap the chip, the machine teaches THAT fragment
+  // (2026-07-28). Strictly on-demand — nothing is annotated ahead of time —
+  // and Sonnet no-thinking on the server: a teaching sentence, not a take.
+  const [lesson, setLesson] = useState<{
+    sel: string;
+    text: string | null; // null = reading
+  } | null>(null);
+  const explainSel = async (pane: PaneId, sel: string) => {
+    if (spent) return setSheet("tokens");
+    setLesson({ sel, text: null });
+    try {
+      if (!meRef.current?.signedIn && !(await ensureSession())) {
+        setLesson(null);
+        return;
+      }
+      const res = await fetch("/api/explain", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          pane,
+          code: pane === "hydra" ? stateRef.current.hydra : stateRef.current.strudel,
+          sel,
+        }),
+      });
+      if (res.status === 402) {
+        setLesson(null);
+        void refreshMe();
+        setSheet("tokens");
+        return;
+      }
+      const d = (await res.json().catch(() => ({}))) as { text?: string };
+      const text = (d.text ?? "").trim();
+      if (!text) {
+        setLesson(null);
+        return;
+      }
+      setLesson({ sel, text });
+    } catch {
+      setLesson(null);
+    }
+  };
+
   // The run button IS the transport (user's law: hit run, it turns into
   // stop, that is it): `stop` given + active → the same button reads ■ stop.
   // (The "✦ complete" button lived here until 2026-07-26 — the user found it
@@ -1706,6 +1823,7 @@ export default function ZaltzIDE({
             onGhostDismiss={killGhost}
             onTakeHint={seedMusic}
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
+            onExplain={(sel) => void explainSel("strudel", sel)}
             placeholder={`setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then hit ▶ run — the room hears you\n// pause, and the machine whispers the next line${
               touch
                 ? "\n// tap the grey — it becomes yours"
@@ -1738,6 +1856,7 @@ export default function ZaltzIDE({
             onGhostDismiss={killGhost}
             onTakeHint={seedVisuals}
             onCaretIdle={(ctx) => void requestGhost("hydra", ctx)}
+            onExplain={(sel) => void explainSel("hydra", sel)}
             placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them${
               touch
                 ? "\n// tap the grey — it becomes yours"
@@ -1797,6 +1916,32 @@ export default function ZaltzIDE({
               setErr(null);
               setNotice(null);
             }}
+            className="shrink-0 text-[12px] text-muted/60 transition hover:text-foreground"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* ── the lesson — ✦ explain's answer: the selected line quoted, then
+          what it does to the ear (or the eye), in plain words. A capsule like
+          the error chip's; ✕ closes it (✕ = dismiss, everywhere). */}
+      {lesson && (
+        <div className="mt-2 flex items-start gap-2.5 rounded-2xl border border-accent/25 bg-black/55 px-3.5 py-2.5 shadow-[0_0_44px_-16px_rgba(224,49,156,.45)] backdrop-blur-xl sm:mx-auto sm:max-w-2xl">
+          <span className="mt-0.5 shrink-0 rounded-full bg-accent/[0.14] px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-accent-strong">
+            ✦
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-mono text-[11.5px] text-muted/70" title={lesson.sel}>
+              {lesson.sel}
+            </p>
+            <p className="mt-1 text-[13px] leading-relaxed text-foreground/90">
+              {lesson.text ?? <span className="shimmer-text">reading the line…</span>}
+            </p>
+          </div>
+          <button
+            onClick={() => setLesson(null)}
             className="shrink-0 text-[12px] text-muted/60 transition hover:text-foreground"
             aria-label="Dismiss"
           >
@@ -1983,6 +2128,12 @@ export default function ZaltzIDE({
           onMidiInput={cycleMidiInput}
           onLearn={setLearn}
           onUnbind={unbindKit}
+          canMic={canMic}
+          micOn={micOn}
+          onMic={() => void toggleMic()}
+          micFx={micFx}
+          onMicFx={micDial}
+          micMeterRef={micMeterRef}
         />
         </div>
       )}

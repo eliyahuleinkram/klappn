@@ -29,8 +29,11 @@ the app's `/open` page:
 We'd rather earn a community than rent customers. Every sentence above is a
 promise — if the code ever contradicts one, that's a bug. File it.
 
-- **GitHub**: you're here — and the audio engine also ships standalone at
-  [github.com/eliyahuleinkram/zaltz](https://github.com/eliyahuleinkram/zaltz).
+- **GitHub**: you're here — and two pieces also ship standalone:
+  [zaltz](https://github.com/eliyahuleinkram/zaltz), the audio engine
+  (play it live at [zaltz.klappn.com](https://zaltz.klappn.com)), and
+  [zissl](https://github.com/eliyahuleinkram/zissl), the WebGPU compute
+  swarm that paints the visuals.
 - **Discord**: _link coming_ — it lives in `lib/links.ts`, and the UI lights
   up the moment it's filled in.
 

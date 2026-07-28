@@ -50,6 +50,34 @@ The file is a Hydra sketch for this IDE: chains ending in .out() (NOTHING chains
 
 ${HYDRA_SPEC}`;
 
+// ── THE EXPLAIN ──────────────────────────────────────────────────────────────
+// Select a fragment, tap ✦ explain: one on-demand Sonnet call (never
+// pre-computed — commentary ahead of time is tokens burned on lines nobody
+// asked about). The point is TEACHING: the coder leaves able to write it.
+
+const EXPLAIN_CONTRACT = `You are the teacher inside a live-coding room. You get a file and a SELECTED fragment of it. Explain what the fragment does IN THIS FILE, so the coder learns to write it themselves. Plain words, concrete: name what the ear hears (or the eye sees) when it runs, and what the key values are doing. 2-4 short sentences, prose only — no headers, no lists, no code fences. If one value is worth turning to feel it, end by saying which and which way. Speak only to the selection in its context; never walk the whole file.`;
+
+export const EXPLAIN_STRUDEL_SYSTEM = `${EXPLAIN_CONTRACT}
+
+The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer.
+
+${STRUDEL_SPEC}`;
+
+export const EXPLAIN_HYDRA_SYSTEM = `${EXPLAIN_CONTRACT}
+
+The file is a Hydra sketch: chains ending in .out(), all motion via H(<strudel signal>).
+
+${HYDRA_SPEC}`;
+
+/** The explain call's user block. */
+export function explainUserText(code: string, sel: string): string {
+  return `THE FILE:
+${code}
+
+THE SELECTION TO EXPLAIN:
+${sel}`;
+}
+
 /** The fix call's user block. */
 export function fixUserText(code: string, error: string): string {
   return `THE FILE:
@@ -70,12 +98,18 @@ export function completeUserParts(
   after: string,
   context: string,
   contextLabel: string,
+  midi?: string,
 ): { stable: string; tail: string } {
+  // Recent MIDI rides the VARYING tail (it changes with every phrase played —
+  // caching it would poison the stable block).
+  const played = midi?.trim()
+    ? `JUST PLAYED on the connected keys (oldest first — the coder may want the loop to answer this phrase, in its key and shape): ${midi.trim()}\n\n`
+    : "";
   return {
     stable: context.trim()
       ? `${contextLabel} (read-only context):\n${context}\n\n`
       : "",
-    tail: `BEFORE (cursor at the end of this):
+    tail: `${played}BEFORE (cursor at the end of this):
 ${before}
 AFTER:
 ${after || "(end of file)"}`,

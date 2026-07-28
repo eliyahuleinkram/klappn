@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { ZALTZ_PLAYGROUND_URL, ZISSL_GITHUB_URL } from "@/lib/links";
 
 const PRESETS: { name: string; code: string }[] = [
   {
@@ -252,16 +253,24 @@ export default function ZisslPlayground() {
               <a href="https://klappn.com" className={link}>
                 klappn.com
               </a>{" "}
-              behind the scenes.{" "}
+              — the studio — and rides the desk at{" "}
+              <a href={ZALTZ_PLAYGROUND_URL} className={link}>
+                zaltz
+              </a>
+              , the instrument you type.{" "}
             </span>
             <span className="md:hidden">
               55/55 pixel-identical to hydra-synth · paints{" "}
               <a href="https://klappn.com" className={link}>
                 klappn.com
               </a>{" "}
+              &amp;{" "}
+              <a href={ZALTZ_PLAYGROUND_URL} className={link}>
+                zaltz
+              </a>{" "}
               ·{" "}
             </span>
-            <a href="https://github.com/eliyahuleinkram/zissl" className={link}>
+            <a href={ZISSL_GITHUB_URL} className={link}>
               AGPL, on GitHub
             </a>
             .

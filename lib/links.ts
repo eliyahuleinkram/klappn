@@ -13,3 +13,7 @@ export const DISCORD_URL = ""; // e.g. "https://discord.gg/…"
 export const ZALTZ_GITHUB_URL = "https://github.com/eliyahuleinkram/zaltz";
 export const ZALTZ_NPM_URL = "https://www.npmjs.com/package/zaltz";
 export const ZALTZ_PLAYGROUND_URL = "https://zaltz.klappn.com";
+
+/** ZISSL — the compute swarm that paints the door + the desk's colony. */
+export const ZISSL_GITHUB_URL = "https://github.com/eliyahuleinkram/zissl";
+export const ZISSL_PLAYGROUND_URL = "https://zissl.klappn.com";

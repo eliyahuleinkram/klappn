@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DISCORD_URL, GITHUB_URL, ZALTZ_GITHUB_URL } from "@/lib/links";
+import {
+  DISCORD_URL,
+  GITHUB_URL,
+  ZALTZ_GITHUB_URL,
+  ZALTZ_PLAYGROUND_URL,
+  ZISSL_GITHUB_URL,
+  ZISSL_PLAYGROUND_URL,
+} from "@/lib/links";
 import {
   TOKENS_PER_LOOP,
   USD_CENTS_PER_MILLION,
@@ -87,6 +94,14 @@ export default function OpenPage() {
           >
             zaltz — the audio engine, out now
           </a>
+          <a
+            href={ZISSL_GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full bg-white/[0.06] px-4 py-2 text-[13px] font-medium text-foreground transition hover:bg-white/[0.1]"
+          >
+            zissl — the swarm, out now
+          </a>
           {DISCORD_URL ? (
             <a
               href={DISCORD_URL}
@@ -102,6 +117,36 @@ export default function OpenPage() {
             </span>
           )}
         </div>
+      </section>
+
+      {/* the family — three names, one machine: nobody should meet a second
+          name and wonder what it is */}
+      <section className="animate-rise mt-4 rounded-[22px] border border-white/[0.07] bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-5">
+        <h2 className="text-[15px] font-medium text-foreground">
+          Three names, one machine
+        </h2>
+        <p className="mt-2 text-[14px] leading-relaxed text-muted">
+          <span className="text-foreground/85">Klappn</span> is the studio —
+          you type a sentence and it writes the song: the sound, the picture,
+          the code, yours to keep.{" "}
+          <a
+            href={ZALTZ_PLAYGROUND_URL}
+            className="text-foreground/80 underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
+          >
+            zaltz
+          </a>{" "}
+          is the instrument you type — the same engine with the lid off, live:
+          code under your fingers, sound the moment it lands.{" "}
+          <a
+            href={ZISSL_PLAYGROUND_URL}
+            className="text-foreground/80 underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
+          >
+            zissl
+          </a>{" "}
+          is the light — a million-agent swarm that paints the pictures behind
+          both. Same room, three doors; walk through any of them and the other
+          two are one link away.
+        </p>
       </section>
 
       {/* price math */}

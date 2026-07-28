@@ -33,7 +33,7 @@ import {
 } from "@/lib/now-playing";
 import { useNowPlayingValue } from "@/lib/use-now-playing";
 import { useKeyboardInset } from "@/lib/use-keyboard-inset";
-import { DISCORD_URL, GITHUB_URL, ZALTZ_GITHUB_URL } from "@/lib/links";
+import { DISCORD_URL, GITHUB_URL, ZALTZ_GITHUB_URL, ZALTZ_PLAYGROUND_URL, ZISSL_GITHUB_URL } from "@/lib/links";
 
 // Evocative, hopeful status lines shown while a loop is being built — they make
 // the (genuinely working) wait feel alive and reassuring.
@@ -546,6 +546,43 @@ export default function HomeClient({
             </svg>
             Events
           </Link>
+          <a
+            href={ZALTZ_PLAYGROUND_URL}
+            target="_blank"
+            rel="noreferrer"
+            title="zaltz — the instrument you type. The live room, code under your fingers."
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
+          >
+            <svg
+              aria-hidden
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="url(#zaltz-hp)"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <defs>
+                <linearGradient
+                  id="zaltz-hp"
+                  gradientUnits="userSpaceOnUse"
+                  x1="3"
+                  y1="5"
+                  x2="21"
+                  y2="20"
+                >
+                  <stop offset="0" stopColor="#ff63c1" />
+                  <stop offset="1" stopColor="#e0319c" />
+                </linearGradient>
+              </defs>
+              {/* code under the fingers */}
+              <path d="m8.5 7.5-4.5 4.5 4.5 4.5" />
+              <path d="m15.5 7.5 4.5 4.5-4.5 4.5" />
+            </svg>
+            zaltz
+          </a>
           {isGuest && (
             <Link
               href="/claim"
@@ -1021,6 +1058,14 @@ export default function HomeClient({
           className="transition hover:text-foreground"
         >
           zaltz — our audio engine
+        </a>
+        <a
+          href={ZISSL_GITHUB_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="transition hover:text-foreground"
+        >
+          zissl — the swarm
         </a>
         {GITHUB_URL && (
           <a
