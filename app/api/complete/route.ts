@@ -86,11 +86,13 @@ export async function POST(req: Request) {
       onCall: sink.onCall,
     };
     // NO fast mode (2× price for 2.5× tok/s — not worth it here): thinking-off
-    // + a tight cap IS the latency lever. 400 gives a ~6-line ghost real room —
-    // a cap-truncated ghost only dies at the gate AFTER burning a repair pass.
+    // + a tight cap IS the latency lever. 640 (07-28, raised from 400): a big
+    // comment-ask over long gm_ lines truncated mid-line at 400 → died at the
+    // gate → burned a repair → died again → SILENCE after ~10s of pondering
+    // (seen live on a dense orchestral file). ~6 long lines need the room.
     const opts = {
       thinking: false,
-      maxTokens: 400,
+      maxTokens: 640,
       ...(stable ? { cacheStable: stable } : {}),
     } as const;
     // THE PRE-WARM (07-28, user: "the first call takes so long") — the first

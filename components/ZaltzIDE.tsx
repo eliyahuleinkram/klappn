@@ -811,7 +811,11 @@ export default function ZaltzIDE({
         );
         const g = d.ghost ?? "";
         const t = d.trim && typeof d.trim.find === "string" ? d.trim : undefined;
-        ghostLRU.current.set(cacheKey, { g, t });
+        // NEVER cache silence (07-28, "the copilot is not doing anything"):
+        // a cached empty made that caret position permanently mute — every
+        // later park served the old silence, and phones have no ⌥\ to force
+        // past it. The 10s lastCue window already stops rapid re-asks.
+        if (g.trim() || t) ghostLRU.current.set(cacheKey, { g, t });
         if (ghostLRU.current.size > 16) {
           const oldest = ghostLRU.current.keys().next().value;
           if (oldest !== undefined) ghostLRU.current.delete(oldest);
