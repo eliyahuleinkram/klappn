@@ -25,6 +25,7 @@ import {
   type BreakOverlay,
 } from "@/lib/breaks-catalog";
 import ArrangeSurface from "@/components/ArrangeSurface";
+import CodePane from "@/components/CodePane";
 import {
   clearNowPlaying,
   dockStop,
@@ -203,6 +204,8 @@ export default function SongClient({
   const [playing, setPlaying] = useState<string | null>(null);
   // The loop the bottom command bar edits — you SELECT a loop (tap it) and the field applies to it.
   const [selectedLoopId, setSelectedLoopId] = useState<string | null>(null);
+  // THE HAND EDITOR (07-28) — which loop's code sheet is open (null = none).
+  const [codeEditId, setCodeEditId] = useState<string | null>(null);
   // Which blueprint's panel is open — opening it also LIGHTS its loops, so
   // lineage is always one tap away (and selecting a loop lights its blueprint).
   const [openBlueprintId, setOpenBlueprintId] = useState<string | null>(null);
@@ -3722,6 +3725,7 @@ export default function SongClient({
                 }
                 hold={holdCycles[part.id]}
                 onHold={(n) => setHold(part.id, n)}
+                onEditCode={() => setCodeEditId(part.id)}
               />
               </div>
               )}
@@ -3788,6 +3792,28 @@ export default function SongClient({
     {/* COMMAND BAR — one field, floating at the bottom centre, for the WHOLE page. It edits the SELECTED
         loop (tap a loop to point it there; defaults to the playing / first loop). Type a change and the
         router + executor apply it to that loop, song-aware. Hidden while the immersive visual is up. */}
+    {codeEditId && (() => {
+      const p = parts.find((x) => x.id === codeEditId);
+      if (!p?.tracks?.length) return null;
+      return (
+        <LoopCodeSheet
+          key={p.id}
+          songId={songId}
+          partId={p.id}
+          label={p.label ?? "this loop"}
+          seed={`setcpm(${bpm}/${beatsPerBar(timeSignature)})\n${p.tracks.map((t) => t.code).join("\n")}`}
+          onClose={() => setCodeEditId(null)}
+          onSaved={(strudel, tracks) => {
+            noteLocalEdit(p.id);
+            setParts((ps) =>
+              ps.map((x) => (x.id === p.id ? { ...x, strudel, tracks } : x)),
+            );
+            setCodeEditId(null);
+            void refresh();
+          }}
+        />
+      );
+    })()}
     {!immersive && targetLoop && (
       <>
         {/* a soft scrim so the bar melts into the page instead of cutting across it */}
@@ -5816,6 +5842,112 @@ function loopCardEqual(
 }
 const LoopCard = memo(LoopCardImpl, loopCardEqual);
 
+
+/**
+ * THE HAND EDITOR — the loop's Strudel in a glass sheet, typed by the person
+ * (07-28, user: "you need to be able to edit existing code"). The pane is the
+ * boiler room's own CodePane (no copilot wiring — just the highlighted twin);
+ * ⌘↵ or Save sends it through the SAME engine gate the AI edits ride
+ * (op:"code" → applyHandEdit): byte-identical lines keep their knobs, labels
+ * and mutes; a line that won't build REJECTS the save and the real errors
+ * land under the pane — nothing is ever silently kept or dropped.
+ */
+function LoopCodeSheet({
+  songId,
+  partId,
+  label,
+  seed,
+  onClose,
+  onSaved,
+}: {
+  songId: string;
+  partId: string;
+  label: string;
+  seed: string;
+  onClose: () => void;
+  onSaved: (strudel: string, tracks: LoopTrack[]) => void;
+}) {
+  const [value, setValue] = useState(seed);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const dirty = value !== seed;
+  async function save() {
+    if (saving || !dirty) return;
+    setSaving(true);
+    setErrors([]);
+    try {
+      const res = await fetch(`/api/songs/${songId}/parts/${partId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "code", strudel: value }),
+      });
+      const d = openDeep(
+        (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          strudel?: string;
+          tracks?: LoopTrack[];
+          errors?: string[];
+          error?: string;
+        },
+      );
+      if (!res.ok || !d.ok) {
+        setErrors(
+          d.errors?.length ? d.errors : [d.error ?? "That didn't save — try again."],
+        );
+        return;
+      }
+      onSaved(d.strudel ?? value, d.tracks ?? []);
+    } catch {
+      setErrors(["Network hiccup — the loop is unchanged. Try again."]);
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden
+      />
+      <div className="fixed inset-x-3 top-[6dvh] z-50 mx-auto flex h-[78dvh] max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/[0.12] bg-[#0e0e11]/95 shadow-[0_40px_120px_-30px_rgba(0,0,0,.95),inset_0_1px_0_rgba(255,255,255,.08)] backdrop-blur-2xl">
+        <div className="flex items-center gap-2.5 border-b border-white/[0.07] px-4 py-3">
+          <span className="text-[14px] font-medium text-foreground">The code</span>
+          <span className="min-w-0 truncate text-[13px] text-muted/60">{label}</span>
+          <span className="flex-1" />
+          <button
+            onClick={() => void save()}
+            disabled={saving || !dirty}
+            title={dirty ? "Save — every line rides the engine gate first (⌘↵)" : "Nothing changed yet"}
+            className="btn-primary rounded-full px-4 py-1.5 text-[13px] font-medium transition active:scale-[.97] disabled:opacity-40"
+          >
+            {saving ? <span className="shimmer-text">sifting…</span> : "Save"}
+          </button>
+          <button
+            onClick={onClose}
+            aria-label="Close the code"
+            className="-m-1 p-1 text-[15px] text-muted/60 transition hover:text-foreground active:scale-[.92]"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col p-1.5">
+          <CodePane value={value} onChange={setValue} onRun={() => void save()} />
+        </div>
+        {errors.length > 0 && (
+          <div className="max-h-32 overflow-y-auto border-t border-white/[0.07] px-4 py-2.5">
+            {errors.map((e, i) => (
+              <p key={i} className="text-[12px] leading-relaxed text-red-300">
+                {e}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function LoopCardImpl({
   part,
   index,
@@ -5842,6 +5974,7 @@ function LoopCardImpl({
   onToggleExpand,
   selected,
   onSelect,
+  onEditCode,
   hold,
   onHold,
 }: {
@@ -5872,6 +6005,8 @@ function LoopCardImpl({
   onMuteGate: (tracks: LoopTrack[]) => void;
   selected: boolean;
   onSelect: () => void;
+  /** Open the loop's code in the hand editor (the ⋯ menu's "Edit the code"). */
+  onEditCode: () => void;
   /** This loop's REPEAT latch (2/4/8, undefined = plays once). */
   hold?: number;
   /** Set/clear the repeat latch — the ⋯ menu's 2×/4×/8× (zero AI). */
@@ -6324,6 +6459,29 @@ function LoopCardImpl({
                     <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
                   </svg>
                   {generating || pending ? "Edit loop — composing…" : "Edit loop"}
+                </button>
+                {/* THE HAND EDITOR (07-28) — the loop IS code; open it, type,
+                    save through the same engine gate the AI edits ride. */}
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onEditCode();
+                  }}
+                  disabled={generating || pending || !hasCode || !(part.tracks?.length)}
+                  title={
+                    generating || pending
+                      ? "The code opens once this loop finishes composing"
+                      : !part.tracks?.length
+                        ? "This loop predates layer editing — regenerate it first"
+                        : "The loop's Strudel, under your fingers"
+                  }
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] text-foreground transition hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="m8.5 7.5-4.5 4.5 4.5 4.5" />
+                    <path d="m15.5 7.5 4.5 4.5-4.5 4.5" />
+                  </svg>
+                  Edit the code
                 </button>
                 {/* REPEAT — hold this loop 2×/4×/8× before the song moves on.
                     Zero AI, tap the active count again to clear it. */}

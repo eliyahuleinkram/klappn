@@ -15,6 +15,7 @@ import type { SongPlan } from "@/lib/anthropic";
 import { getUserId, unauthorized } from "@/lib/session";
 import { triggerGeneration } from "@/lib/workflows";
 import {
+  applyHandEdit,
   deleteTrack,
   enrichPartLayer,
   repairPart,
@@ -107,6 +108,7 @@ export async function PATCH(
     | { op: "track-delete"; layer: number }
     | { op: "track-enrich"; layer: number }
     | { op: "strudel"; strudel: string }
+    | { op: "code"; strudel: string }
     | { op: "label"; label: string }
     | { op: "restore" }
     | { op: "repair"; error: string }
@@ -292,6 +294,25 @@ export async function PATCH(
     const ok = await setPartStrudelOwned(id, partId, strudel);
     if (!ok) return Response.json({ error: "part not found" }, { status: 404 });
     return Response.json({ ok: true });
+  }
+
+  // THE HAND EDIT (2026-07-28): the person types the loop's code themselves;
+  // applyHandEdit gates every line with the real engine and reconciles tracks
+  // (byte-identical lines keep knobs/labels/mute). Zero AI — no quota. On a
+  // failed gate NOTHING is written and the errors go back for the editor to
+  // show inline. (op:"strudel" above is the raw legacy setter — it desyncs
+  // tracks; never use it from the app.)
+  if (body?.op === "code") {
+    const strudel = typeof body.strudel === "string" ? body.strudel : "";
+    if (!strudel.trim() || strudel.length > 20000) {
+      return Response.json(
+        { error: "code (non-empty, <20k chars) required" },
+        { status: 400 },
+      );
+    }
+    const res = await applyHandEdit(id, partId, strudel);
+    if (!res.ok) return Response.json({ errors: res.errors }, { status: 400 });
+    return Response.json(sealDeep({ ok: true, strudel: res.strudel, tracks: res.tracks }));
   }
 
   if (body?.op === "reorder") {

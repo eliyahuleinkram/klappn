@@ -852,6 +852,155 @@ function planBreaksOf(song: SongRow): Record<string, BreakSet> | undefined {
  * (An earlier op-router path — classify the request into add/remove/modify ops,
  * apply per-op — lost to this by ear and was removed 2026-07-20.)
  */
+/**
+ * THE HAND EDIT (2026-07-28, user: "you need to be able to edit existing
+ * code") — a person types the loop's Strudel themselves; the machine only
+ * gates and files it. Same reconcile as editLoopDirect (byte-identical lines
+ * keep their whole panel — knobs, label, mute; changed lines pair by sound;
+ * new lines become fresh layers), with ONE behavioural difference: a line
+ * that fails the build gate REJECTS the whole save with the real errors —
+ * a hand editor must never silently keep the old code under your fingers.
+ * Zero AI, synchronous, no quota.
+ */
+export async function applyHandEdit(
+  songId: string,
+  partId: string,
+  codeText: string,
+  sql: Sql = db(),
+): Promise<
+  | { ok: true; strudel: string; tracks: LoopTrack[] }
+  | { ok: false; errors: string[] }
+> {
+  const [song] = await sql<SongRow[]>`select * from songs where id = ${songId}`;
+  if (!song) return { ok: false, errors: ["song not found"] };
+  const plan = planOf(song);
+  const parts = await getPartsOrdered(songId, sql);
+  const part = parts.find((p) => p.id === partId);
+  if (!part?.strudel?.trim())
+    return { ok: false, errors: ["this loop has no music yet"] };
+  const tracks0 = (part.tracks as LoopTrack[] | null) ?? [];
+  if (!tracks0.length)
+    return {
+      ok: false,
+      errors: ["this loop predates layer editing — regenerate it first"],
+    };
+
+  const beats = beatsPerBar(plan.timeSignature);
+  const ts = plan.timeSignature ?? "4/4";
+  const bodyOf = (t: LoopTrack) => t.code.replace(/^\$:\s*/, "").trim();
+
+  // Parse the submitted text into layer bodies. setcpm + meta blocks are the
+  // machine's own furniture (stripped here, re-attached at merge); a line
+  // starting `$:` opens a layer (LINE-ANCHORED — the deck's grammar law) and
+  // following lines continue it. Anything else at top level is refused
+  // honestly — a loop is setcpm + layers, nothing more.
+  let text = codeText;
+  const metaIdx = text.search(/\/\*\s*@(?:hydra|controls|vcontrols|vlooks|swaps|edits)\b/);
+  if (metaIdx >= 0) text = text.slice(0, metaIdx);
+  const bodies: string[] = [];
+  let cur: string[] | null = null;
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (!t || t.startsWith("//")) continue;
+    if (/^setcpm\s*\(/.test(t)) continue;
+    if (/^_?\$:/.test(t)) {
+      if (cur?.length) bodies.push(cur.join("\n").trim());
+      cur = [t.replace(/^_?\$:\s*/, "")];
+    } else if (cur) {
+      cur.push(line);
+    } else {
+      return {
+        ok: false,
+        errors: [
+          `only setcpm and "$:" layers belong in a loop — found: ${t.slice(0, 80)}`,
+        ],
+      };
+    }
+  }
+  if (cur?.length) bodies.push(cur.join("\n").trim());
+  const clean = bodies.filter(Boolean);
+  if (!clean.length)
+    return { ok: false, errors: ["a loop needs at least one $: layer"] };
+
+  // Reconcile against the existing tracks — editLoopDirect's own three passes.
+  const soundKey = (b: string) =>
+    b.match(/\.bank\(\s*["'`]([^"'`]+)/)?.[1] ??
+    b.match(/\b(?:s|sound)\(\s*["'`]\s*([A-Za-z_][\w]*)/)?.[1] ??
+    "";
+  const used = new Set<number>();
+  const pairs: (number | null)[] = clean.map((b) => {
+    const j = tracks0.findIndex((t, ti) => !used.has(ti) && bodyOf(t) === b);
+    if (j >= 0) used.add(j);
+    return j >= 0 ? j : null;
+  });
+  for (let i = 0; i < pairs.length; i++) {
+    if (pairs[i] !== null) continue;
+    const key = soundKey(clean[i]);
+    const j = key
+      ? tracks0.findIndex((t, ti) => !used.has(ti) && soundKey(bodyOf(t)) === key)
+      : -1;
+    if (j >= 0) {
+      used.add(j);
+      pairs[i] = j;
+    }
+  }
+  const leftovers = tracks0.map((_, ti) => ti).filter((ti) => !used.has(ti));
+  let li = 0;
+  for (let i = 0; i < pairs.length; i++)
+    if (pairs[i] === null && li < leftovers.length) pairs[i] = leftovers[li++];
+
+  const out: LoopTrack[] = [];
+  const origin: (number | null)[] = [];
+  const errors: string[] = [];
+  for (let i = 0; i < clean.length; i++) {
+    const old = pairs[i] !== null ? tracks0[pairs[i] as number] : undefined;
+    if (old && bodyOf(old) === clean[i]) {
+      out.push({ ...old }); // untouched — knobs, label, mute, everything survives
+      origin.push(pairs[i]);
+      continue;
+    }
+    const fixed = autoFixRender(`$: ${clean[i]}`, plan.bpm);
+    const errs = await layerGateErrors(fixed, plan.bpm, beats, ts);
+    if (errs.length) {
+      errors.push(`layer ${i + 1}${old ? ` (${old.label})` : ""}: ${errs.join("; ")}`);
+      continue;
+    }
+    origin.push(pairs[i]);
+    if (old) {
+      out.push({
+        ...old,
+        code: fixed,
+        notation: clean[i],
+        signature: undefined,
+        controls: [],
+        pills: [],
+        swap: undefined,
+        enriched: false, // the card re-enriches its panel on next open
+      });
+    } else {
+      out.push(
+        ensureVolumeKnob({
+          code: fixed,
+          label: quickTrackLabel(fixed, out.length),
+          controls: [],
+          pills: [],
+          notation: clean[i],
+        }),
+      );
+    }
+  }
+  if (errors.length) return { ok: false, errors }; // nothing written — the errors go back to the hands
+  const next = out.map(ensureVolumeKnob);
+
+  await snapshotPartOriginal(partId, sql); // the Original pill keeps working
+  const code = mergeTracksKeepVisual(next, plan.bpm, beats, part.strudel);
+  await writePartComposition(partId, code, null, null, next, "ready", sql);
+  const identity =
+    origin.length === tracks0.length && origin.every((o, i) => o === i);
+  if (!identity) await syncSectionSpecLayers(songId, partId, origin, sql).catch(() => {});
+  return { ok: true, strudel: code, tracks: next };
+}
+
 export async function editLoopDirect(
   songId: string,
   partId: string,
