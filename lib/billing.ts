@@ -58,15 +58,15 @@ export interface Plan {
 
 export const PLANS: Record<PlanId, Plan> = {
   // Free is the pre-subscription state, not a plan on the page. `tokens` is
-  // the value of the SIGN-UP DOLLAR (2026-07-28, user reopened the taste:
-  // every CLAIMED account starts with $1 of tokens — 200k weighted units at
+  // the value of the SIGN-UP TASTE (2026-07-28, user reopened it — $1.20:
+  // every CLAIMED account starts with 240k weighted units at
   // the public $5/M rate; see FREE_TASTE_GRANTS). Anonymous walk-ins get the
   // free instrument, never the dollar (a walk-in needs no email — a blanket
   // grant would be farmable; the dollar lands when a name lands on the door).
   free: {
     id: "free",
     name: "Free",
-    tokens: 200_000,
+    tokens: 240_000,
     usd: 0,
     priceId: "",
     blurb: "the machine is prepaid.",
@@ -324,11 +324,11 @@ export async function addCredits(
 }
 
 /**
- * THE SIGN-UP DOLLAR — REOPENED 2026-07-28 (user: "start people off with $1
- * in credits"; supersedes the 2026-07-26 pool-closed decision, which this
- * comment keeps for the record). No pool cap anymore: EVERY CLAIMED (email,
- * non-anonymous) account gets one grant of PLANS.free.tokens ($1 = 200k
- * weighted units) on its first compose. Anonymous walk-ins never mint one —
+ * THE SIGN-UP TASTE — REOPENED 2026-07-28 (user: start people off with $1,
+ * then raised to $1.20 same day; supersedes the 2026-07-26 pool-closed
+ * decision, which this comment keeps for the record). No pool cap anymore:
+ * EVERY CLAIMED (email, non-anonymous) account gets one grant of
+ * PLANS.free.tokens ($1.20 = 240k weighted units) on its first compose. Anonymous walk-ins never mint one —
  * a walk-in needs no email, so a blanket grant is bot-farmable; the dollar
  * lands the moment a name lands on the door (and a guest's work rides along
  * through the claim merge). The old FREE_TASTE_GRANTS pool constant is gone;
