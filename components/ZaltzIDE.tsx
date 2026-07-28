@@ -25,14 +25,27 @@ import {
   playPart,
   setLiveCps,
   setLivePerf,
+  setLiveSwarm,
   setExplicitVisualsDrive,
   setHydraErrorSink,
   setStrudelErrorSink,
   setVisuals,
   startIdleVisual,
   stop,
+  swarmReady,
   updateVisuals,
 } from "@/lib/strudel-client";
+import {
+  disableLiveMidi,
+  enableLiveMidi,
+  midiState,
+  setMidiCCSink,
+  setMidiInput,
+  setMidiInstrument,
+  setMidiNoteTap,
+  subscribeMidi,
+  type MidiSnapshot,
+} from "@/lib/midi-live";
 import { useKeyboardInset } from "@/lib/use-keyboard-inset";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import {
@@ -40,7 +53,14 @@ import {
   channelOfOrbit,
   type Channel,
 } from "@/lib/set-live";
-import ZaltzMixer from "./ZaltzMixer";
+import ZaltzMixer, {
+  KIT_TARGETS,
+  type KitBinding,
+  type KitMap,
+  type KitTargetId,
+  type MixerTab,
+  type SwarmDials,
+} from "./ZaltzMixer";
 import { startTake, stopTake, type TakeFile, type TakeResult } from "@/lib/take-record";
 import { transformForPlayback } from "@/lib/playback";
 import {
@@ -782,7 +802,7 @@ export default function ZaltzIDE({
   // is video-DJ: CSS filters on the canvas itself.
   const [master, setMaster] = useState(1);
   const [mixerOpen, setMixerOpen] = useState(false);
-  const [mixerTab, setMixerTab] = useState<"music" | "light">("music");
+  const [mixerTab, setMixerTab] = useState<MixerTab>("music");
   const [kills, setKills] = useState<Record<Channel, boolean>>({
     drums: false,
     bass: false,
@@ -821,6 +841,9 @@ export default function ZaltzIDE({
     blur: 0,
     invert: 0,
   });
+  // ref'd like perf/kills — the MIDI kit rides this from a long-lived callback
+  const lightRef = useRef(light);
+  lightRef.current = light;
 
   const killGainFor = useCallback(
     (orbit: number): number | undefined => {
@@ -923,7 +946,8 @@ export default function ZaltzIDE({
   // (The build scrub renames "hydra-canvas" consistently in prod chunks, so
   // this literal finds the canvas on both dev and prod.)
   const moveLight = (patch: Partial<typeof light>) => {
-    const next = { ...light, ...patch };
+    const next = { ...lightRef.current, ...patch };
+    lightRef.current = next;
     setLight(next);
     const el = document.getElementById("hydra-canvas");
     if (!el) return;
@@ -936,6 +960,170 @@ export default function ZaltzIDE({
     if (next.invert > 0) f.push(`invert(${next.invert})`);
     el.style.filter = f.join(" ");
   };
+
+  // ── THE SWARM — zissl's compute colony as a desk section (deterministic,
+  // ephemeral, zero AI — lib/strudel-client composes it AROUND the pane's
+  // picture and the sketch is never touched). The section only exists where
+  // the painting engine has compute (WebGPU), checked while the desk is up.
+  const [swarm, setSwarmDials] = useState<SwarmDials>({
+    on: false,
+    colony: 0.5,
+    rush: 1.25,
+    hunger: 1.2,
+  });
+  const swarmRef = useRef(swarm);
+  swarmRef.current = swarm;
+  const [canSwarm, setCanSwarm] = useState(false);
+  useEffect(() => {
+    if (!mixerOpen) return;
+    const check = () => setCanSwarm(swarmReady());
+    check(); // the engine may still be booting when the desk rises — keep asking
+    const t = setInterval(check, 1200);
+    return () => clearInterval(t);
+  }, [mixerOpen]);
+  const moveSwarm = (patch: Partial<SwarmDials>) => {
+    const next = { ...swarmRef.current, ...patch };
+    swarmRef.current = next;
+    setSwarmDials(next);
+    try {
+      setLiveSwarm(next);
+    } catch {
+      /* engine not up — the dials still remember */
+    }
+  };
+
+  // ── THE HARDWARE — lib/midi-live, the Sets deck's machinery worn by the
+  // desk: keys play over the mix on the engine's own master chain, and the
+  // kit's knobs/pads ride the desk's controls via MIDI learn. The tab only
+  // exists where the browser speaks Web MIDI; the browser's permission ask
+  // fires on the FIRST open of the tab (that tap is the consent moment),
+  // never on page load.
+  const [midiSnap, setMidiSnap] = useState<MidiSnapshot | null>(null);
+  useEffect(() => {
+    // capability probe only — no device watch, no permission prompt
+    if (midiState().supported) setMidiSnap(midiState());
+  }, []);
+  const midiUnsub = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (mixerTab === "midi" && !midiUnsub.current)
+      midiUnsub.current = subscribeMidi(setMidiSnap);
+  }, [mixerTab]);
+  const cycleMidiInput = () => {
+    const s = midiSnap;
+    if (!s || s.inputs.length < 2) return;
+    const i = s.inputs.findIndex((x) => x.id === s.activeInputId);
+    setMidiInput(s.inputs[(i + 1) % s.inputs.length].id);
+  };
+
+  // THE KIT MAP — which knob/pad rides which desk control. Kept across
+  // sessions (a DJ's kit is wired once); ephemeral values, durable wiring.
+  const MIDI_MAP_KEY = "zaltzMidiMap";
+  const [kitMap, setKitMap] = useState<KitMap>({});
+  const kitMapRef = useRef(kitMap);
+  kitMapRef.current = kitMap;
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(MIDI_MAP_KEY);
+      if (raw) setKitMap(JSON.parse(raw) as KitMap);
+    } catch {
+      /* fresh board */
+    }
+  }, []);
+  const [learn, setLearn] = useState<KitTargetId | null>(null);
+  const learnRef = useRef(learn);
+  learnRef.current = learn;
+  const saveKitMap = (next: KitMap) => {
+    kitMapRef.current = next;
+    setKitMap(next);
+    try {
+      localStorage.setItem(MIDI_MAP_KEY, JSON.stringify(next));
+    } catch {
+      /* the wiring lives for the session anyway */
+    }
+  };
+  const bindKit = (id: KitTargetId, b: KitBinding) => {
+    saveKitMap({ ...kitMapRef.current, [id]: b });
+    setLearn(null);
+  };
+  const unbindKit = (id: KitTargetId) => {
+    const next = { ...kitMapRef.current };
+    delete next[id];
+    saveKitMap(next);
+  };
+
+  // The kit riding the desk: 0..127 → each control's own dial range (the
+  // mixer's ranges, verbatim). Kills toggle on a pad hit / a CC rising edge.
+  const applyKit = (id: KitTargetId, v: number) => {
+    const t = v / 127;
+    switch (id) {
+      case "master": moveMaster(t); break;
+      case "tempo": moveNudge(Math.round(-8 + t * 16)); break;
+      case "key": moveKey(Math.round(-7 + t * 14)); break;
+      case "filter": movePerf({ filter: Math.round(-100 + t * 200) }); break;
+      case "echo": movePerf({ echo: t * 0.7 }); break;
+      case "space": movePerf({ space: t * 0.6 }); break;
+      case "drive": movePerf({ punch: t * 0.5 }); break;
+      case "time": movePerf({ time: 0.08 + t * 0.67 }); break;
+      case "tail": movePerf({ tail: t * 0.85 }); break;
+      case "hue": moveLight({ hue: Math.round(t * 360) }); break;
+      case "colour": moveLight({ sat: t * 3 }); break;
+      case "contrast": moveLight({ contrast: 0.4 + t * 2.1 }); break;
+      case "glow": moveLight({ bright: 0.4 + t * 1.6 }); break;
+      case "smear": moveLight({ blur: t * 8 }); break;
+      case "invert": moveLight({ invert: t }); break;
+      default: break; // kills are edge-handled by the sinks below
+    }
+  };
+  const lastCC = useRef<Record<number, number>>({});
+  // Fresh closures every render (they read the latest movers); the sinks
+  // registered once below always call through this ref.
+  const kitHandlers = useRef<{
+    cc: (cc: number, v: number) => void;
+    note: (n: number) => boolean;
+  }>({ cc: () => {}, note: () => false });
+  kitHandlers.current = {
+    cc: (cc, v) => {
+      // learn first — the next thing you move IS the answer
+      if (learnRef.current) {
+        bindKit(learnRef.current, { kind: "cc", num: cc });
+        return;
+      }
+      const prev = lastCC.current[cc] ?? 0;
+      lastCC.current[cc] = v;
+      for (const t of KIT_TARGETS) {
+        const b = kitMapRef.current[t.id];
+        if (!b || b.kind !== "cc" || b.num !== cc) continue;
+        if (t.pad) {
+          if (prev < 64 && v >= 64) toggleKill(t.id.slice(5) as Channel);
+        } else applyKit(t.id, v);
+      }
+    },
+    note: (n) => {
+      const l = learnRef.current;
+      if (l && KIT_TARGETS.find((t) => t.id === l)?.pad) {
+        bindKit(l, { kind: "note", num: n });
+        return true; // a binding pad must not also plink the piano
+      }
+      let took = false;
+      for (const t of KIT_TARGETS) {
+        const b = kitMapRef.current[t.id];
+        if (!b || b.kind !== "note" || b.num !== n || !t.pad) continue;
+        toggleKill(t.id.slice(5) as Channel);
+        took = true;
+      }
+      return took;
+    },
+  };
+  useEffect(() => {
+    setMidiCCSink((cc, v) => kitHandlers.current.cc(cc, v));
+    setMidiNoteTap((n) => kitHandlers.current.note(n));
+    return () => {
+      setMidiCCSink(null);
+      setMidiNoteTap(null);
+      midiUnsub.current?.();
+      midiUnsub.current = null;
+    };
+  }, []);
 
   // THE SHOW (user 07-27, third steer — the movie rule and the ⛶ are DEAD):
   // the salt shaker is the one door. Press it and the writing room steps
@@ -1781,6 +1969,20 @@ export default function ZaltzIDE({
           onPerf={movePerf}
           light={light}
           onLight={moveLight}
+          canSwarm={canSwarm}
+          swarm={swarm}
+          onSwarm={moveSwarm}
+          midi={midiSnap}
+          kitMap={kitMap}
+          learn={learn}
+          onMidiToggle={() => {
+            if (midiSnap?.enabled) disableLiveMidi();
+            else void enableLiveMidi();
+          }}
+          onMidiInstrument={setMidiInstrument}
+          onMidiInput={cycleMidiInput}
+          onLearn={setLearn}
+          onUnbind={unbindKit}
         />
         </div>
       )}

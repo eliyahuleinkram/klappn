@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CHANNELS, filterDisplay, type Channel } from "@/lib/set-live";
+import { MIDI_INSTRUMENTS, type MidiSnapshot } from "@/lib/midi-live";
 import DeckSlider from "./DeckSlider";
 
 /** THE SALT SHAKER — the mixer's door, drawn not written: an UPRIGHT glass
@@ -116,7 +117,54 @@ export interface LightDials {
   invert: number;
 }
 
-export type MixerTab = "music" | "light";
+/** The swarm dials — zissl's compute colony worn as a desk section (see
+ *  lib/strudel-client setLiveSwarm). WebGPU rooms only. */
+export interface SwarmDials {
+  on: boolean;
+  colony: number;
+  rush: number;
+  hunger: number;
+}
+
+export type MixerTab = "music" | "light" | "midi";
+
+// THE KIT — every desk control a knob or pad can ride (MIDI learn). The desk
+// renders the chips; the parent owns the bindings and the applying.
+export type KitTargetId =
+  | "master" | "tempo" | "key" | "filter" | "echo" | "space" | "drive" | "time" | "tail"
+  | "kill-drums" | "kill-bass" | "kill-melody"
+  | "hue" | "colour" | "contrast" | "glow" | "smear" | "invert";
+export interface KitBinding {
+  kind: "cc" | "note";
+  num: number;
+}
+export type KitMap = Partial<Record<KitTargetId, KitBinding>>;
+export const KIT_TARGETS: { id: KitTargetId; label: string; pad?: boolean }[] = [
+  { id: "master", label: "Master" },
+  { id: "tempo", label: "Tempo" },
+  { id: "key", label: "Key" },
+  { id: "filter", label: "Filter" },
+  { id: "echo", label: "Echo" },
+  { id: "space", label: "Space" },
+  { id: "drive", label: "Drive" },
+  { id: "time", label: "Time" },
+  { id: "tail", label: "Tail" },
+  { id: "kill-drums", label: "Drums", pad: true },
+  { id: "kill-bass", label: "Bass", pad: true },
+  { id: "kill-melody", label: "Melody", pad: true },
+  { id: "hue", label: "Hue" },
+  { id: "colour", label: "Colour" },
+  { id: "contrast", label: "Contrast" },
+  { id: "glow", label: "Glow" },
+  { id: "smear", label: "Smear" },
+  { id: "invert", label: "Invert" },
+];
+
+/** A note's stage name (C-1-anchored) — the kit chip wears it once a pad binds. */
+function noteName(n: number): string {
+  const names = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+  return `${names[((n % 12) + 12) % 12]}${Math.floor(n / 12) - 1}`;
+}
 
 // THE ONE PINK — the deck's hot gradient, worn by every lit control.
 const HOT_GRADIENT =
@@ -215,6 +263,17 @@ export default function ZaltzMixer({
   onPerf,
   light,
   onLight,
+  canSwarm,
+  swarm,
+  onSwarm,
+  midi,
+  kitMap,
+  learn,
+  onMidiToggle,
+  onMidiInstrument,
+  onMidiInput,
+  onLearn,
+  onUnbind,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -236,6 +295,20 @@ export default function ZaltzMixer({
   onPerf: (patch: Partial<PerfDials>) => void;
   light: LightDials;
   onLight: (patch: Partial<LightDials>) => void;
+  /** The room's engine has the compute layer (zissl) — the swarm section shows. */
+  canSwarm: boolean;
+  swarm: SwarmDials;
+  onSwarm: (patch: Partial<SwarmDials>) => void;
+  /** null = this browser has no Web MIDI — the tab never shows. */
+  midi: MidiSnapshot | null;
+  kitMap: KitMap;
+  /** The kit chip currently listening for a knob/pad (MIDI learn). */
+  learn: KitTargetId | null;
+  onMidiToggle: () => void;
+  onMidiInstrument: (s: string) => void;
+  onMidiInput: () => void;
+  onLearn: (id: KitTargetId | null) => void;
+  onUnbind: (id: KitTargetId) => void;
 }) {
   // The tap's shake — the shaker keeps shaking while the desk rises.
   const [shaking, setShaking] = useState(false);
@@ -314,10 +387,11 @@ export default function ZaltzMixer({
           >
             <span className="h-1 w-10 rounded-full bg-white/20 transition group-hover:bg-white/40" />
           </button>
-          {/* ONE segmented capsule — two equal halves of the same machined
-              control, not two loose pills. */}
+          {/* ONE segmented capsule — equal slices of the same machined
+              control, not loose pills. MIDI earns its slice only where the
+              browser can actually speak it. */}
           <div className="mb-3.5 flex rounded-full bg-white/[0.04] p-1">
-            {(["music", "light"] as const).map((t) => (
+            {(midi ? (["music", "light", "midi"] as const) : (["music", "light"] as const)).map((t) => (
               <button
                 key={t}
                 onClick={() => onTab(t)}
@@ -327,7 +401,7 @@ export default function ZaltzMixer({
                     : "text-muted/60 hover:text-foreground"
                 }`}
               >
-                {t === "light" ? "Visual" : "Sound"}
+                {t === "light" ? "Visual" : t === "midi" ? "MIDI" : "Sound"}
               </button>
             ))}
           </div>
@@ -476,7 +550,7 @@ export default function ZaltzMixer({
                 </div>
               </div>
             </>
-          ) : (
+          ) : tab === "light" ? (
             // VISUAL — the light desk speaks the sound desk's grammar: a row
             // of momentary holds up top (press changes the room, release
             // hands the dialled look straight back), then the six dials with
@@ -498,6 +572,87 @@ export default function ZaltzMixer({
                 ))}
               </div>
               <div className="flex flex-1 flex-col justify-center">
+              {/* THE SWARM — zissl's compute colony as a desk section: wake it
+                  and a living culture senses the picture and grows filaments
+                  of its own light over it. WebGPU rooms only — where there is
+                  no compute there is no section, not a dead switch. */}
+              {canSwarm && (
+                <>
+                  <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
+                    swarm
+                  </div>
+                  <div className="mb-4 grid grid-cols-2 items-end gap-x-5 gap-y-3 sm:grid-cols-4 sm:gap-x-6">
+                    <button
+                      onClick={() => onSwarm({ on: !swarm.on })}
+                      aria-pressed={swarm.on}
+                      title={
+                        swarm.on
+                          ? "Put the colony to sleep"
+                          : "Wake the swarm — a living colony grows over the picture"
+                      }
+                      className={`flex h-9 items-center justify-center gap-2 rounded-full text-[12px] font-medium uppercase tracking-[0.12em] transition active:scale-[.97] ${
+                        swarm.on
+                          ? "text-white"
+                          : "bg-white/[0.06] text-foreground/90 hover:bg-white/[0.1]"
+                      }`}
+                      style={
+                        swarm.on
+                          ? {
+                              backgroundImage: HOT_GRADIENT,
+                              boxShadow: "0 0 30px -8px rgba(224,49,156,0.9)",
+                            }
+                          : undefined
+                      }
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full transition ${
+                          swarm.on ? "bg-white" : "bg-white/[0.12]"
+                        }`}
+                        style={
+                          swarm.on
+                            ? { boxShadow: "0 0 10px rgba(255,255,255,0.9)" }
+                            : undefined
+                        }
+                      />
+                      swarm
+                    </button>
+                    {/* asleep, the dials rest dim — the pill is the one door */}
+                    <div className={swarm.on ? "transition-opacity" : "pointer-events-none opacity-35 transition-opacity"}>
+                      <DeckSlider
+                        label="Colony"
+                        value={swarm.colony}
+                        min={0.05}
+                        max={1}
+                        step={0.05}
+                        display={swarm.colony === 0.5 ? "—" : `${Math.round(swarm.colony * 100)}%`}
+                        onChange={(v) => onSwarm({ colony: v })}
+                      />
+                    </div>
+                    <div className={swarm.on ? "transition-opacity" : "pointer-events-none opacity-35 transition-opacity"}>
+                      <DeckSlider
+                        label="Rush"
+                        value={swarm.rush}
+                        min={0.2}
+                        max={3.5}
+                        step={0.05}
+                        display={swarm.rush === 1.25 ? "—" : `${swarm.rush.toFixed(2)}×`}
+                        onChange={(v) => onSwarm({ rush: v })}
+                      />
+                    </div>
+                    <div className={swarm.on ? "transition-opacity" : "pointer-events-none opacity-35 transition-opacity"}>
+                      <DeckSlider
+                        label="Hunger"
+                        value={swarm.hunger}
+                        min={0}
+                        max={3}
+                        step={0.05}
+                        display={swarm.hunger === 1.2 ? "—" : `${swarm.hunger.toFixed(2)}×`}
+                        onChange={(v) => onSwarm({ hunger: v })}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
               <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
                 dials
               </div>
@@ -559,7 +714,180 @@ export default function ZaltzMixer({
               </div>
               </div>
             </div>
-          )}
+          ) : midi ? (
+            // MIDI — the hardware door. One arm switch and your gear is IN
+            // the room: keys play over the mix on the engine's own master
+            // chain (the Sets deck's contract, lib/midi-live), and the kit's
+            // knobs and pads ride the desk itself — tap a control, twist a
+            // knob, it's bound (the map keeps across sessions).
+            <div className="flex h-[calc(100%-3.25rem)] flex-col">
+              <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
+                the wire
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={onMidiToggle}
+                  aria-pressed={midi.enabled}
+                  title={
+                    midi.enabled
+                      ? "Put the hardware down"
+                      : "Arm your gear — keys play over the mix, knobs ride the desk"
+                  }
+                  className={`flex h-9 w-full items-center justify-center gap-2 rounded-full text-[12px] font-medium uppercase tracking-[0.12em] transition active:scale-[.97] ${
+                    midi.enabled
+                      ? "text-white"
+                      : "bg-white/[0.06] text-foreground/90 hover:bg-white/[0.1]"
+                  }`}
+                  style={
+                    midi.enabled
+                      ? {
+                          backgroundImage: HOT_GRADIENT,
+                          boxShadow: "0 0 30px -8px rgba(224,49,156,0.9)",
+                        }
+                      : undefined
+                  }
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full transition ${
+                      midi.enabled ? "bg-white" : "bg-white/[0.12]"
+                    }`}
+                    style={
+                      midi.enabled
+                        ? { boxShadow: "0 0 10px rgba(255,255,255,0.9)" }
+                        : undefined
+                    }
+                  />
+                  live
+                </button>
+                {/* the device: which gear is on the wire — tap cycles when
+                    several are plugged in (hot-plug keeps this honest) */}
+                <button
+                  onClick={onMidiInput}
+                  disabled={midi.inputs.length < 2}
+                  title={
+                    midi.inputs.length > 1
+                      ? "Switch which device plays"
+                      : midi.inputs.length === 1
+                        ? "The connected device"
+                        : "Plug in your keys or kit — it lights up here"
+                  }
+                  className="flex h-9 w-full items-center justify-center gap-1.5 rounded-full bg-white/[0.04] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/70 transition enabled:hover:bg-white/[0.08] disabled:cursor-default"
+                >
+                  <span className="max-w-full truncate">
+                    {midi.inputs.find((i) => i.id === midi.activeInputId)?.name ??
+                      midi.inputs[0]?.name ??
+                      "no device — plug one in"}
+                  </span>
+                  {midi.inputs.length > 1 && (
+                    <span className="shrink-0 text-muted/40">⇄</span>
+                  )}
+                </button>
+              </div>
+              {/* Unarmed, the whole board rests dim — the LIVE pill is the
+                  one door (same grammar as the swarm's own pill). */}
+              <div
+                className={
+                  midi.enabled
+                    ? "transition-opacity"
+                    : "pointer-events-none opacity-35 transition-opacity"
+                }
+              >
+                <div className="mb-1.5 mt-3 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
+                  voice
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+                  {MIDI_INSTRUMENTS.map((inst) => {
+                    const worn = midi.instrument.s === inst.s;
+                    return (
+                      <button
+                        key={inst.s}
+                        onClick={() => onMidiInstrument(inst.s)}
+                        title={inst.hint}
+                        aria-pressed={worn}
+                        className={`h-8 rounded-full text-[11px] font-medium transition active:scale-[.97] ${
+                          worn
+                            ? "bg-accent/20 text-accent-strong ring-1 ring-inset ring-accent/40"
+                            : "bg-white/[0.04] text-foreground/85 hover:bg-white/[0.08]"
+                        }`}
+                      >
+                        {inst.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mb-1.5 mt-3 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
+                  the kit — tap a control, twist a knob
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+                  {KIT_TARGETS.map((t) => {
+                    const bound = kitMap[t.id];
+                    const armed = learn === t.id;
+                    return (
+                      <div
+                        key={t.id}
+                        className={`flex h-8 items-stretch overflow-hidden rounded-full transition ${
+                          armed
+                            ? "text-white"
+                            : bound
+                              ? "bg-white/[0.07]"
+                              : "bg-white/[0.04] hover:bg-white/[0.07]"
+                        }`}
+                        style={
+                          armed
+                            ? {
+                                backgroundImage: HOT_GRADIENT,
+                                boxShadow: "0 0 26px -8px rgba(224,49,156,0.9)",
+                              }
+                            : undefined
+                        }
+                      >
+                        <button
+                          onClick={() => onLearn(armed ? null : t.id)}
+                          title={
+                            armed
+                              ? "Listening… move a control on your kit (tap again to cancel)"
+                              : bound
+                                ? `${bound.kind === "cc" ? `CC ${bound.num}` : noteName(bound.num)} rides this — tap to rebind`
+                                : t.pad
+                                  ? "Tap, then hit a pad or twist a knob on your kit"
+                                  : "Tap, then twist a knob on your kit"
+                          }
+                          className={`flex min-w-0 flex-1 items-center justify-center gap-1 px-1.5 text-[10px] font-medium uppercase tracking-[0.1em] ${
+                            armed
+                              ? "animate-pulse text-white"
+                              : bound
+                                ? "text-foreground/90"
+                                : "text-muted/70"
+                          }`}
+                        >
+                          <span className="truncate">{armed ? "twist…" : t.label}</span>
+                          {!armed && bound && (
+                            <span className="shrink-0 font-mono text-[9px] normal-case tracking-normal text-accent-strong">
+                              {bound.kind === "cc" ? bound.num : noteName(bound.num)}
+                            </span>
+                          )}
+                        </button>
+                        {/* the seam — bound chips fold a quiet ✕ into the same
+                            capsule: one hairline, one glyph, one meaning */}
+                        {!armed && bound && (
+                          <>
+                            <span className="my-1.5 w-px shrink-0 bg-white/[0.12]" />
+                            <button
+                              onClick={() => onUnbind(t.id)}
+                              title="Cut the binding"
+                              className="w-6 shrink-0 text-[10px] text-muted/50 transition hover:text-foreground"
+                            >
+                              ✕
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : null}
           </div>
         </div>
       )}

@@ -3493,7 +3493,89 @@ export async function updateVisuals(code: string): Promise<void> {
       console.error("[klappn] visual tweak failed; keeping previous look", e);
       reportHydraError(e instanceof Error ? e.message : String(e));
     }
+    applySwarmOverlay(); // the desk's colony rides every fresh picture
   }, 120);
+}
+
+// --- THE SWARM (the desk's colony) ------------------------------------------
+// zissl's compute layer as a MIXER control: a physarum colony that senses the
+// pane's own picture (o0) and grows living filaments wearing its light — the
+// door's BLOOM grammar, given dials. Deterministic, ephemeral, zero AI: the
+// sketch is never touched; the overlay composes AROUND whatever o0 paints
+// (trail × picture + picture → o2) and re-arms after every eval, because
+// hush() puts the colony down. WebGPU only — on the hydra-synth fallback there
+// is no compute, swarmReady() stays false and the desk never shows the dials.
+interface SwarmDialsState {
+  on: boolean;
+  /** 0..1 → agent count (≈40k..800k desktop; phones carry 0.4×). */
+  colony: number;
+  /** Agent speed — how fast the filaments walk. */
+  rush: number;
+  /** steerAmt — the colony's appetite for the picture's light. */
+  hunger: number;
+}
+const SWARM_TURN = 1.5; // the door's proven curl — not a dial (three is plenty)
+let swarmDials: SwarmDialsState = { on: false, colony: 0.5, rush: 1.25, hunger: 1.2 };
+let swarmPainted = false; // we hold the render target (o2) right now
+let swarmTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** True when the painting engine has the compute layer (zissl on WebGPU). */
+export function swarmReady(): boolean {
+  return hydraReady && visualEngine === "zissl";
+}
+
+/** Move the colony's dials (merge-patch). Throttled like updateVisuals — a
+ *  COLONY drag reallocates agent buffers on every distinct count, so calls
+ *  coalesce to one apply per ~120ms, trailing edge. */
+export function setLiveSwarm(patch: Partial<SwarmDialsState>): void {
+  swarmDials = { ...swarmDials, ...patch };
+  if (swarmTimer) return;
+  swarmTimer = setTimeout(() => {
+    swarmTimer = null;
+    applySwarmOverlay();
+  }, 120);
+}
+
+/** Compose (or drop) the colony around the mounted picture. Called after every
+ *  sketch eval — our render(o2) must be re-asserted once the new chain lands. */
+function applySwarmOverlay(): void {
+  if (visualEngine !== "zissl" || !hydraReady) return;
+  const z = hydraInstance as unknown as {
+    swarm?: ((count: number, steer: unknown, speed?: number, turn?: number) => {
+      mult: (t: unknown, amt?: number) => { add: (t: unknown, amt?: number) => { out: (o: unknown) => void } };
+    }) & { tune?: (opts: Record<string, number>) => unknown };
+    src?: (o: unknown) => unknown;
+    render?: (o?: unknown) => void;
+    o0?: unknown;
+    o2?: unknown;
+    _swarmSys?: { active: boolean };
+  } | null;
+  if (!z?.swarm || !z.src || !z.render) return;
+  try {
+    if (!swarmDials.on || !mountedSketch) {
+      // No picture (or put to sleep): hand the canvas back to o0. Only if WE
+      // moved it — a sketch's own render() call is not ours to undo.
+      if (swarmPainted) {
+        if (z._swarmSys) z._swarmSys.active = false;
+        z.render(z.o0);
+        swarmPainted = false;
+      }
+      return;
+    }
+    const small = isMobileDevice();
+    const count = Math.round(
+      (40_000 + swarmDials.colony * 760_000) * (small ? 0.4 : 1),
+    );
+    const chain = z.swarm(count, z.o0, swarmDials.rush, SWARM_TURN);
+    z.swarm.tune?.({ steerAmt: swarmDials.hunger });
+    // Trail × picture = filaments wearing the picture's own colours (and
+    // masked by its own darkness); + picture = the living frame underneath.
+    chain.mult(z.src(z.o0), 1).add(z.src(z.o0), 1).out(z.o2);
+    z.render(z.o2);
+    swarmPainted = true;
+  } catch (e) {
+    console.warn("[klappn] swarm overlay failed; keeping the plain picture", e);
+  }
 }
 
 // SOFT-HIDE the visuals — the crux of the no-crash fix. We deliberately do NOT
@@ -3511,6 +3593,18 @@ function clearVisuals(): void {
     hydraInstance?.hush?.(); // paint the outputs transparent — no stale picture
   } catch {
     /* ignore — visuals are cosmetic */
+  }
+  // The hush put the colony down AND left the canvas pointed at o2 (black
+  // forever if the next sketch outs to o0) — point it home; the next eval's
+  // applySwarmOverlay lifts it back when the dials say so.
+  if (swarmPainted) {
+    try {
+      (hydraInstance as unknown as { render?: (o?: unknown) => void; o0?: unknown })
+        ?.render?.((hydraInstance as unknown as { o0?: unknown })?.o0);
+    } catch {
+      /* ignore */
+    }
+    swarmPainted = false;
   }
   if (typeof document !== "undefined") {
     const canvas = document.getElementById("hydra-canvas") as HTMLElement | null;
@@ -3792,6 +3886,7 @@ export async function startIdleVisual(code: string): Promise<void> {
     if (hydra === mountedSketch) return; // already painting this exact sketch
     new Function(hydra)();
     mountedSketch = hydra;
+    applySwarmOverlay(); // the desk's colony rides the idle picture too
   } catch (e) {
     console.error("[klappn] idle visual failed to start", e);
   }

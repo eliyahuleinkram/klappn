@@ -18,7 +18,9 @@
  * note-off does nothing; the sustain pedal (CC64) stretches the duration of
  * notes struck WHILE it's down (×2.5) — it can't retro-extend a sounding one.
  *
- * SET-ONLY by design: the deck (components/SetClient.tsx) is the sole caller.
+ * CALLERS: the Sets deck (components/SetClient.tsx) and the zaltz IDE's desk
+ * (components/ZaltzIDE.tsx). The IDE also rides the CONTROL taps below — a DJ
+ * kit's knobs and pads driving the desk's own dials and kills (MIDI learn).
  */
 import {
   preloadSamples,
@@ -112,6 +114,24 @@ function notify(): void {
   }
 }
 
+// --- CONTROL TAPS — the DJ-kit side of the wire (knobs, faders, pads) -------
+// The desk (ZaltzIDE) registers these to run MIDI-learn and ride its own
+// dials/kills from hardware. One sink each — there is one desk per page.
+// The note tap runs BEFORE the instrument: return true to CONSUME the note
+// (a pad bound to a kill must not also plink the piano).
+let ccSink: ((cc: number, value: number) => void) | null = null;
+let noteTap: ((note: number, velocity: number) => boolean) | null = null;
+
+/** Hear every CC (0xB0) from the active input while armed. Pass null to detach. */
+export function setMidiCCSink(cb: ((cc: number, value: number) => void) | null): void {
+  ccSink = cb;
+}
+
+/** First look at every note-on; return true to consume it. Pass null to detach. */
+export function setMidiNoteTap(cb: ((note: number, velocity: number) => boolean) | null): void {
+  noteTap = cb;
+}
+
 function onMessage(e: MIDIMessageEvent): void {
   if (!enabled) return;
   // handlers sit on EVERY input; only the chosen one plays
@@ -121,9 +141,22 @@ function onMessage(e: MIDIMessageEvent): void {
   if (!d || d.length < 2) return;
   const status = d[0] & 0xf0;
   if (status === 0x90 && (d[2] ?? 0) > 0) {
+    // the desk's kit tap first — a bound pad is a control, not a note
+    if (noteTap) {
+      try {
+        if (noteTap(d[1], d[2] ?? 100)) return;
+      } catch {
+        /* a broken tap never mutes the keyboard */
+      }
+    }
     noteOn(d[1], d[2] ?? 100);
-  } else if (status === 0xb0 && d[1] === 64) {
-    sustain = (d[2] ?? 0) >= 64;
+  } else if (status === 0xb0) {
+    if (d[1] === 64) sustain = (d[2] ?? 0) >= 64;
+    try {
+      ccSink?.(d[1], d[2] ?? 0);
+    } catch {
+      /* a broken sink never mutes the keyboard */
+    }
   }
   // note-off (0x80, or 0x90 at velocity 0): nothing to do — one-shot
   // envelopes, see the GATE note in the header.
@@ -272,10 +305,17 @@ export function setMidiInput(id: string): void {
 // screenshots. NODE_ENV is inlined at build — prod bundles compile these to
 // no-ops and never install the window handle.
 
-/** Dev-only: dispatch a fake note-on through the real path. */
+/** Dev-only: dispatch a fake note-on through the real path (kit tap included). */
 export function __testNote(note = 60, velocity = 100): void {
   if (process.env.NODE_ENV === "production") return;
+  if (noteTap?.(note, velocity)) return;
   noteOn(note, velocity);
+}
+
+/** Dev-only: dispatch a fake CC through the real control tap. */
+export function __testCC(cc = 1, value = 64): void {
+  if (process.env.NODE_ENV === "production") return;
+  ccSink?.(cc, value);
 }
 
 /** Dev-only: pretend a keyboard is connected (pill + row appear). */
@@ -289,6 +329,7 @@ export function __mockMidi(on: boolean): void {
 if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
   (window as unknown as Record<string, unknown>).__klappnMidi = {
     testNote: __testNote,
+    testCC: __testCC,
     mock: __mockMidi,
     enable: enableLiveMidi,
     disable: disableLiveMidi,
