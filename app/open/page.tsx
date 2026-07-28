@@ -23,7 +23,9 @@ export const metadata: Metadata = {
  * here ever stops being true, fixing that outranks shipping anything.
  */
 export default function OpenPage() {
-  const usdPerM = (USD_CENTS_PER_MILLION / 100).toFixed(0);
+  // The dollar framing (user 07-28): "a dollar is 200k tokens" — one sentence,
+  // derived from the public constant so the copy can never drift from the code.
+  const tokensPerDollarK = Math.round((100 / USD_CENTS_PER_MILLION) * 1_000_000) / 1000;
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-5 pb-28 pt-6 sm:pt-8">
       <div className="flex items-center justify-between">
@@ -131,11 +133,11 @@ export default function OpenPage() {
             href="/live"
             className="text-foreground/80 underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
           >
-            live room
+            boiler room
           </a>{" "}
-          (the salt shaker in the top bar) is the same machine with the lid
-          off — code under your fingers, sound the moment it lands — powered
-          by <span className="text-foreground/85">zaltz</span>, our audio
+          is the same machine with the lid off — your hits underneath, live
+          code on top, sound the moment it lands — powered by{" "}
+          <span className="text-foreground/85">zaltz</span>, our audio
           engine, which also ships standalone.{" "}
           <a
             href={ZISSL_PLAYGROUND_URL}
@@ -154,7 +156,8 @@ export default function OpenPage() {
           A price you can read
         </h2>
         <p className="mt-2 text-[14px] leading-relaxed text-muted">
-          Prepaid tokens, ${usdPerM} per million — and tokens never expire.
+          Prepaid tokens: a dollar is {tokensPerDollarK}k tokens, flat at
+          every size, and they never expire.
           The card fee is Stripe’s,
           shown before you pay. The entire price sheet is{" "}
           <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[12px]">

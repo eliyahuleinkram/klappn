@@ -191,9 +191,11 @@ export default function BillingClient({
         <section className="mt-8">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-[15px] font-medium text-foreground">Top up</h2>
+            {/* THE DOLLAR FRAMING (user 07-28): one sentence, learned once —
+                derived from the same public constant, never hand-typed. */}
             <span className="text-[13px] tabular-nums text-muted">
-              ${(USD_CENTS_PER_MILLION / 100).toFixed(0)} per 1M tokens —
-              flat, every pack
+              a dollar is {fmtTokens(tokensForUsdCents(100))} tokens — flat,
+              every pack, always
             </span>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
