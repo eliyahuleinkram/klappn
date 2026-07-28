@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { CHANNELS, filterDisplay, type Channel } from "@/lib/set-live";
 import { MIDI_INSTRUMENTS, type MidiSnapshot } from "@/lib/midi-live";
+import type { LiveMicVoice } from "@/lib/strudel-client";
 import DeckSlider from "./DeckSlider";
+import { MicDeckGroup, type MicDevice, type MicFx } from "./DeckKit";
 
 /** THE SALT SHAKER — the mixer's door, drawn not written: an UPRIGHT glass
  *  shaker you'd recognise on any table (user 07-27: it must LITERALLY look
@@ -127,13 +129,6 @@ export interface SwarmDials {
 }
 
 export type MixerTab = "music" | "light" | "midi" | "mic";
-
-/** The desk's mic dials — 0..1 in UI; scaling lives in lib/strudel-client. */
-export interface MicDials {
-  level: number;
-  echo: number;
-  space: number;
-}
 
 // THE KIT — every desk control a knob or pad can ride (MIDI learn). The desk
 // renders the chips; the parent owns the bindings and the applying.
@@ -286,7 +281,15 @@ export default function ZaltzMixer({
   onMic,
   micFx,
   onMicFx,
-  micMeterRef,
+  micVoice,
+  onMicVoice,
+  micLook,
+  onMicLook,
+  micHint,
+  mics,
+  micDeviceId,
+  onMicDevice,
+  micDotRef,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -326,10 +329,19 @@ export default function ZaltzMixer({
   canMic: boolean;
   micOn: boolean;
   onMic: () => void;
-  micFx: MicDials;
-  onMicFx: (patch: Partial<MicDials>) => void;
-  /** The level meter's fill — written straight from the IDE's poll, no state. */
-  micMeterRef: React.RefObject<HTMLDivElement | null>;
+  /** The mic's world — the Sets deck's own contract, verbatim (DeckKit). */
+  micFx: MicFx;
+  onMicFx: (patch: Partial<MicFx>) => void;
+  micVoice: LiveMicVoice;
+  onMicVoice: (v: LiveMicVoice) => void;
+  micLook: string | null;
+  onMicLook: (id: string) => void;
+  micHint: "in" | "out" | null;
+  mics: MicDevice[];
+  micDeviceId: string | null;
+  onMicDevice: (id: string) => void;
+  /** The pill's hot-mic dot — MicDeckGroup's poll makes it breathe. */
+  micDotRef: React.RefObject<HTMLSpanElement | null>;
 }) {
   // The tap's shake — the shaker keeps shaking while the desk rises.
   const [shaking, setShaking] = useState(false);
@@ -741,107 +753,69 @@ export default function ZaltzMixer({
               </div>
             </div>
           ) : tab === "mic" ? (
-            // MIC — your voice in the room. The Sets deck's own graph
-            // (lib/strudel-client live mic) with the monitor OPEN: in zaltz
-            // there is no audience yet — the room itself is who hears you.
-            <div className="flex h-[calc(100%-3.25rem)] flex-col">
+            // MIC — your voice in the room, THE SETS DECK'S OWN WORLD verbatim
+            // (DeckKit MicDeckGroup: meter, five voices, six looks, dials,
+            // device capsule — the DJ is learned once). Monitor is OPEN here:
+            // in zaltz there is no audience yet, the room itself hears you.
+            <div className="flex h-[calc(100%-3.25rem)] flex-col overflow-y-auto">
               <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
                 the voice
               </div>
-              <div className="grid grid-cols-2 items-center gap-3">
-                <button
-                  onClick={onMic}
-                  aria-pressed={micOn}
-                  title={
-                    micOn
-                      ? "Put the mic down"
-                      : "Open the mic — sing or speak over the room"
-                  }
-                  className={`flex h-9 w-full items-center justify-center gap-2 rounded-full text-[12px] font-medium uppercase tracking-[0.12em] transition active:scale-[.97] ${
-                    micOn
-                      ? "text-white"
-                      : "bg-white/[0.06] text-foreground/90 hover:bg-white/[0.1]"
+              <button
+                onClick={onMic}
+                aria-pressed={micOn}
+                title={
+                  micOn
+                    ? "Put the mic down"
+                    : "Open the mic — sing or speak over the room"
+                }
+                className={`flex h-9 w-full items-center justify-center gap-2 rounded-full text-[12px] font-medium uppercase tracking-[0.12em] transition active:scale-[.97] ${
+                  micOn
+                    ? "text-white"
+                    : "bg-white/[0.06] text-foreground/90 hover:bg-white/[0.1]"
+                }`}
+                style={
+                  micOn
+                    ? {
+                        backgroundImage: HOT_GRADIENT,
+                        boxShadow: "0 0 30px -8px rgba(224,49,156,0.9)",
+                      }
+                    : undefined
+                }
+              >
+                <span
+                  ref={micDotRef}
+                  className={`h-1.5 w-1.5 rounded-full transition ${
+                    micOn ? "bg-white" : "bg-white/[0.12]"
                   }`}
                   style={
                     micOn
-                      ? {
-                          backgroundImage: HOT_GRADIENT,
-                          boxShadow: "0 0 30px -8px rgba(224,49,156,0.9)",
-                        }
+                      ? { boxShadow: "0 0 10px rgba(255,255,255,0.9)" }
                       : undefined
                   }
-                >
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full transition ${
-                      micOn ? "bg-white" : "bg-white/[0.12]"
-                    }`}
-                    style={
-                      micOn
-                        ? { boxShadow: "0 0 10px rgba(255,255,255,0.9)" }
-                        : undefined
-                    }
-                  />
-                  mic
-                </button>
-                {/* the meter — honest: no signal, no bar */}
-                <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
-                  <div
-                    ref={micMeterRef}
-                    className="absolute inset-0 rounded-full"
-                    style={{
-                      clipPath: "inset(0 100% 0 0)",
-                      transition: "clip-path 140ms linear",
-                      backgroundImage:
-                        "linear-gradient(90deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)",
-                    }}
-                  />
+                />
+                mic
+              </button>
+              <MicDeckGroup
+                on={micOn}
+                fx={micFx}
+                onFx={onMicFx}
+                voice={micVoice}
+                onVoice={onMicVoice}
+                look={micLook}
+                onLook={onMicLook}
+                hint={micHint}
+                mics={mics}
+                deviceId={micDeviceId}
+                onDevice={onMicDevice}
+                dotRef={micDotRef}
+              />
+              {/* before the mic is up, say the one thing worth saying */}
+              {!micOn && (
+                <div className="mt-auto pt-3 text-[11px] leading-relaxed text-muted/50">
+                  🎧 Headphones keep the mic yours — speakers bleed back in.
                 </div>
-              </div>
-              {/* closed, the dials rest dim — the pill is the one door */}
-              <div
-                className={
-                  micOn
-                    ? "transition-opacity"
-                    : "pointer-events-none opacity-35 transition-opacity"
-                }
-              >
-                <div className="mb-1.5 mt-3 text-[9px] font-semibold uppercase tracking-[0.24em] text-muted/40">
-                  dials
-                </div>
-                <div className="grid grid-cols-3 gap-x-5 sm:gap-x-6">
-                  <DeckSlider
-                    label="Level"
-                    value={micFx.level}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    display={`${Math.round(micFx.level * 100)}%`}
-                    onChange={(v) => onMicFx({ level: v })}
-                  />
-                  <DeckSlider
-                    label="Echo"
-                    value={micFx.echo}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    display={micFx.echo === 0 ? "—" : `${Math.round(micFx.echo * 100)}%`}
-                    onChange={(v) => onMicFx({ echo: v })}
-                  />
-                  <DeckSlider
-                    label="Space"
-                    value={micFx.space}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    display={micFx.space === 0 ? "—" : `${Math.round(micFx.space * 100)}%`}
-                    onChange={(v) => onMicFx({ space: v })}
-                  />
-                </div>
-              </div>
-              {/* the one thing worth saying — feedback physics, quietly */}
-              <div className="mt-auto pt-3 text-[11px] leading-relaxed text-muted/50">
-                🎧 Headphones keep the mic yours — speakers bleed back in.
-              </div>
+              )}
             </div>
           ) : midi ? (
             // MIDI — the hardware door. One arm switch and your gear is IN

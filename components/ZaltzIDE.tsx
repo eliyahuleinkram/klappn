@@ -24,10 +24,12 @@ import {
   enableLiveMic,
   ensurePerfFx,
   fadeMaster,
-  getLiveMicLevel,
+  getBroadcastStream,
   playPart,
   setLiveCps,
+  setLiveMicDevice,
   setLiveMicFx,
+  setLiveMicVoice,
   setLivePerf,
   setLiveSwarm,
   setExplicitVisualsDrive,
@@ -39,7 +41,16 @@ import {
   swarmReady,
   unlockAudio,
   updateVisuals,
+  type LiveMicVoice,
 } from "@/lib/strudel-client";
+import {
+  MIC_DEVICE_KEY,
+  MIC_HINT_KEY,
+  MIC_LOOKS,
+  type MicDevice,
+  type MicFx,
+} from "@/components/DeckKit";
+import { isDead, publishStream, type Broadcast } from "@/lib/rtc";
 import {
   disableLiveMidi,
   enableLiveMidi,
@@ -873,13 +884,82 @@ export default function ZaltzIDE({
     setCanMic(!!navigator.mediaDevices?.getUserMedia);
   }, []);
   const [micOn, setMicOn] = useState(false);
-  const [micFx, setMicFx] = useState({ level: 0.7, echo: 0, space: 0.15 });
-  const micMeterRef = useRef<HTMLDivElement | null>(null);
-  const micMeterLvl = useRef(0);
+  const [micFx, setMicFx] = useState<MicFx>({
+    level: 0.7,
+    echo: 0,
+    space: 0.15,
+    drive: 0,
+    glow: 0,
+  });
+  const [micVoice, setMicVoiceState] = useState<LiveMicVoice>("natural");
+  const [micLook, setMicLook] = useState<string | null>(null);
+  // THE HEADPHONES WHISPER — once ever (the Sets deck's own contract);
+  // then only the 🎧 in the Voice header remembers.
+  const [micHint, setMicHint] = useState<"in" | "out" | null>(null);
+  useEffect(() => {
+    if (!micHint) return;
+    const t = setTimeout(
+      () => setMicHint(micHint === "in" ? "out" : null),
+      micHint === "in" ? 8000 : 700,
+    );
+    return () => clearTimeout(t);
+  }, [micHint]);
+  // THE MIC DEVICE — named audioinputs + the sticky pick (shared key, so the
+  // choice made on the Sets deck IS the choice here).
+  const [mics, setMics] = useState<MicDevice[]>([]);
+  const [micDeviceId, setMicDeviceId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return localStorage.getItem(MIC_DEVICE_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const micDeviceRef = useRef(micDeviceId);
+  micDeviceRef.current = micDeviceId;
+  const micOnRef = useRef(micOn);
+  micOnRef.current = micOn;
+  const micDotRef = useRef<HTMLSpanElement | null>(null);
+  const refreshMics = useCallback(async () => {
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      const named = all.filter((d) => d.kind === "audioinput" && d.label);
+      const real = named.filter(
+        (d) => d.deviceId !== "default" && d.deviceId !== "communications",
+      );
+      const list = (real.length ? real : named).map((d) => ({
+        deviceId: d.deviceId,
+        label: d.label,
+      }));
+      setMics(list);
+      // the picked device vanished → glide to the default, stay live
+      if (
+        micOnRef.current &&
+        micDeviceRef.current &&
+        list.length > 0 &&
+        !list.some((m) => m.deviceId === micDeviceRef.current)
+      ) {
+        void setLiveMicDevice(null);
+      }
+    } catch {
+      /* no device API — the capsule just never appears */
+    }
+  }, []);
+  useEffect(() => {
+    if (!micOn) return; // an open mic = permission granted = labels exist
+    void refreshMics();
+    const md = navigator.mediaDevices;
+    if (!md?.addEventListener) return;
+    const onChange = () => void refreshMics();
+    md.addEventListener("devicechange", onChange);
+    return () => md.removeEventListener("devicechange", onChange);
+  }, [micOn, refreshMics]);
   const toggleMic = async () => {
     if (micOn) {
-      disableLiveMic();
+      disableLiveMic(); // also drops any worn character (lib resets too)
       setMicOn(false);
+      setMicVoiceState("natural");
+      setMicHint(null); // the whisper never outlives the mic it spoke for
       return;
     }
     // The mic needs the engine's tap — wake the room inside the gesture, then
@@ -889,36 +969,205 @@ export default function ZaltzIDE({
     } catch {
       /* the engine will say so itself */
     }
-    const ok = await enableLiveMic(null);
+    const ok = await enableLiveMic(micDeviceRef.current);
     if (ok) {
       setLiveMicFx({ ...micFx, monitor: true }); // monitor OPEN — see above
+      setMicVoiceState("natural"); // the graph opened natural — match it
       setMicOn(true);
+      try {
+        if (!localStorage.getItem(MIC_HINT_KEY)) {
+          localStorage.setItem(MIC_HINT_KEY, "1");
+          setMicHint("in"); // said once, ever
+        }
+      } catch {
+        /* private mode — the whisper just doesn't show */
+      }
     }
   };
-  const micDial = (patch: Partial<typeof micFx>) => {
+  const micDial = (patch: Partial<MicFx>) => {
     const next = { ...micFx, ...patch };
     setMicFx(next);
+    setMicLook(null); // the hands moved the seat — no look owns it now
     setLiveMicFx(next);
   };
-  // The level meter — style-written from one slow poll, no state, no re-render;
-  // fast attack, ~1.5s release; honest zero.
+  const micVoiceTo = (v: LiveMicVoice) => {
+    setMicVoiceState(v);
+    setLiveMicVoice(v); // parameter ramps on the live chain — instant
+  };
+  const micLookTo = (id: string) => {
+    const look = MIC_LOOKS.find((l) => l.id === id);
+    if (!look) return;
+    setMicFx(look.fx);
+    setMicLook(id);
+    setLiveMicFx(look.fx); // the seat lands in one tap (monitor untouched)
+  };
+  const micDeviceTo = (id: string) => {
+    setMicDeviceId(id);
+    try {
+      localStorage.setItem(MIC_DEVICE_KEY, id);
+    } catch {
+      /* private mode — the choice just doesn't stick */
+    }
+    if (micOnRef.current) void setLiveMicDevice(id);
+  };
+
+  // THE LIVE DOOR (2026-07-28) — the room streams to the world, the Sets
+  // contract verbatim: ONE mixed audio stream on the Realtime SFU (music +
+  // mic + MIDI, post-limiter, exactly what the room hears) + a public link.
+  // The hydra sketch travels as TEXT with the state heartbeat — listeners'
+  // own GPUs paint it. Ending the wire leaves the tap AND the mic: they are
+  // the room's own furniture, not the broadcast's.
+  const [liveLink, setLiveLink] = useState<{ token: string; expiresAt: string } | null>(null);
+  const liveLinkRef = useRef(liveLink);
+  liveLinkRef.current = liveLink;
+  const [liveBusy, setLiveBusy] = useState(false);
+  const [endArmed, setEndArmed] = useState(false);
+  const [liveCopied, setLiveCopied] = useState(false);
+  const liveBroadcast = useRef<Broadcast | null>(null);
+  const liveBroadcastBusy = useRef(false);
+  const [broadcastEpoch, setBroadcastEpoch] = useState(0);
+  // Still on air? A reloaded page asks — the broadcast outlives the tab.
   useEffect(() => {
-    if (!micOn) return;
-    const id = setInterval(() => {
-      const lvl = getLiveMicLevel();
-      const s = micMeterLvl.current;
-      micMeterLvl.current = lvl >= s ? lvl : Math.max(lvl, s * 0.72);
-      const fill = micMeterRef.current;
-      if (fill)
-        fill.style.clipPath = `inset(0 ${(100 - Math.min(1, micMeterLvl.current) * 100).toFixed(1)}% 0 0)`;
-    }, 150);
-    return () => {
-      clearInterval(id);
-      micMeterLvl.current = 0;
-      const fill = micMeterRef.current;
-      if (fill) fill.style.clipPath = "inset(0 100% 0 0)";
+    (async () => {
+      try {
+        const r = await fetch("/api/zaltz/live", { cache: "no-store" });
+        if (!r.ok) return;
+        const d = (await r.json()) as { token?: string | null; expiresAt?: string };
+        if (d.token) setLiveLink({ token: d.token, expiresAt: d.expiresAt ?? "" });
+      } catch {
+        /* signed out / offline — the door just stays closed */
+      }
+    })();
+  }, []);
+  const publishLiveState = useCallback(() => {
+    const link = liveLinkRef.current;
+    if (!link) return;
+    const b = liveBroadcast.current;
+    const state = {
+      sectionId: null,
+      paused: !stateRef.current.playing,
+      nudge: 0,
+      perf: { filter: 0, echo: 0, punch: 0, space: 0 },
+      kills: { drums: false, bass: false, melody: false },
+      at: Date.now(),
+      ...(b ? { broadcast: { session: b.sessionId, audio: b.audioTrack } } : {}),
     };
-  }, [micOn]);
+    void fetch(`/api/live/${link.token}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ state, visual: stateRef.current.hydra.slice(0, 16000) }),
+    }).catch(() => {});
+  }, []);
+  // Publish the mix onto the SFU the moment the door is open (retry while the
+  // engine warms; re-publish when a dead connection is noticed).
+  useEffect(() => {
+    if (!liveLink || liveBroadcast.current || liveBroadcastBusy.current) return;
+    liveBroadcastBusy.current = true;
+    (async () => {
+      try {
+        const stream = getBroadcastStream();
+        if (!stream) {
+          setTimeout(() => setBroadcastEpoch((e) => e + 1), 1000);
+          return;
+        }
+        const b = await publishStream(stream);
+        liveBroadcast.current = b;
+        b.pc.addEventListener("connectionstatechange", () => {
+          if (isDead(b.pc) && liveBroadcast.current === b) {
+            liveBroadcast.current = null;
+            setTimeout(() => setBroadcastEpoch((e) => e + 1), 3000);
+          }
+        });
+        publishLiveState();
+      } catch (e) {
+        console.error("[zaltz] live publish failed:", e);
+        setTimeout(() => setBroadcastEpoch((e2) => e2 + 1), 3000);
+      } finally {
+        liveBroadcastBusy.current = false;
+      }
+    })();
+  }, [liveLink, broadcastEpoch, publishLiveState]);
+  // Heartbeat while on air (the listeners' poll feeds on it) + an immediate
+  // word when the transport flips — silence is part of a live room, but the
+  // "Holding…" label should tell the truth fast.
+  useEffect(() => {
+    if (!liveLink) return;
+    publishLiveState();
+    const id = setInterval(publishLiveState, 3000);
+    return () => clearInterval(id);
+  }, [liveLink, playing, publishLiveState]);
+  useEffect(
+    () => () => {
+      if (liveBroadcast.current) {
+        try {
+          liveBroadcast.current.pc.close();
+        } catch {
+          /* leaving */
+        }
+      }
+    },
+    [],
+  );
+  const openLive = async () => {
+    if (liveBusy) return;
+    setLiveBusy(true);
+    try {
+      try {
+        await unlockAudio(); // the tap needs the engine — wake it in the gesture
+      } catch {
+        /* the engine will say so itself */
+      }
+      if (!meRef.current?.signedIn && !(await ensureSession())) return;
+      const r = await fetch("/api/zaltz/live", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!r.ok) return;
+      const d = (await r.json()) as { token: string; expiresAt: string };
+      setLiveLink({ token: d.token, expiresAt: d.expiresAt });
+    } catch {
+      /* quiet — the button is still there */
+    } finally {
+      setLiveBusy(false);
+    }
+  };
+  const copyLive = () => {
+    const link = liveLinkRef.current;
+    if (!link) return;
+    void navigator.clipboard
+      ?.writeText(`${location.origin}/live/${link.token}`)
+      .then(() => {
+        setLiveCopied(true);
+        setTimeout(() => setLiveCopied(false), 1600);
+      })
+      .catch(() => {});
+  };
+  const endLive = async () => {
+    setEndArmed(false);
+    setLiveLink(null);
+    if (liveBroadcast.current) {
+      try {
+        liveBroadcast.current.pc.close();
+      } catch {
+        /* already down */
+      }
+      liveBroadcast.current = null;
+    }
+    try {
+      await fetch("/api/zaltz/live", { method: "DELETE" });
+    } catch {
+      /* the link expires on its own anyway */
+    }
+  };
+  const endLivePress = () => {
+    if (!endArmed) {
+      setEndArmed(true);
+      setTimeout(() => setEndArmed(false), 3000);
+      return;
+    }
+    void endLive();
+  };
 
   const killGainFor = useCallback(
     (orbit: number): number | undefined => {
@@ -1714,6 +1963,45 @@ export default function ZaltzIDE({
             )}
           </button>
         </div>
+        {/* THE LIVE DOOR — ◉ streams the room to anyone with the link (the
+            Sets contract, worn here unchanged: one DJ flow to learn). */}
+        {!liveLink ? (
+          <button
+            onClick={() => void openLive()}
+            disabled={liveBusy}
+            title="Go live — the room streams to anyone with the link"
+            className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/60 transition hover:text-foreground active:scale-[.97] disabled:opacity-60 sm:inline-flex"
+          >
+            <span className="text-accent-strong/80">◉</span>
+            {liveBusy ? "opening…" : "Go live"}
+          </button>
+        ) : (
+          <div className="flex shrink-0 items-center gap-2.5 rounded-full border border-accent/40 bg-accent/[0.08] px-3 py-1.5 text-[12.5px]">
+            <span className="relative flex h-2 w-2" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-strong" />
+            </span>
+            <span className="hidden text-accent-strong sm:inline">on air</span>
+            <button
+              onClick={copyLive}
+              title="Copy the listener link"
+              className="text-muted/80 transition hover:text-foreground"
+            >
+              {liveCopied ? "copied" : "copy link"}
+            </button>
+            <button
+              onClick={endLivePress}
+              title={endArmed ? "Yes — end the broadcast" : "End the broadcast"}
+              className={
+                endArmed
+                  ? "rounded-full bg-red-400/[0.12] px-2 text-red-300"
+                  : "text-muted/60 transition hover:text-foreground"
+              }
+            >
+              {endArmed ? "sure?" : "end"}
+            </button>
+          </div>
+        )}
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
         <button
@@ -2133,7 +2421,15 @@ export default function ZaltzIDE({
           onMic={() => void toggleMic()}
           micFx={micFx}
           onMicFx={micDial}
-          micMeterRef={micMeterRef}
+          micVoice={micVoice}
+          onMicVoice={micVoiceTo}
+          micLook={micLook}
+          onMicLook={micLookTo}
+          micHint={micHint}
+          mics={mics}
+          micDeviceId={micDeviceId}
+          onMicDevice={micDeviceTo}
+          micDotRef={micDotRef}
         />
         </div>
       )}

@@ -9,7 +9,6 @@ import {
   ZISSL_PLAYGROUND_URL,
 } from "@/lib/links";
 import {
-  TOKENS_PER_LOOP,
   USD_CENTS_PER_MILLION,
 } from "@/lib/pricing";
 
@@ -155,9 +154,8 @@ export default function OpenPage() {
           A price you can read
         </h2>
         <p className="mt-2 text-[14px] leading-relaxed text-muted">
-          Prepaid tokens, ${usdPerM} per million. A loop runs about{" "}
-          {Math.round(TOKENS_PER_LOOP / 1000)}k tokens — a dollar is roughly
-          three loops — and tokens never expire. The card fee is Stripe’s,
+          Prepaid tokens, ${usdPerM} per million — and tokens never expire.
+          The card fee is Stripe’s,
           shown before you pay. The entire price sheet is{" "}
           <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[12px]">
             lib/pricing.ts

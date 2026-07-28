@@ -1,7 +1,8 @@
 import { warmPool } from "@/lib/db";
-import { getLiveBundle } from "@/lib/live";
+import { getLiveBundle, getLiveLink, type LiveLinkRow } from "@/lib/live";
 import { sealDeep } from "@/lib/seal";
 import LiveListenClient from "@/components/LiveListenClient";
+import ZaltzListenClient from "@/components/ZaltzListenClient";
 
 export const dynamic = "force-dynamic";
 
@@ -13,12 +14,28 @@ export default async function LivePage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
+  let link: LiveLinkRow | null = null;
   let data: Awaited<ReturnType<typeof getLiveBundle>> = null;
   try {
     await warmPool();
-    data = await getLiveBundle(token);
+    link = await getLiveLink(token);
+    data = link && link.kind !== "zaltz" ? await getLiveBundle(token) : null;
   } catch {
+    link = null;
     data = null;
+  }
+
+  // THE ZALTZ ROOM — no set bundle exists; the stream + the polled visual
+  // are the whole show.
+  if (link?.kind === "zaltz") {
+    return (
+      <ZaltzListenClient
+        token={token}
+        title={link.title ?? "live from zaltz"}
+        expiresAt={link.expires_at}
+        initialVisual={link.visual ?? null}
+      />
+    );
   }
 
   if (!data) {

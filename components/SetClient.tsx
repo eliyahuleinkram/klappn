@@ -18,6 +18,19 @@ import type { SetEntry, SetRow, SetTransition } from "@/lib/sets";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import DeckSlider from "./DeckSlider";
 import {
+  DeckChip,
+  DeckGroup,
+  DeckRowLabel,
+  HOT_GRADIENT,
+  LIT_PILL,
+  MIC_DEVICE_KEY,
+  MIC_HINT_KEY,
+  MIC_LOOKS,
+  MicDeckGroup,
+  type MicDevice,
+  type MicFx,
+} from "./DeckKit";
+import {
   applyOrbitGains,
   currentSectionId,
   disableLiveMic,
@@ -158,49 +171,10 @@ function EqBars({ className = "" }: { className?: string }) {
   );
 }
 
-// (DeckSlider — the deck's shared fader — lives in components/DeckSlider,
-// worn by this deck and the zaltz IDE's desk alike.)
+// (DeckSlider — the deck's shared fader — and the WHOLE deck vocabulary —
+// atoms, the one pink, the mic's world — live in components/DeckKit, worn by
+// this deck and the zaltz desk alike: the DJ is learned ONCE.)
 
-// THE HEADPHONES WHISPER — said once, quietly, the first time the mic opens
-// (then never again); the 🎧 glyph in the mic header carries it forever.
-const MIC_HINT_KEY = "klappn:live-mic-hint";
-const MIC_HINT_LINE = "Headphones keep the mic yours — speakers bleed back in.";
-
-// The DJ's mic pick, sticky across sets (the studio's contract, its own key).
-const MIC_DEVICE_KEY = "klappn:live-mic-device";
-
-interface MicDevice {
-  deviceId: string;
-  label: string;
-}
-
-/** Device labels arrive as hardware strings — strip the noise ("Default -"
- *  prefixes, "(Built-in)", USB vendor:product hex ids), keep the name.
- *  (The studio's cleaner, carried live — components/VoiceStudio.) */
-function cleanMicLabel(label: string): string {
-  return (
-    label
-      .replace(/^(default|communications)\s*[-–]\s*/i, "")
-      .replace(/\s*\((built-?in|[0-9a-f]{4}:[0-9a-f]{4})\)\s*/gi, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim() || "Microphone"
-  );
-}
-
-// The VOICE characters — caricature filters on the live mic (lib/strudel-client
-// setLiveMicVoice): tap one, the listeners hear it instantly, echo and space
-// ride the character too. Natural is always first — the way back home.
-const MIC_VOICES: { id: LiveMicVoice; name: string; hint: string }[] = [
-  { id: "natural", name: "Natural", hint: "Your own voice" },
-  { id: "deep", name: "Deep", hint: "Pitched down — the trailer voice" },
-  { id: "chipmunk", name: "Chip", hint: "Pitched up — helium" },
-  { id: "robot", name: "Robot", hint: "Ring-mod metal" },
-  { id: "phone", name: "Phone", hint: "Down the line" },
-];
-
-/** The mic's dial positions — plain 0..1; the Web Audio ranges live in
- *  lib/strudel-client (setLiveMicFx). */
-type MicFx = { level: number; echo: number; space: number; drive: number; glow: number };
 /** The light board's dials — CSS filters on the visuals canvas (zaltz's own
  *  video-DJ vocabulary: Hue/Colour/Contrast/Glow/Smear/Invert). */
 type DeckLightFx = {
@@ -212,91 +186,12 @@ type DeckLightFx = {
   invert: number;
 };
 
-// The LOOKS — one-tap seats for the live voice, same names and order the
-// studio's VOCAL_PRESETS wore (lib/vocal-fx), re-voiced for the live chain
-// (no air shelf here; level 0.7 ≈ unity after the lib's ×1.5 headroom).
-const MIC_LOOKS: { id: string; name: string; fx: MicFx }[] = [
-  { id: "true", name: "True", fx: { level: 0.7, echo: 0.08, space: 0.18, drive: 0.05, glow: 0.05 } },
-  { id: "silk", name: "Silk", fx: { level: 0.7, echo: 0.12, space: 0.38, drive: 0.08, glow: 0.2 } },
-  { id: "neon", name: "Neon", fx: { level: 0.7, echo: 0.45, space: 0.3, drive: 0.25, glow: 0.5 } },
-  { id: "cathedral", name: "Cathedral", fx: { level: 0.7, echo: 0.2, space: 0.85, drive: 0.05, glow: 0.15 } },
-  { id: "tape", name: "Tape", fx: { level: 0.7, echo: 0.35, space: 0.25, drive: 0.5, glow: 0.25 } },
-  { id: "close", name: "Close", fx: { level: 0.7, echo: 0.04, space: 0.08, drive: 0.15, glow: 0 } },
-];
-
 // The performance pads: moments you HOLD — release snaps the dial back.
 const PADS: { name: string; hint: string; patch: Partial<import("@/lib/set-live").PerfState> }[] = [
   { name: "DIVE", hint: "filter down", patch: { filter: -78 } },
   { name: "AIR", hint: "bass away", patch: { filter: 62 } },
   { name: "ECHO", hint: "throw", patch: { echo: 0.6 } },
 ];
-
-// THE ONE PINK — the house gradient, worn identically by every lit control on
-// the deck: the big pills, the small chips, the meter's fill.
-const HOT_GRADIENT =
-  "linear-gradient(135deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)";
-const LIT_PILL: CSSProperties = {
-  backgroundImage: HOT_GRADIENT,
-  boxShadow: "0 0 22px -6px rgba(224,49,156,0.7)",
-};
-const LIT_CHIP: CSSProperties = {
-  backgroundImage: HOT_GRADIENT,
-  boxShadow: "0 0 14px -4px rgba(224,49,156,0.7)",
-};
-
-/** One deck chip — VOICE, LOOK and SOUND all wear exactly this. */
-function DeckChip({
-  worn,
-  title,
-  onClick,
-  children,
-}: {
-  worn: boolean;
-  title?: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={worn}
-      title={title}
-      className={`h-7 overflow-hidden whitespace-nowrap rounded-full px-1 text-[10px] font-medium uppercase tracking-[0.12em] transition ${
-        worn ? "text-white" : "bg-white/[0.04] text-muted/70 hover:bg-white/[0.08]"
-      }`}
-      style={worn ? LIT_CHIP : undefined}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** A row's whispered label; `right` rides the far edge (the 🎧). */
-function DeckRowLabel({ children, right }: { children: ReactNode; right?: ReactNode }) {
-  return (
-    <p className="mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.16em] text-muted/50">
-      <span>{children}</span>
-      {right}
-    </p>
-  );
-}
-
-/** A machined zone — the hairline-bounded group a pill unfolds into (the mic's
- *  world, the keyboard's world). One shared anatomy: same inset, same breath
- *  between rows, a 250ms rise as it arrives. */
-function DeckGroup({ children }: { children: ReactNode }) {
-  return (
-    <div
-      className="mt-2.5 min-w-0 space-y-2.5 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3"
-      style={{
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
-        animation: "rise 0.25s cubic-bezier(0.22, 1, 0.36, 1) both",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
 
 /** The instrument itself — channels, dials, pads — ONE implementation shared
  *  by the bottom deck and the fullscreen perform stage, so they can't drift. */
@@ -387,62 +282,9 @@ function DeckControls({
     midi.inputs.find((i) => i.id === midi.activeInputId)?.name ??
     midi.inputs[0]?.name ??
     "MIDI";
-  // Hot-mic light + LEVEL METER, LEVEL-REACTIVE: getLiveMicLevel polled on ONE
-  // slow interval, style writes straight onto the dot and the meter — no state,
-  // no re-render, no rAF. The deck and the stage each run their own 6.7Hz read;
-  // both are pennies. The meter is fast-attack (a syllable lands the very next
-  // tick) / slow-release (it falls, not flickers), with a peak tick that holds
-  // about a second — and it reads honestly: no signal, no bar (the mic-aware
-  // pause keeps the context, so the analyser never freezes on a stale frame).
+  // Hot-mic light: MicDeckGroup (DeckKit) owns the meter poll and drives this
+  // dot through it — the pill breathes with the voice on every surface alike.
   const micDotRef = useRef<HTMLSpanElement | null>(null);
-  const meterFillRef = useRef<HTMLDivElement | null>(null);
-  const meterPeakRef = useRef<HTMLDivElement | null>(null);
-  const meter = useRef({ lvl: 0, peak: 0, peakAt: 0 });
-  useEffect(() => {
-    if (!micOn) return;
-    const id = setInterval(() => {
-      const lvl = getLiveMicLevel();
-      const el = micDotRef.current;
-      if (el) {
-        el.style.opacity = String(0.45 + 0.55 * lvl);
-        el.style.boxShadow = `0 0 ${Math.round(6 + 16 * lvl)}px rgba(255,255,255,${(
-          0.5 +
-          0.5 * lvl
-        ).toFixed(2)})`;
-      }
-      const s = meter.current;
-      s.lvl = lvl >= s.lvl ? lvl : Math.max(lvl, s.lvl * 0.72); // attack fast, release ~1.5s
-      const now = performance.now();
-      if (lvl >= s.peak || now - s.peakAt > 1000) {
-        s.peak = lvl;
-        s.peakAt = now;
-      }
-      const fill = meterFillRef.current;
-      if (fill)
-        fill.style.clipPath = `inset(0 ${(100 - Math.min(1, s.lvl) * 100).toFixed(1)}% 0 0)`;
-      const peak = meterPeakRef.current;
-      if (peak) {
-        peak.style.left = `calc(${(Math.min(1, s.peak) * 100).toFixed(1)}% - 2px)`;
-        peak.style.opacity = s.peak > 0.02 ? "0.5" : "0";
-      }
-    }, 150);
-    return () => {
-      clearInterval(id);
-      meter.current = { lvl: 0, peak: 0, peakAt: 0 };
-      const el = micDotRef.current;
-      if (el) {
-        el.style.opacity = "";
-        el.style.boxShadow = "";
-      }
-      const fill = meterFillRef.current;
-      if (fill) fill.style.clipPath = "inset(0 100% 0 0)";
-      const peak = meterPeakRef.current;
-      if (peak) peak.style.opacity = "0";
-    };
-  }, [micOn]);
-  // the device list — open/closed is display posture, local to each render site
-  const [micDevOpen, setMicDevOpen] = useState(false);
-  const currentMic = mics.find((m) => m.deviceId === micDeviceId) ?? mics[0] ?? null;
   return (
     <>
       {/* THE CHANNELS — three fixed kill switches, like a mixer's kill EQ. */}
@@ -657,197 +499,22 @@ function DeckControls({
           VISUAL
         </button>
         </div>
-        {micOn && (
-          <DeckGroup>
-            {/* THE LEVEL, FIRST — you are the signal. A singer SEES the voice
-                landing the moment it does: one-pink fill, fast attack / slow
-                release, a peak tick that holds a breath. Style-written from
-                the 150ms poll above; it reads zero the instant nothing flows. */}
-            <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
-              <div
-                ref={meterFillRef}
-                className="absolute inset-0 rounded-full"
-                style={{
-                  clipPath: "inset(0 100% 0 0)",
-                  transition: "clip-path 140ms linear",
-                  backgroundImage:
-                    "linear-gradient(90deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)",
-                }}
-              />
-              <div
-                ref={meterPeakRef}
-                className="absolute inset-y-0 w-[2px] rounded-full bg-white"
-                style={{ left: "-2px", opacity: 0, transition: "opacity 300ms ease" }}
-              />
-            </div>
-            {/* VOICE — the five characters (lib/strudel-client setLiveMicVoice).
-                The 🎧 rides the header quietly, forever — hover says why. */}
-            <div>
-              <DeckRowLabel
-                right={
-                  <span
-                    title={MIC_HINT_LINE}
-                    className="cursor-help text-[11px] leading-none opacity-50"
-                  >
-                    🎧
-                  </span>
-                }
-              >
-                Voice
-              </DeckRowLabel>
-              <div className="grid grid-cols-3 gap-1 sm:grid-cols-5">
-                {MIC_VOICES.map((v) => (
-                  <DeckChip
-                    key={v.id}
-                    worn={micVoice === v.id}
-                    title={v.hint}
-                    onClick={() => onMicVoice(v.id)}
-                  >
-                    {v.name}
-                  </DeckChip>
-                ))}
-              </div>
-            </div>
-            {/* LOOK — one-tap seats, the studio's names carried live. A dial
-                move un-wears the look (the hands own the seat now). */}
-            <div>
-              <DeckRowLabel>Look</DeckRowLabel>
-              <div className="grid grid-cols-3 gap-1 sm:grid-cols-6">
-                {MIC_LOOKS.map((l) => (
-                  <DeckChip
-                    key={l.id}
-                    worn={micLook === l.id}
-                    onClick={() => onMicLook(l.id)}
-                  >
-                    {l.name}
-                  </DeckChip>
-                ))}
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-x-5 sm:gap-x-6">
-              <DeckSlider
-                label="Level"
-                value={micFx.level}
-                min={0}
-                max={1}
-                step={0.05}
-                display={`${Math.round(micFx.level * 100)}%`}
-                onChange={(v) => onMicFx({ level: v })}
-              />
-              <DeckSlider
-                label="Echo"
-                value={micFx.echo}
-                min={0}
-                max={1}
-                step={0.05}
-                display={micFx.echo === 0 ? "—" : `${Math.round(micFx.echo * 100)}%`}
-                onChange={(v) => onMicFx({ echo: v })}
-              />
-              <DeckSlider
-                label="Space"
-                value={micFx.space}
-                min={0}
-                max={1}
-                step={0.05}
-                display={micFx.space === 0 ? "—" : `${Math.round(micFx.space * 100)}%`}
-                onChange={(v) => onMicFx({ space: v })}
-              />
-            </div>
-            {/* THE DEVICE — which mic is live, the studio's quiet capsule
-                carried onto the deck; tap for the machined list, the pick
-                sticks and a live swap crossfades (lib setLiveMicDevice). */}
-            {currentMic && (
-              <div>
-                <button
-                  onClick={() => setMicDevOpen((o) => !o)}
-                  aria-expanded={micDevOpen}
-                  aria-haspopup="listbox"
-                  title="Choose the microphone"
-                  className="flex h-7 w-full items-center justify-center gap-1.5 rounded-full bg-white/[0.04] px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/70 transition hover:bg-white/[0.08]"
-                >
-                  <span className="max-w-full truncate">
-                    {cleanMicLabel(currentMic.label)}
-                  </span>
-                  <svg
-                    width="9"
-                    height="9"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                    className={`shrink-0 opacity-60 transition-transform duration-200 ${
-                      micDevOpen ? "rotate-180" : ""
-                    }`}
-                  >
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </button>
-                {micDevOpen && (
-                  <div
-                    role="listbox"
-                    aria-label="Microphone"
-                    className="mt-1.5 overflow-hidden rounded-2xl border border-white/[0.09] bg-black/40 backdrop-blur"
-                  >
-                    {mics.map((m, i) => {
-                      const active = m.deviceId === currentMic.deviceId;
-                      return (
-                        <button
-                          key={m.deviceId || i}
-                          role="option"
-                          aria-selected={active}
-                          onClick={() => {
-                            setMicDevOpen(false);
-                            onMicDevice(m.deviceId);
-                          }}
-                          className={`flex w-full items-center gap-2 px-3.5 py-2 text-left text-[11px] transition active:scale-[.99] ${
-                            i > 0 ? "border-t border-white/[0.06]" : ""
-                          } ${
-                            active
-                              ? "bg-accent/[0.1] text-accent-strong"
-                              : "text-foreground/75 hover:bg-white/[0.04] hover:text-foreground"
-                          }`}
-                        >
-                          <span className="min-w-0 flex-1 truncate">
-                            {cleanMicLabel(m.label)}
-                          </span>
-                          {active && (
-                            <svg
-                              width="11"
-                              height="11"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.4"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden
-                              className="shrink-0"
-                            >
-                              <path d="M20 6L9 17l-5-5" />
-                            </svg>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-            {/* the one whisper — first open only, ~8s, then it dissolves */}
-            {micHint && (
-              <p
-                className={`animate-fade-in text-center text-[11px] text-muted/50 transition-opacity duration-700 ${
-                  micHint === "out" ? "opacity-0" : "opacity-100"
-                }`}
-              >
-                {MIC_HINT_LINE}
-              </p>
-            )}
-          </DeckGroup>
-        )}
+        {/* THE MIC'S WORLD — one shared component (DeckKit), byte-identical
+            on the Sets deck and the zaltz desk: the DJ is learned once. */}
+        <MicDeckGroup
+          on={micOn}
+          fx={micFx}
+          onFx={onMicFx}
+          voice={micVoice}
+          onVoice={onMicVoice}
+          look={micLook}
+          onLook={onMicLook}
+          hint={micHint}
+          mics={mics}
+          deviceId={micDeviceId}
+          onDevice={onMicDevice}
+          dotRef={micDotRef}
+        />
         {midiOn && (
           <DeckGroup>
             {/* SOUND — six curated voices, one tap each (names verified

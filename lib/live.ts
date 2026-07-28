@@ -15,8 +15,16 @@ import type { LiveState } from "./set-live";
 
 export interface LiveLinkRow {
   token: string;
-  set_id: string;
+  /** null for a zaltz-room broadcast (kind "zaltz") — there is no set. */
+  set_id: string | null;
   user_id: string;
+  /** "set" (the Sets deck) or "zaltz" (the live-coding room). */
+  kind: string;
+  /** Display title for kind-less-than-set broadcasts (the zaltz room). */
+  title: string | null;
+  /** The room's hydra sketch, streamed to listeners' own GPUs (zaltz only —
+   *  kept OUT of state so the 1.5s poll JSON stays tiny). */
+  visual: string | null;
   state: LiveState | Record<string, never>;
   expires_at: string;
   created_at: string;
@@ -91,6 +99,62 @@ export async function setLiveState(
   return rows.length > 0;
 }
 
+// ── THE ZALTZ ROOM'S LIVE DOOR (2026-07-28) ─────────────────────────────────
+// The live-coding room broadcasts the same way a set does — one mix stream on
+// the SFU — but there is no set row to hang the link on (the bench is
+// localStorage only), so these links carry kind='zaltz', set_id null, and the
+// room's own title + hydra sketch.
+
+/** The user's current unexpired zaltz link — one open door per user. */
+export async function getActiveZaltzLink(
+  userId: string,
+  sql: Sql = db(),
+): Promise<LiveLinkRow | null> {
+  const [row] = await sql<LiveLinkRow[]>`
+    select * from live_links
+    where user_id = ${userId} and kind = 'zaltz' and expires_at > now()
+    order by expires_at desc limit 1`;
+  return row ?? null;
+}
+
+/** Open the zaltz room's live door — or return the already-open one. */
+export async function createZaltzLiveLink(
+  userId: string,
+  hours = 6,
+  title: string | null = null,
+  sql: Sql = db(),
+): Promise<LiveLinkRow> {
+  const existing = await getActiveZaltzLink(userId, sql);
+  if (existing) return existing;
+  const h = Math.min(24, Math.max(1, Math.round(hours) || 6));
+  const [row] = await sql<LiveLinkRow[]>`
+    insert into live_links (token, set_id, user_id, kind, title, expires_at)
+    values (${newToken()}, null, ${userId}, 'zaltz', ${title}, now() + make_interval(hours => ${h}))
+    returning *`;
+  return row;
+}
+
+/** End the zaltz room's broadcast now. */
+export async function endZaltzLinks(userId: string, sql: Sql = db()): Promise<void> {
+  await sql`
+    update live_links set expires_at = now()
+    where user_id = ${userId} and kind = 'zaltz' and expires_at > now()`;
+}
+
+/** DJ-side visual publish (zaltz) — the sketch listeners' GPUs will run. */
+export async function setLiveVisual(
+  token: string,
+  userId: string,
+  visual: string,
+  sql: Sql = db(),
+): Promise<boolean> {
+  const rows = await sql`
+    update live_links set visual = ${visual}, updated_at = now()
+    where token = ${token} and user_id = ${userId} and expires_at > now()
+    returning token`;
+  return rows.length > 0;
+}
+
 /** End the broadcast now (expire the set's live links). */
 export async function endLiveLinks(
   setId: string,
@@ -109,7 +173,7 @@ export async function getLiveBundle(
   sql: Sql = db(),
 ): Promise<{ link: LiveLinkRow; bundle: SetBundle } | null> {
   const link = await getLiveLink(token, sql);
-  if (!link) return null;
+  if (!link?.set_id) return null; // zaltz links have no set — the page branches first
   const bundle = await getSetHydrated(link.set_id, link.user_id, sql);
   if (!bundle) return null;
   return { link, bundle };

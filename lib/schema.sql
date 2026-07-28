@@ -303,20 +303,31 @@ create table if not exists sets (
 );
 create index if not exists sets_user_id_idx on sets (user_id);
 
--- LIVE LISTENER LINKS: an expiring public token that lets anyone follow a set's
--- performance on their own phone. No audio is streamed — the DJ's browser
--- publishes STATE (current section + live dials) into `state`, and each
--- listener's device synthesizes the same music locally from the set's code.
+-- LIVE LISTENER LINKS: an expiring public token that lets anyone follow a live
+-- performance on their own phone. The performer's browser publishes the mixed
+-- AUDIO to the Cloudflare Realtime SFU (state.broadcast points at it) plus a
+-- small STATE json for labels/clock; listeners just play the stream.
+-- kind='set' hangs on a sets row; kind='zaltz' (2026-07-28) is the live-coding
+-- room — no set exists (set_id null), `title` names the room and `visual`
+-- carries its hydra sketch for listeners' own GPUs.
 create table if not exists live_links (
   token      text primary key,
-  set_id     uuid not null references sets(id) on delete cascade,
+  set_id     uuid references sets(id) on delete cascade,
   user_id    text not null references "user"(id) on delete cascade,
+  kind       text not null default 'set',
+  title      text,
+  visual     text,
   state      jsonb not null default '{}',
   expires_at timestamptz not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 create index if not exists live_links_set_idx on live_links (set_id);
+-- idempotent upgrades for pre-2026-07-28 databases
+alter table live_links alter column set_id drop not null;
+alter table live_links add column if not exists kind text not null default 'set';
+alter table live_links add column if not exists title text;
+alter table live_links add column if not exists visual text;
 
 -- VOCAL TAKES: the user's own voice, sung over a finished song. The audio is
 -- the PROCESSED render (cleaned, tuned, timed — the browser does the DSP and

@@ -1,4 +1,4 @@
-import { getLiveLink, setLiveState } from "@/lib/live";
+import { getLiveLink, setLiveState, setLiveVisual } from "@/lib/live";
 import { getUserId, unauthorized } from "@/lib/session";
 import type { LiveState } from "@/lib/set-live";
 
@@ -14,6 +14,12 @@ const CACHE_TTL_MS = 600;
 interface CacheEntry {
   state: LiveState | Record<string, never> | null;
   expiresAt: string;
+  /** "set" | "zaltz" — the listener page reads it from the same poll. */
+  kind: string;
+  title: string | null;
+  /** The zaltz room's hydra sketch (null for sets — their visuals ship with
+   *  the set bundle server-side). */
+  visual: string | null;
   gone: boolean;
   at: number;
   /** True while ONE request refreshes an expired entry — everyone else serves
@@ -59,8 +65,16 @@ async function fetchThroughCache(token: string): Promise<CacheEntry> {
   try {
     const link = await getLiveLink(token);
     const entry: CacheEntry = link
-      ? { state: link.state, expiresAt: link.expires_at, gone: false, at: Date.now() }
-      : { state: null, expiresAt: "", gone: true, at: Date.now() };
+      ? {
+          state: link.state,
+          expiresAt: link.expires_at,
+          kind: link.kind ?? "set",
+          title: link.title ?? null,
+          visual: link.visual ?? null,
+          gone: false,
+          at: Date.now(),
+        }
+      : { state: null, expiresAt: "", kind: "set", title: null, visual: null, gone: true, at: Date.now() };
     linkCache.set(token, entry);
     if (linkCache.size > 64) {
       for (const [k, v] of linkCache)
@@ -89,7 +103,14 @@ export async function GET(
   const entry = readCache(token) ?? (await fetchThroughCache(token));
   if (entry.gone) return Response.json({ ended: true }, { status: 410 });
   return Response.json(
-    { state: entry.state, expiresAt: entry.expiresAt, now: Date.now() },
+    {
+      state: entry.state,
+      expiresAt: entry.expiresAt,
+      kind: entry.kind,
+      title: entry.title,
+      visual: entry.visual,
+      now: Date.now(),
+    },
     { headers: { "cache-control": "no-store, no-cache, must-revalidate" } },
   );
 }
@@ -103,15 +124,26 @@ export async function PATCH(
   const userId = await getUserId(req);
   if (!userId) return unauthorized();
   const { token } = await params;
-  const body = (await req.json().catch(() => null)) as { state?: LiveState } | null;
+  const body = (await req.json().catch(() => null)) as {
+    state?: LiveState;
+    /** zaltz only: the room's hydra sketch, republished on each visual eval. */
+    visual?: string;
+  } | null;
   if (!body?.state || typeof body.state !== "object") {
     return Response.json({ error: "bad request" }, { status: 400 });
   }
   if (JSON.stringify(body.state).length > 4096) {
     return Response.json({ error: "state too large" }, { status: 413 });
   }
+  if (body.visual !== undefined && typeof body.visual !== "string") {
+    return Response.json({ error: "bad request" }, { status: 400 });
+  }
+  if (typeof body.visual === "string" && body.visual.length > 16384) {
+    return Response.json({ error: "visual too large" }, { status: 413 });
+  }
   const ok = await setLiveState(token, userId, body.state);
   if (!ok) return Response.json({ error: "gone" }, { status: 410 });
+  if (typeof body.visual === "string") await setLiveVisual(token, userId, body.visual);
   // Same-isolate listeners see the new state on their next poll; other
   // isolates age out within the TTL anyway.
   linkCache.delete(token);

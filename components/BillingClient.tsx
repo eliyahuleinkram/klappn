@@ -5,7 +5,6 @@ import { useState, type CSSProperties } from "react";
 import {
   cardFeeCents,
   CREDIT_PACK_USD,
-  TOKENS_PER_LOOP,
   tokensForUsdCents,
   USD_CENTS_PER_MILLION,
 } from "@/lib/pricing";
@@ -13,9 +12,10 @@ import {
 /**
  * Tokens page (the prepaid-token pivot). One promise, stated in numbers: the
  * price is a public number in lib/pricing.ts, shown here in real token counts
- * and real dollars — the old tier grid and its opaque "loops only" posture are
- * gone. Loops stay as the friendly estimate beside the real figure, never
- * instead of it.
+ * and real dollars. TOKENS ONLY (2026-07-28, user): we sell OUR tokens at a
+ * flat public rate — never "≈ N loops" or any other cost-of-generation
+ * equivalence, which would need re-tuning every time the machine's own costs
+ * move. What a token buys is the machine's concern, not the price sheet's.
  */
 
 // Legacy subscription display only — these tiers are no longer purchasable;
@@ -30,11 +30,6 @@ function fmtTokens(n: number): string {
   if (n >= 1_000_000)
     return `${(Math.round(n / 100_000) / 10).toLocaleString()}M`;
   return `${Math.round(n / 1000)}k`;
-}
-
-function fmtLoops(n: number): string {
-  const oneDp = Math.round(n * 10) / 10;
-  return Number.isInteger(oneDp) ? String(oneDp) : oneDp.toFixed(1);
 }
 
 /* The pack row is a heat ladder — the pink climbs with the amount and the
@@ -110,7 +105,7 @@ export default function BillingClient({
           <span className="text-lg leading-none transition group-hover:-translate-x-0.5">
             ‹
           </span>
-          Loops
+          Hits
         </Link>
       </div>
 
@@ -143,9 +138,7 @@ export default function BillingClient({
               {isOwner ? "∞" : fmtTokens(remaining)}
             </span>
             <span className="text-[13px] text-muted/60">
-              {isOwner
-                ? "house account — unmetered"
-                : `tokens left · ~${fmtLoops(remaining / TOKENS_PER_LOOP)} loops`}
+              {isOwner ? "house account — unmetered" : "tokens left"}
             </span>
           </div>
           <span className="text-[13px] tabular-nums text-muted">
@@ -224,9 +217,6 @@ export default function BillingClient({
                   </span>
                   <span className="mt-1.5 text-[13px] text-foreground/80">
                     {fmtTokens(tokens)} tokens
-                  </span>
-                  <span className="text-[12px] text-muted">
-                    ~{Math.floor(tokens / TOKENS_PER_LOOP)} loops
                   </span>
                   {/* the fee is legible BEFORE the tap — never a surprise at checkout */}
                   <span className="mt-0.5 text-[11px] tabular-nums text-muted/60 pointer-coarse:text-muted/75">
