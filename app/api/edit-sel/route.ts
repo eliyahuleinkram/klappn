@@ -66,6 +66,10 @@ export async function POST(req: Request) {
       .replace(/\r?\n?```\s*$/i, "")
       .replace(/^`+|`+\s*$/g, "");
     if (!out.trim()) return Response.json({ code: "" });
+    // [gone] = the model chose DELETION (a first-class edit — "remove this
+    // layer" must be sayable). The empty splice rides the same gate.
+    const gone = out.trim() === "[gone]";
+    if (gone) out = "";
     // THE FILTER — the spliced file may not carry errors the original didn't.
     const whole = code.slice(0, start) + out + code.slice(end);
     const issues = await spliceIssues(pane, code, whole);
@@ -73,7 +77,7 @@ export async function POST(req: Request) {
       console.log(`[klappn] selection edit dropped (${pane}): ${issues[0]}`);
       return Response.json({ code: "" });
     }
-    return Response.json(sealDeep({ code: out }));
+    return Response.json(sealDeep(gone ? { code: "", gone: true } : { code: out }));
   } catch (e) {
     console.error("[klappn] selection edit failed:", e);
     return Response.json({ code: "" });

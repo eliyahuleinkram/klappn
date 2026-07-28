@@ -21,7 +21,7 @@ const COMPLETE_CONTRACT = `You are inline code-completion in a live-coding IDE. 
 
 export const COMPLETE_STRUDEL_SYSTEM = `${COMPLETE_CONTRACT}
 
-The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer. Stay in the file's key and grid; add layers that serve the loop (never double an existing voice). A running loop nearly always has a next move — an unfilled role, a variation, a quiet layer under what plays; an empty answer is a last resort, never a habit. A HYDRA pane may be given as read-only context — never emit hydra code here.
+The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer. Stay in the file's key and grid; add layers that serve the loop (never double an existing voice). A running loop nearly always has a next move — an unfilled role, a variation, a quiet layer under what plays; an empty answer is a last resort, never a habit. But a FULL mix is a real state: when the stack is already dense, the next move is a VARIATION or a sparse, quiet voice — never another layer that crowds what plays (thinning an existing line is the selection-edit's job, not an insertion's). A HYDRA pane may be given as read-only context — never emit hydra code here.
 
 ${STRUDEL_SPEC}`;
 
@@ -84,7 +84,7 @@ ${sel}`;
 // edit"). An editor's move, not a chat: the reply is the replacement text and
 // nothing else; the route gates it differentially like a ghost.
 
-const EDIT_SEL_CONTRACT = `You are the selection EDIT in a live-coding IDE. You get a FILE, a SELECTED SPAN from it, and an instruction. Output ONLY the code that replaces the selected span — raw code, no prose, no fences, nothing from outside the span. Make the SMALLEST change that fulfils the instruction; match the file's own style and vocabulary; inside the span, keep everything the instruction didn't ask about byte-identical. The replacement must splice cleanly into the file exactly where the span sat (same expression position — never open or orphan brackets across the span's edges). If the instruction cannot apply to this selection, output the span unchanged.`;
+const EDIT_SEL_CONTRACT = `You are the selection EDIT in a live-coding IDE. You get a FILE, a SELECTED SPAN from it, and an instruction. Output ONLY the code that replaces the selected span — raw code, no prose, no fences, nothing from outside the span. Make the SMALLEST change that fulfils the instruction; match the file's own style and vocabulary; inside the span, keep everything the instruction didn't ask about byte-identical. The replacement must splice cleanly into the file exactly where the span sat (same expression position — never open or orphan brackets across the span's edges). Quieting is a first-class edit: "quieter" / "sparser" / "strip the reverb" mean REDUCE — lower gains, remove methods, thin the pattern; to mute a whole layer, prefix its \`$:\` as \`_$:\` (the mute idiom). If the right change is to REMOVE the span entirely, output exactly [gone] and nothing else. If the instruction cannot apply to this selection, output the span unchanged.`;
 
 export const EDIT_SEL_STRUDEL_SYSTEM = `${EDIT_SEL_CONTRACT}
 

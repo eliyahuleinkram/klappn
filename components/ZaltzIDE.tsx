@@ -2134,9 +2134,13 @@ export default function ZaltzIDE({
         setSheet("tokens");
         return;
       }
-      const d = openDeep((await res.json().catch(() => ({}))) as { code?: string });
+      const d = openDeep(
+        (await res.json().catch(() => ({}))) as { code?: string; gone?: boolean },
+      );
       const out = d.code ?? "";
-      if (!out.trim()) {
+      // gone = the copilot judged the right edit is REMOVAL (subtraction is a
+      // first-class move — "remove this layer" splices to nothing).
+      if (!out.trim() && !d.gone) {
         setNotice("That edit wouldn't build — say it differently.");
         return;
       }
@@ -2586,52 +2590,81 @@ export default function ZaltzIDE({
       {/* ── the lesson — ✦ explain's answer: the selected line quoted, then
           what it does to the ear (or the eye), in plain words. A capsule like
           the error chip's; ✕ closes it (✕ = dismiss, everywhere). */}
-      {/* ✎ THE ASK — the selection edit's one glass bar: the span in mono,
-          your words beside it, the orb'd word spends (07-28). Esc lets go. */}
+      {/* ✎ THE ASK — the selection edit's command bar (07-28, "it must fuck
+          cleanly"): ONE machined glass capsule floating centre-bottom, the
+          house cmdbar idiom — pink-lit rim, inset crown, the span in mono
+          behind a hairline, your words in the middle, the orb'd word spends.
+          Rides above the shaker, lifts over the phone keyboard, pill-pops in.
+          Esc or ✕ lets it go; nothing outside the selection is ever touched.
+          Centred by INSETS, never transform — the pill-pop entrance owns the
+          transform channel (its final keyframe stomped a translateX centring,
+          seen live: the bar drifted off the right edge); the keyboard lift
+          rides `bottom` for the same reason. */}
       {editSel && (
-        <div className="mt-2 flex items-center gap-2.5 rounded-2xl border border-accent/25 bg-black/55 px-3.5 py-2 shadow-[0_0_44px_-16px_rgba(224,49,156,.45)] backdrop-blur-xl sm:mx-auto sm:max-w-2xl">
-          <span
-            className="max-w-[30%] shrink-0 truncate font-mono text-[11.5px] text-muted/70"
-            title={editSel.text}
-          >
-            {editSel.text}
-          </span>
-          <input
-            autoFocus
-            value={editAsk}
-            onChange={(e) => setEditAsk(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void sendEditSel();
-              if (e.key === "Escape") setEditSel(null);
-            }}
-            placeholder="say the change — it rewrites just this"
-            disabled={editBusy}
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted/40 disabled:opacity-60"
-          />
-          <button
-            onClick={() => void sendEditSel()}
-            disabled={editBusy || !editAsk.trim()}
-            className="flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] font-medium text-accent-strong transition hover:bg-accent/[0.1] active:scale-[.95] disabled:opacity-40"
-          >
-            {editBusy ? (
-              <span className="shimmer-text">reworking…</span>
-            ) : (
-              <>
-                <span
-                  aria-hidden
-                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--accent)]"
-                />
-                edit
-              </>
-            )}
-          </button>
-          <button
-            onClick={() => setEditSel(null)}
-            className="shrink-0 text-[12px] text-muted/60 transition hover:text-foreground"
-            aria-label="Let it go"
-          >
-            ✕
-          </button>
+        <div
+          className="pill-pop fixed inset-x-3 z-30 mx-auto max-w-xl transition-[bottom] duration-150"
+          style={{
+            bottom: `calc(max(0.75rem, env(safe-area-inset-bottom)) + 4.4rem + ${kbInset}px)`,
+          }}
+        >
+          <div className="flex items-center gap-2 rounded-full border border-accent/30 bg-black/60 py-1.5 pl-4 pr-1.5 shadow-[0_0_70px_-18px_rgba(224,49,156,.55),0_18px_50px_-20px_rgba(0,0,0,.8),inset_0_1px_0_rgba(255,255,255,.1)] backdrop-blur-2xl backdrop-saturate-[1.6]">
+            <span aria-hidden className="shrink-0 text-[13px] leading-none text-accent-strong/80">
+              ✎
+            </span>
+            <span
+              className="max-w-[24%] shrink-0 truncate font-mono text-[11.5px] text-muted/60"
+              title={editSel.text}
+            >
+              {editSel.text}
+            </span>
+            <span className="h-4 w-px shrink-0 bg-white/[0.12]" aria-hidden />
+            <input
+              autoFocus
+              value={editAsk}
+              onChange={(e) => setEditAsk(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void sendEditSel();
+                if (e.key === "Escape") setEditSel(null);
+              }}
+              placeholder="say the change — it rewrites just this"
+              disabled={editBusy}
+              /* 16px on touch — under that, iOS zooms the whole page into the
+                 input and the room lurches (the classic mobile form bug).
+                 Inline outline:none — the GLOBAL :focus-visible ring boxed
+                 the input inside its own capsule (the capsule's pink rim is
+                 the focus cue); inline beats the unlayered global rule. */
+              style={{ outline: "none" }}
+              className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-accent placeholder:text-muted/40 disabled:opacity-60 sm:text-[13.5px]"
+            />
+            <button
+              onClick={() => void sendEditSel()}
+              disabled={editBusy || !editAsk.trim()}
+              className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition active:scale-[.95] disabled:opacity-40 ${
+                editBusy
+                  ? "text-accent-strong"
+                  : "bg-accent/[0.12] text-accent-strong hover:bg-accent/[0.2]"
+              }`}
+            >
+              {editBusy ? (
+                <span className="shimmer-text">reworking…</span>
+              ) : (
+                <>
+                  <span
+                    aria-hidden
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--accent)]"
+                  />
+                  edit
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => setEditSel(null)}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[13px] text-muted/60 transition hover:bg-white/[0.06] hover:text-foreground active:scale-[.92]"
+              aria-label="Let it go"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
       {lesson && (
