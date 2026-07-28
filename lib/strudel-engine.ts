@@ -19,6 +19,7 @@ import {
   loadSoundfont,
   setSoundfontUrl,
 } from "@strudel/soundfonts";
+import { registerExtraScales } from "./register-scales";
 // IMPORTANT: import the SOURCE entry (web.mjs), not the package main.
 // @strudel/web's published dist/index.mjs is PRE-BUNDLED with its own inlined
 // copies of @strudel/core + @strudel/webaudio + superdough — so it owns a
@@ -34,5 +35,9 @@ import * as web from "@strudel/web/web.mjs";
 // second context throws "cannot connect to an AudioNode belonging to a
 // different audio context" (reverb sends died at section seams). web.mjs
 // re-exports the engine's own superdough — reach everything through `web`.
+
+// At module load, before any eval can build a pattern — every client surface
+// (IDE, song player, sets, mixer) enters the engine through this module graph.
+registerExtraScales();
 
 export { registerSoundfonts, loadSoundfont, setSoundfontUrl, web };

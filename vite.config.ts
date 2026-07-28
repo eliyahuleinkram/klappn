@@ -20,6 +20,7 @@ const STRUDEL_DEDUPE = [
   "@strudel/webaudio",
   "@strudel/mini",
   "@strudel/tonal",
+  "@tonaljs/tonal",
   "@strudel/transpiler",
   "@strudel/soundfonts",
   "@strudel/draw",

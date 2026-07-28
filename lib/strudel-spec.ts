@@ -71,7 +71,7 @@ Comma in a note string = chord (\`"c,eb,g"\`). Brackets = arpeggio (\`"[c eb g]"
 
 ## Scale — \`.scale("Root[oct]:type[:variant]")\`
 Root \`a–g\` + \`#\`/\`b\`/\`s\`/\`f\`, optional octave (default 3). Type cycles via pattern: \`"C:<major minor>/2"\`.
-**Types:** \`major minor ionian dorian phrygian lydian mixolydian aeolian locrian\` · \`major:pentatonic minor:pentatonic\` · \`blues major:blues minor:blues\` · \`harmonic:minor melodic:minor harmonic:major\` · \`bebop:major bebop:minor bebop:dominant\` · \`whole:tone augmented diminished chromatic\` · \`hirajoshi iwato insen kumoijoshi chinese\` · \`phrygian:dominant gypsy:minor hungarian:minor double:harmonic:major persian byzantine flamenco neapolitan:minor\` · \`maqam:hijaz maqam:bayati maqam:rast\` · \`raga:bhairav raga:todi raga:kafi\`. Unknown name → falls back to chromatic.
+**Types:** \`major minor ionian dorian phrygian lydian mixolydian aeolian locrian\` · \`major:pentatonic minor:pentatonic\` · \`blues major:blues minor:blues\` · \`harmonic:minor melodic:minor harmonic:major\` · \`bebop:major bebop:minor bebop:dominant\` · \`whole:tone augmented diminished chromatic\` · \`hirajoshi iwato insen kumoijoshi chinese\` · \`phrygian:dominant gypsy:minor hungarian:minor double:harmonic:major persian byzantine flamenco neapolitan:minor\` · \`maqam:hijaz maqam:bayati maqam:rast\` · \`raga:bhairav raga:todi raga:kafi\`. Use these names EXACTLY — any name not on this list throws at eval.
 
 ---
 

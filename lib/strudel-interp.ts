@@ -52,6 +52,7 @@ function getEngine(): Promise<Engine | null> {
         const miniMod = await import("@strudel/mini");
         // @ts-ignore — no type declarations
         const tonal = await import("@strudel/tonal");
+        (await import("./register-scales")).registerExtraScales();
         const scope: Record<string, Any> = Object.assign(
           Object.create(null),
           core,

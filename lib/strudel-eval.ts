@@ -42,6 +42,7 @@ async function engine() {
           miniAllStrings?: () => void;
         };
         const tonal = await import("@strudel/tonal");
+        (await import("./register-scales")).registerExtraScales();
         // evalScope registers the API (note, s, setcpm, stack, samples, …) onto
         // the GLOBAL scope — so capture exactly what it adds via a before/after
         // diff. That's the authoritative top-level function list (module exports
