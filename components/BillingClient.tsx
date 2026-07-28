@@ -147,7 +147,7 @@ export default function BillingClient({
               : credits > 0
                 ? `spent ${fmtTokens(usedTokens)} ≈ $${(spentCents / 100).toFixed(2)}, ever`
                 : allowanceTokens > 0
-                  ? `free taste — ${fmtTokens(allowanceTokens)} tokens, once`
+                  ? `$1 on the house — ${fmtTokens(allowanceTokens)} tokens to start`
                   : "prepaid — the first top-up starts the machine"}
           </span>
         </div>

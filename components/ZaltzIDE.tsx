@@ -14,8 +14,7 @@ import CodePane, {
   type CaretContext,
   type CodePaneHandle,
 } from "@/components/CodePane";
-import { authClient, signOut } from "@/lib/auth-client";
-import AccountMenu from "./AccountMenu";
+import { authClient } from "@/lib/auth-client";
 import { attachHydraBlock } from "@/lib/hydra-embed";
 import { openDeep } from "@/lib/seal";
 import {
@@ -1128,6 +1127,8 @@ export default function ZaltzIDE({
       if (!r.ok) return;
       const d = (await r.json()) as { token: string; expiresAt: string };
       setLiveLink({ token: d.token, expiresAt: d.expiresAt });
+      // the room going on air is a corpus moment — what was live-coded when
+      snapRoom("strudel", "live", stateRef.current.strudel, {});
     } catch {
       /* quiet — the button is still there */
     } finally {
@@ -1170,6 +1171,55 @@ export default function ZaltzIDE({
     }
     void endLive();
   };
+
+  // SAVE SAVE SAVE (2026-07-28, user: the future model eats the boiler room)
+  // — the room's authored code lands in room_snapshots, throttled so the
+  // corpus gets moments, not keystrokes: the evolving code while playing
+  // (30s + only-when-changed), every accepted whisper (the strongest
+  // signal), every pour, every go-live. Fire-and-forget; capture must never
+  // slow the hands.
+  const snapLast = useRef<Record<string, { at: number; code: string }>>({});
+  const snapRoom = useCallback(
+    (
+      pane: "strudel" | "hydra",
+      event: string,
+      code: string,
+      meta: Record<string, unknown> = {},
+      throttleMs = 0,
+    ) => {
+      if (!meRef.current?.signedIn || !code.trim()) return;
+      const key = `${pane}:${event}`;
+      const last = snapLast.current[key];
+      const now = Date.now();
+      if (last && last.code === code) return; // nothing new to say
+      if (throttleMs && last && now - last.at < throttleMs) return;
+      snapLast.current[key] = { at: now, code };
+      void fetch("/api/room/snapshot", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pane, event, code, meta }),
+        keepalive: true,
+      }).catch(() => {});
+    },
+    [],
+  );
+  // The performance as it evolves — a settled edit while the room plays.
+  useEffect(() => {
+    if (!playing) return;
+    const t = setTimeout(
+      () => snapRoom("strudel", "eval", stateRef.current.strudel, {}, 30_000),
+      2000,
+    );
+    return () => clearTimeout(t);
+  }, [strudel, playing, snapRoom]);
+  useEffect(() => {
+    if (!playing) return;
+    const t = setTimeout(
+      () => snapRoom("hydra", "eval", stateRef.current.hydra, {}, 30_000),
+      2000,
+    );
+    return () => clearTimeout(t);
+  }, [hydra, playing, snapRoom]);
 
   // THE LINEUP — the boiler room's crate (2026-07-28, user: Sets folds into
   // the room). Your hits queue up; tapping a row POURS that song's first loop
@@ -1313,11 +1363,16 @@ export default function ZaltzIDE({
         fadeMaster(0.06, 0.45);
         setTimeout(() => fadeMaster(masterLevelRef.current, 1.2), 1500);
       }
+      // what was ON the bench leaves with the pour — its final form is corpus
+      snapRoom("strudel", "pour", stateRef.current.strudel, {
+        nextSongId: entry.id,
+        nextTitle: entry.title,
+      });
       setStrudel(bundle.music);
       setHydra(bundle.visual);
       setLineupIdx(i);
     },
-    [lineup],
+    [lineup, snapRoom],
   );
   const addToLineup = useCallback(
     (id: string) => {
@@ -2275,18 +2330,9 @@ export default function ZaltzIDE({
           title="Copilot — it whispers as you type: ⇥ takes it, ⌥\ summons one, Esc hushes it"
         >
           <CopilotMark on={copilot} />Copilot</button>
-        {/* ONE door for the person — klappn.com's own AccountMenu, worn
-            unchanged (user 07-27: "it must look the same"): email · Tokens &
-            usage · Sign out, the guest's claim path, or a sign-in door. The
-            avatar burns while the tokens are spent. */}
-        <AccountMenu
-          email={me?.email}
-          isGuest={!!me?.isGuest}
-          signedIn={!!me?.signedIn}
-          alert={spent}
-          onSignOut={() => void signOut().then(() => window.location.reload())}
-          onSignIn={() => setSheet("signin")}
-        />
+        {/* NO AVATAR (user 07-28): no other feature page wears one — the
+            person's door lives at home. The paying moment still speaks here
+            (the tokens-dry notice + the sign-in sheet the machine opens). */}
       </header>
 
       {/* ── mobile: ONE pill, "visuals" (user 07-27, final: sound is the
@@ -2351,6 +2397,10 @@ export default function ZaltzIDE({
             pondering={pondering === "strudel" && ghost?.pane !== "strudel"}
             ghost={ghost?.pane === "strudel" ? ghost.text : null}
             onGhostAccept={() => {
+              // an accepted whisper is the corpus's strongest signal
+              snapRoom("strudel", "take", stateRef.current.strudel, {
+                ghost: ghost?.text?.slice(0, 2000) ?? "",
+              });
               killGhost();
               // THE REAL-TIME LAW: a take made mid-set LANDS mid-set — the new
               // line crossfades into the running mix, no extra gesture.
@@ -2385,6 +2435,9 @@ export default function ZaltzIDE({
             pondering={pondering === "hydra" && ghost?.pane !== "hydra"}
             ghost={ghost?.pane === "hydra" ? ghost.text : null}
             onGhostAccept={() => {
+              snapRoom("hydra", "take", stateRef.current.hydra, {
+                ghost: ghost?.text?.slice(0, 2000) ?? "",
+              });
               killGhost();
               // A visual take repaints the room the moment it's taken.
               setTimeout(() => runVisuals(), 60);

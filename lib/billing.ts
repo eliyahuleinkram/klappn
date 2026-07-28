@@ -58,13 +58,15 @@ export interface Plan {
 
 export const PLANS: Record<PlanId, Plan> = {
   // Free is the pre-subscription state, not a plan on the page. `tokens` is
-  // the value of a GRANDFATHERED taste grant (the launch pool closed
-  // 2026-07-26 — see FREE_TASTE_GRANTS); accounts without one spend credits
-  // only. It left the tier grid 2026-07-05 — the blurb below is vestigial.
+  // the value of the SIGN-UP DOLLAR (2026-07-28, user reopened the taste:
+  // every CLAIMED account starts with $1 of tokens — 200k weighted units at
+  // the public $5/M rate; see FREE_TASTE_GRANTS). Anonymous walk-ins get the
+  // free instrument, never the dollar (a walk-in needs no email — a blanket
+  // grant would be farmable; the dollar lands when a name lands on the door).
   free: {
     id: "free",
     name: "Free",
-    tokens: 100_000,
+    tokens: 200_000,
     usd: 0,
     priceId: "",
     blurb: "the machine is prepaid.",
@@ -322,20 +324,20 @@ export async function addCredits(
 }
 
 /**
- * THE FREE POOL CAP — CLOSED at 0 (2026-07-26, launch decision: giving tokens
- * away read as a gimmick; the honest story is "the instrument is free, the
- * machine is prepaid"). Grants already claimed are GRANDFATHERED — the
- * claim/read paths still find an existing row, they just never mint a new one.
- * Each grant was worth PLANS.free.tokens (100k weighted units ≈ $0.50 of
- * model spend at the anchor rate). Raise this ONE number to reopen a pool;
- * the schema (taste_grants) needs no change.
+ * THE SIGN-UP DOLLAR — REOPENED 2026-07-28 (user: "start people off with $1
+ * in credits"; supersedes the 2026-07-26 pool-closed decision, which this
+ * comment keeps for the record). No pool cap anymore: EVERY CLAIMED (email,
+ * non-anonymous) account gets one grant of PLANS.free.tokens ($1 = 200k
+ * weighted units) on its first compose. Anonymous walk-ins never mint one —
+ * a walk-in needs no email, so a blanket grant is bot-farmable; the dollar
+ * lands the moment a name lands on the door (and a guest's work rides along
+ * through the claim merge). The old FREE_TASTE_GRANTS pool constant is gone;
+ * the taste_grants schema is unchanged.
  */
-export const FREE_TASTE_GRANTS = 0;
 
-/** Claim a taste grant for this user (first-come): inserts while the pool has
- *  room, else tells the truth about an existing grant. Two racing first-timers
- *  can overshoot the pool by a grant or two — bounded at ~$1 each, accepted.
- *  Fails OPEN (true) on a missing table / DB hiccup, like the rest of the gate. */
+/** Claim the sign-up dollar for this user: mints once per CLAIMED account,
+ *  tells the truth about an existing (incl. grandfathered launch) grant.
+ *  Fails OPEN (true) on a DB hiccup, like the rest of the gate. */
 export async function claimTasteGrant(
   userId: string,
   sql: Sql = db(),
@@ -344,7 +346,10 @@ export async function claimTasteGrant(
     const rows = await sql`
       insert into taste_grants (user_id)
       select ${userId}
-      where (select count(*) from taste_grants) < ${FREE_TASTE_GRANTS}
+      where exists (
+        select 1 from "user" u
+        where u.id = ${userId} and coalesce(u."isAnonymous", false) = false
+      )
       on conflict (user_id) do nothing
       returning user_id`;
     if (rows.length > 0) return true;
@@ -357,19 +362,18 @@ export async function claimTasteGrant(
 }
 
 /** Read-side twin for display (billing page): true when the user HAS a grant
- *  or the pool still has room for them to claim one on their first compose —
- *  so the meter shown always matches what the gate would decide. Never claims. */
+ *  or would mint one on their first compose (claimed account) — so the meter
+ *  shown always matches what the gate would decide. Never claims. */
 export async function tasteAvailable(
   userId: string,
   sql: Sql = db(),
 ): Promise<boolean> {
   try {
-    const [row] = await sql<{ mine: number; total: string | number }[]>`
+    const [row] = await sql<{ mine: number; claimed: boolean | null }[]>`
       select
-        count(*) filter (where user_id = ${userId})::int as mine,
-        count(*) as total
-      from taste_grants`;
-    return Number(row?.mine ?? 0) > 0 || Number(row?.total ?? 0) < FREE_TASTE_GRANTS;
+        (select count(*) from taste_grants where user_id = ${userId})::int as mine,
+        (select coalesce("isAnonymous", false) = false from "user" where id = ${userId}) as claimed`;
+    return Number(row?.mine ?? 0) > 0 || !!row?.claimed;
   } catch {
     return true; // fail open, same as the gate
   }

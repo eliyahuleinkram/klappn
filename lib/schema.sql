@@ -329,6 +329,22 @@ alter table live_links add column if not exists kind text not null default 'set'
 alter table live_links add column if not exists title text;
 alter table live_links add column if not exists visual text;
 
+-- BOILER-ROOM SNAPSHOTS (2026-07-28): the room's authored code, captured for
+-- the future model (the /open data deal — save save save). One row per
+-- meaningful moment, throttled client-side: 'eval' (the code as it evolves
+-- while playing), 'take' (a whisper accepted — the strongest signal),
+-- 'pour' (a lineup song landed in the panes), 'live' (the room went on air).
+create table if not exists room_snapshots (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    text not null references "user"(id) on delete cascade,
+  pane       text not null,
+  event      text not null,
+  code       text not null,
+  meta       jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+create index if not exists room_snapshots_user_idx on room_snapshots (user_id, created_at);
+
 -- VOCAL TAKES: the user's own voice, sung over a finished song. The audio is
 -- the PROCESSED render (cleaned, tuned, timed — the browser does the DSP and
 -- uploads the result to R2 under vocals/<song>/<take>.wav); `fx` holds the

@@ -1,7 +1,6 @@
 import { getSessionUser } from "@/lib/session";
 import {
   allowanceFor,
-  FREE_TASTE_GRANTS,
   getBilling,
   getCredits,
   getUsage,
@@ -9,20 +8,19 @@ import {
   tasteAvailable,
   usedFor,
 } from "@/lib/billing";
-import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 /**
  * The IDE's one identity + meter read: who am I (guest counts), and how many
- * tokens are left before the gate closes. (poolOpen is a launch-era relic —
- * the free-taste pool closed 2026-07-26, so it now always reads false; kept so
- * older clients keep parsing.)
+ * tokens are left before the gate closes. (poolOpen is a launch-era relic kept
+ * for parsing; since 2026-07-28 the sign-up dollar is uncapped, so it simply
+ * reads true — every claimed account can mint its grant.)
  */
 export async function GET(req: Request) {
   const user = await getSessionUser(req).catch(() => null);
   if (!user) {
-    return Response.json({ signedIn: false, poolOpen: await poolOpen() });
+    return Response.json({ signedIn: false, poolOpen: true });
   }
   let plan: string = "free";
   let usedTokens = 0;
@@ -56,15 +54,3 @@ export async function GET(req: Request) {
   });
 }
 
-/** Does the fixed free-taste pool still have room? Always false since the
- *  pool closed (FREE_TASTE_GRANTS = 0) — see lib/billing.ts. */
-async function poolOpen(): Promise<boolean> {
-  try {
-    const sql = db();
-    const [row] = await sql<{ total: string | number }[]>`
-      select count(*) as total from taste_grants`;
-    return Number(row?.total ?? 0) < FREE_TASTE_GRANTS;
-  } catch {
-    return true; // fail open, like the gate
-  }
-}

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import DoorGallery, { type DoorSong } from "@/components/DoorGallery";
-import SaltShaker from "@/components/SaltShaker";
 
 /**
  * SIGN-IN — a 6-digit CODE, not a link (2026-07-10). A magic link opens in the
@@ -150,31 +149,22 @@ export default function SignIn({
           aria-hidden
           className="pointer-events-none fixed inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,.32),transparent_24%,transparent_58%,rgba(0,0,0,.58))]"
         />
-        {/* the brand signs the corner — the room belongs to the music */}
-        <div className="relative z-10 flex items-center justify-between pt-6">
-          <div className="flex items-center gap-2.5">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/icon.svg"
-              alt=""
-              aria-hidden
-              className="h-8 w-8 select-none shadow-[0_8px_28px_-8px_rgba(224,49,156,.65)]"
-              style={{ borderRadius: "7px" }}
-              draggable={false}
-            />
-            <span className="wordmark text-[22px] tracking-tight text-foreground">
-              Klappn
-            </span>
-          </div>
-          {/* the other door, far corner: the live room's own object — press
-              the shaker, the code is under your fingers */}
-          <a
-            href="/live"
-            title="The boiler room — your hits underneath, live code on top"
-            className="group flex h-9 w-9 select-none items-center justify-center rounded-full border border-white/[0.14] bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,.1)] backdrop-blur-xl transition hover:border-accent/40 active:scale-[.94]"
-          >
-            <SaltShaker className="h-[22px] w-[22px]" />
-          </a>
+        {/* the brand signs the corner — the room belongs to the music
+            (user 07-28: nothing else up here; the boiler room is a
+            signed-in feature, its door is the nav inside) */}
+        <div className="relative z-10 flex items-center gap-2.5 pt-6">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/icon.svg"
+            alt=""
+            aria-hidden
+            className="h-8 w-8 select-none shadow-[0_8px_28px_-8px_rgba(224,49,156,.65)]"
+            style={{ borderRadius: "7px" }}
+            draggable={false}
+          />
+          <span className="wordmark text-[22px] tracking-tight text-foreground">
+            Klappn
+          </span>
         </div>
 
         {/* The gallery scatters its boxes across the WHOLE page (fixed field);
@@ -268,7 +258,8 @@ export default function SignIn({
                   </button>
                 </form>
                 <p className="mt-2 select-none text-[12px] text-muted/60">
-                  No password — a 6-digit code lands in your inbox. Signing in
+                  No password — a 6-digit code lands in your inbox, and your
+                  first dollar of composing is on the house. Signing in
                   agrees to the{" "}
                   <a
                     href="/terms"

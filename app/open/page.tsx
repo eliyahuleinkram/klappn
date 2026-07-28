@@ -182,7 +182,8 @@ export default function OpenPage() {
           <p>
             On this hosted service we keep the record of the making — your
             prompt, the model’s work, your edits, what you kept, what you
-            killed. Here’s why, said now so you never find it out later:
+            killed, and the code you play in the boiler room. Here’s why,
+            said now so you never find it out later:
             we’re going to raise Klappn’s own music model on the best of
             what’s made here, so this tool stops renting anyone else’s
             brain. That model stays inside this project.

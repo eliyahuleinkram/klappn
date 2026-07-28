@@ -54,7 +54,10 @@ export default function BoilerLineup({
   return (
     <>
       <div className="fixed inset-0 z-10" onClick={onClose} aria-hidden />
-      <div className="absolute right-0 top-full z-20 mt-2 flex max-h-[min(70dvh,540px)] w-72 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+      {/* PHONE: a fixed sheet under the bar, full-width (anchored to the
+          chip it ran off the left edge — the chip sits mid-header). DESKTOP:
+          the house dropdown, right-aligned under its word. */}
+      <div className="fixed inset-x-3 top-[max(3.4rem,calc(env(safe-area-inset-top)_+_3.1rem))] z-20 flex max-h-[min(70dvh,540px)] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72">
         <div className="flex min-h-0 flex-col p-1.5">
           <div className="flex items-center px-3 pb-1 pt-2">
             <span className="text-[11px] uppercase tracking-[0.18em] text-muted/50">

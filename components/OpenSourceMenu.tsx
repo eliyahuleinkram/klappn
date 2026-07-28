@@ -15,7 +15,12 @@ const REPOS: { name: string; line: string; href: string }[] = [
   { name: "zissl", line: "the light — a million-agent swarm", href: ZISSL_GITHUB_URL },
 ];
 
-export default function OpenSourceMenu() {
+export default function OpenSourceMenu({
+  direction = "down",
+}: {
+  /** "up" for a footer seat — the menu rises instead of dropping. */
+  direction?: "down" | "up";
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative shrink-0">
@@ -35,7 +40,11 @@ export default function OpenSourceMenu() {
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} aria-hidden />
-          <div className="absolute right-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+          <div
+            className={`absolute z-20 w-64 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl ${
+              direction === "up" ? "bottom-full left-0 mb-2" : "right-0 top-full mt-2"
+            }`}
+          >
             <div className="px-3 pb-1 pt-2 text-[11px] uppercase tracking-[0.18em] text-muted/50">
               Three names, one machine
             </div>

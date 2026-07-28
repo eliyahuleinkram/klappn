@@ -33,7 +33,7 @@ import {
 } from "@/lib/now-playing";
 import { useNowPlayingValue } from "@/lib/use-now-playing";
 import { useKeyboardInset } from "@/lib/use-keyboard-inset";
-import { DISCORD_URL, GITHUB_URL, ZALTZ_GITHUB_URL, ZISSL_GITHUB_URL } from "@/lib/links";
+import { DISCORD_URL } from "@/lib/links";
 import BoilerMark from "./BoilerMark";
 import OpenSourceMenu from "./OpenSourceMenu";
 
@@ -526,9 +526,6 @@ export default function HomeClient({
             <BoilerMark className="h-[14px] w-[14px]" />
             Boiler room
           </Link>
-          {/* THE CODE DOOR lives at HOME (user 07-28: it read wrong inside a
-              feature page) — one glyph, all three repos with their lines. */}
-          <OpenSourceMenu />
           {isGuest && (
             <Link
               href="/claim"
@@ -991,38 +988,15 @@ export default function HomeClient({
         </div>
       )}
 
-      {/* the open-project footer — quiet, but always there: the code, the
-          room, and the deal. Links hide until lib/links.ts has real URLs. */}
+      {/* the open-project footer — quiet, but always there: the deal in one
+          line, and ONE GitHub glyph carrying all three repos (user 07-28:
+          five text links read cluttered; for most people the code isn't the
+          point — the curious find it exactly here). */}
       <footer className="mt-16 flex flex-wrap items-center gap-x-5 gap-y-1.5 pb-2 text-[12.5px] text-muted/60 pointer-coarse:text-muted/80">
         <Link href="/open" className="transition hover:text-foreground">
           Open, all the way down
         </Link>
-        <a
-          href={ZALTZ_GITHUB_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="transition hover:text-foreground"
-        >
-          zaltz — our audio engine
-        </a>
-        <a
-          href={ZISSL_GITHUB_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="transition hover:text-foreground"
-        >
-          zissl — the swarm
-        </a>
-        {GITHUB_URL && (
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="transition hover:text-foreground"
-          >
-            GitHub
-          </a>
-        )}
+        <OpenSourceMenu direction="up" />
         {DISCORD_URL && (
           <a
             href={DISCORD_URL}
