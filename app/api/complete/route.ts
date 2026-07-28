@@ -109,6 +109,12 @@ export async function POST(req: Request) {
         const gone = replace === "[gone]";
         if (gone) replace = "";
         const whole = before + after;
+        // Already-quiet lines are NEVER trim targets (a `_$:` line got offered
+        // a second mute — `__$:` — seen live), and no rewrite may stack mutes.
+        if (/^\s*_/.test(find) || /^\s*__/.test(replace)) {
+          console.log(`[klappn] trim whisper dropped (${pane}): target already quiet`);
+          return Response.json({ ghost: "" });
+        }
         if (find && whole.includes(find) && find !== replace) {
           const trimmed = replace
             ? whole.replace(find, replace)
