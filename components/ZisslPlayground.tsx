@@ -253,9 +253,9 @@ export default function ZisslPlayground() {
               <a href="https://klappn.com" className={link}>
                 klappn.com
               </a>{" "}
-              — the studio — and rides the desk at{" "}
+              — the studio — and rides the desk in its{" "}
               <a href={ZALTZ_PLAYGROUND_URL} className={link}>
-                zaltz
+                live room
               </a>
               , the instrument you type.{" "}
             </span>
@@ -264,9 +264,9 @@ export default function ZisslPlayground() {
               <a href="https://klappn.com" className={link}>
                 klappn.com
               </a>{" "}
-              &amp;{" "}
+              &amp; its{" "}
               <a href={ZALTZ_PLAYGROUND_URL} className={link}>
-                zaltz
+                live room
               </a>{" "}
               ·{" "}
             </span>

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import DoorGallery, { type DoorSong } from "@/components/DoorGallery";
-import { ZALTZ_PLAYGROUND_URL } from "@/lib/links";
+import SaltShaker from "@/components/SaltShaker";
 
 /**
  * SIGN-IN — a 6-digit CODE, not a link (2026-07-10). A magic link opens in the
@@ -166,15 +166,14 @@ export default function SignIn({
               Klappn
             </span>
           </div>
-          {/* the other door, far corner: the instrument you type */}
+          {/* the other door, far corner: the live room's own object — press
+              the shaker, the code is under your fingers */}
           <a
-            href={ZALTZ_PLAYGROUND_URL}
-            target="_blank"
-            rel="noreferrer"
-            title="zaltz — the instrument you type. Walk in, the code is under your fingers."
-            className="select-none text-[13px] text-muted/70 transition hover:text-foreground"
+            href="/engine"
+            title="The live room — the instrument you type, code under your fingers"
+            className="group flex h-9 w-9 select-none items-center justify-center rounded-full border border-white/[0.14] bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,.1)] backdrop-blur-xl transition hover:border-accent/40 active:scale-[.94]"
           >
-            zaltz ↗
+            <SaltShaker className="h-[22px] w-[22px]" />
           </a>
         </div>
 

@@ -9,19 +9,13 @@ import ZaltzIDE from "@/components/ZaltzIDE";
 // (user 07-27: klappn.com doesn't blink; neither may the instrument).
 export const dynamic = "force-dynamic";
 
+// MERGED INTO KLAPPN (2026-07-28, user: "it is a feature within klappn"):
+// the room is Klappn's own — Klappn title, Klappn mark; "zaltz" stays the
+// ENGINE's name (the repo, the npm package), never this surface's brand.
 export const metadata: Metadata = {
-  title: "zaltz — the instrument you type",
+  title: "Klappn — the instrument you type",
   description:
     "Strudel on the left, Hydra on the right, our own engine underneath. Sketches keep themselves, the machine whispers the next line, and every take lands in the running mix. Type a bar — the room moves.",
-  // The grain, not the Klappn mark: SVG for the browsers that take it, PNG for
-  // the rest; the worker also answers /favicon.ico host-aware for Safari.
-  icons: {
-    icon: [
-      { url: "/zaltz-icon-32.png", sizes: "32x32", type: "image/png" },
-      { url: "/zaltz-icon.svg", type: "image/svg+xml" },
-    ],
-    apple: "/zaltz-icon-180.png",
-  },
 };
 
 /** PUBLIC IDE (zaltz.klappn.com lands here) — no account, no gate: play first,

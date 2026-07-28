@@ -56,24 +56,15 @@ export default {
       return Response.redirect(url.toString(), 301);
     }
 
-    // zaltz's front door: zaltz.klappn.com's root serves the playground page.
-    // (/zaltz itself is the ENGINE BINARY — extensionless wasm — so the page
-    // lives at /engine.) Assets, /api and deep links pass through untouched —
-    // except the favicon: browsers ask the HOST for /favicon.ico on their own
-    // terms (Safari ignores <link> icons half the time), so on this host it
-    // answers with the grain, not the Klappn mark.
+    // zaltz merged INTO klappn (2026-07-28, user: "it is a feature within
+    // klappn"): the room lives at klappn.com/engine, and this host — already
+    // posted to Reddit — REDIRECTS there for good. Root lands on the room;
+    // any deeper path keeps itself on the apex (one worker serves both).
     let req = request;
     if (url.hostname === "zaltz.klappn.com") {
-      if (url.pathname === "/") {
-        url.pathname = "/engine";
-        req = new Request(url.toString(), request);
-      } else if (url.pathname === "/favicon.ico") {
-        url.pathname = "/zaltz-favicon.ico";
-        req = new Request(url.toString(), request);
-      } else if (url.pathname === "/apple-touch-icon.png" || url.pathname === "/apple-touch-icon-precomposed.png") {
-        url.pathname = "/zaltz-icon-180.png";
-        req = new Request(url.toString(), request);
-      }
+      url.hostname = "klappn.com";
+      if (url.pathname === "/") url.pathname = "/engine";
+      return Response.redirect(url.toString(), 301);
     }
 
     // zissl's front door — the sweet counterpart: same shape as zaltz's,

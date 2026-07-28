@@ -4,7 +4,6 @@ import {
   DISCORD_URL,
   GITHUB_URL,
   ZALTZ_GITHUB_URL,
-  ZALTZ_PLAYGROUND_URL,
   ZISSL_GITHUB_URL,
   ZISSL_PLAYGROUND_URL,
 } from "@/lib/links";
@@ -127,15 +126,17 @@ export default function OpenPage() {
         <p className="mt-2 text-[14px] leading-relaxed text-muted">
           <span className="text-foreground/85">Klappn</span> is the studio —
           you type a sentence and it writes the song: the sound, the picture,
-          the code, yours to keep.{" "}
+          the code, yours to keep. The{" "}
           <a
-            href={ZALTZ_PLAYGROUND_URL}
+            href="/engine"
             className="text-foreground/80 underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
           >
-            zaltz
+            live room
           </a>{" "}
-          is the instrument you type — the same engine with the lid off, live:
-          code under your fingers, sound the moment it lands.{" "}
+          (the salt shaker in the top bar) is the same machine with the lid
+          off — code under your fingers, sound the moment it lands — powered
+          by <span className="text-foreground/85">zaltz</span>, our audio
+          engine, which also ships standalone.{" "}
           <a
             href={ZISSL_PLAYGROUND_URL}
             className="text-foreground/80 underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
@@ -143,8 +144,7 @@ export default function OpenPage() {
             zissl
           </a>{" "}
           is the light — a million-agent swarm that paints the pictures behind
-          both. Same room, three doors; walk through any of them and the other
-          two are one link away.
+          everything.
         </p>
       </section>
 

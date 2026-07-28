@@ -1854,16 +1854,21 @@ export default function ZaltzIDE({
       {/* CRISP (user 07-27: zaltz rides the same penthouse as klappn.com):
           the furniture wears klappn's own sizes — 15px type in the bar,
           machined /[0.12] edges on the glass — never smaller, never hazier. */}
+      {/* MERGED INTO KLAPPN (user 07-28): the room is a feature of the house,
+          not a second brand — the header signs KLAPPN and walks home; the
+          shaker (the room's own object) is how you got here. "zaltz" stays
+          the engine's name, on the repo link alone. */}
       <header className="flex items-center gap-2.5 py-3">
-        <Link href="/" className="flex shrink-0 items-center gap-2" title="Klappn">
+        <Link href="/" className="flex shrink-0 items-center gap-2" title="Klappn — back to the studio">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/zaltz-icon.svg"
+            src="/icon.svg"
             alt=""
-            className="h-7 w-7 drop-shadow-[0_0_16px_rgba(224,49,156,.5)]"
+            className="h-7 w-7 select-none shadow-[0_8px_28px_-8px_rgba(224,49,156,.65)]"
+            style={{ borderRadius: "6px" }}
           />
-          <span className="hidden bg-gradient-to-r from-[#ff63c1] via-[#e0319c] to-[#b3126f] bg-clip-text text-[19px] font-semibold tracking-tight text-transparent sm:inline">
-            zaltz
+          <span className="wordmark hidden text-[17px] tracking-tight text-foreground sm:inline">
+            Klappn
           </span>
         </Link>
         {/* NO NAME, NO CRATE (user 07-28): the room isn't a document — it's

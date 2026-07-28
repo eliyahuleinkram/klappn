@@ -33,7 +33,8 @@ import {
 } from "@/lib/now-playing";
 import { useNowPlayingValue } from "@/lib/use-now-playing";
 import { useKeyboardInset } from "@/lib/use-keyboard-inset";
-import { DISCORD_URL, GITHUB_URL, ZALTZ_GITHUB_URL, ZALTZ_PLAYGROUND_URL, ZISSL_GITHUB_URL } from "@/lib/links";
+import { DISCORD_URL, GITHUB_URL, ZALTZ_GITHUB_URL, ZISSL_GITHUB_URL } from "@/lib/links";
+import SaltShaker from "./SaltShaker";
 
 // Evocative, hopeful status lines shown while a loop is being built — they make
 // the (genuinely working) wait feel alive and reassuring.
@@ -546,43 +547,16 @@ export default function HomeClient({
             </svg>
             Events
           </Link>
-          <a
-            href={ZALTZ_PLAYGROUND_URL}
-            target="_blank"
-            rel="noreferrer"
-            title="zaltz — the instrument you type. The live room, code under your fingers."
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
+          {/* THE SALT SHAKER — the live room's own object, no pill, no word
+              (user 07-28): press it and you're in the room, code under your
+              fingers. Same machined shaker the desk wears. */}
+          <Link
+            href="/engine"
+            title="The live room — the instrument you type, code under your fingers"
+            className="group flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,.1)] transition hover:border-accent/40 hover:shadow-[0_0_30px_-10px_rgba(224,49,156,.6),inset_0_1px_0_rgba(255,255,255,.14)] active:scale-[.94]"
           >
-            <svg
-              aria-hidden
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="url(#zaltz-hp)"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <defs>
-                <linearGradient
-                  id="zaltz-hp"
-                  gradientUnits="userSpaceOnUse"
-                  x1="3"
-                  y1="5"
-                  x2="21"
-                  y2="20"
-                >
-                  <stop offset="0" stopColor="#ff63c1" />
-                  <stop offset="1" stopColor="#e0319c" />
-                </linearGradient>
-              </defs>
-              {/* code under the fingers */}
-              <path d="m8.5 7.5-4.5 4.5 4.5 4.5" />
-              <path d="m15.5 7.5 4.5 4.5-4.5 4.5" />
-            </svg>
-            zaltz
-          </a>
+            <SaltShaker className="h-[22px] w-[22px] transition group-hover:drop-shadow-[0_0_8px_rgba(255,99,193,.5)]" />
+          </Link>
           {isGuest && (
             <Link
               href="/claim"
