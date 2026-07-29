@@ -128,6 +128,13 @@ export function classifyLayer(code: string, label?: string): Channel {
 export function assignChannelOrbits(
   code: string,
   labels?: (string | undefined)[],
+  opts?: {
+    /** "strip" (default, the Sets law: the deck's kills own dynamics) removes
+     *  the duck family with the merge orbits it targeted. "remap" (the boiler
+     *  room, 2026-07-29: a live coder's sidechain pump must SURVIVE re-busing)
+     *  rewrites duck targets through the old-orbit → new-orbit map instead. */
+    ducks?: "strip" | "remap";
+  },
 ): string {
   if (!code) return code;
   // MUSIC ONLY: stop before the embedded comment blocks (@hydra, @controls,
@@ -157,16 +164,22 @@ export function assignChannelOrbits(
   };
 
   const head = code.slice(0, starts[0]);
-  const out: string[] = [head];
+  const remapDucks = opts?.ducks === "remap";
+  // PASS 1 — assign every layer its decade orbit, remembering the orbit it
+  // ARRIVED on (explicit .orbit(n) or the default bus 1) so duck targets can
+  // follow their layers through the re-busing.
+  const layers: { body: string; newOrbit: number }[] = [];
+  const orbitMap = new Map<number, Set<number>>();
   for (let li = 0; li < starts.length; li++) {
     const end = li + 1 < starts.length ? starts[li + 1] : code.length;
+    const raw = code.slice(starts[li], end);
+    const oldOrbit = Number(raw.match(/\.orbit\(\s*(\d+)\s*\)/)?.[1] ?? 1);
     // The stored code carries merge-baked orbits (reverb dedup) — replace them
     // with the channel decade, which preserves the same signature separation.
-    // The duck family goes too: its targets were the MERGE orbits, which no
-    // longer exist after re-busing (the deck's kills own dynamics here).
-    const layer = stripDuckFamily(
-      code.slice(starts[li], end).replace(/\.orbit\(\s*\d+\s*\)/g, ""),
-    );
+    // The duck family: STRIPPED for Sets (its targets were the merge orbits,
+    // and the deck's kills own dynamics), REMAPPED for the boiler room (pass 2).
+    let layer = raw.replace(/\.orbit\(\s*\d+\s*\)/g, "");
+    if (!remapDucks) layer = stripDuckFamily(layer);
     const ch = classifyLayer(layer, labels?.[li]);
     const slots = slotOf[ch];
     const sig = layerSignature(layer);
@@ -175,8 +188,35 @@ export function assignChannelOrbits(
       slot = Math.min(slots.size, DECADE - 1); // decade overflow: share the last bus
       slots.set(sig, slot);
     }
+    const newOrbit = CHANNEL_ORBIT_BASE[ch] + slot;
+    let set = orbitMap.get(oldOrbit);
+    if (!set) orbitMap.set(oldOrbit, (set = new Set()));
+    set.add(newOrbit);
+    layers.push({ body: layer, newOrbit });
+  }
+  // PASS 2 — append the new orbit; in remap mode, rewrite duck targets
+  // (`.duck("2:3")` / `.duckorbit(2)`) through the map. A target no layer
+  // arrived on is dropped; a call left with no live targets goes entirely.
+  const out: string[] = [head];
+  for (const { body, newOrbit } of layers) {
+    let layer = body;
+    if (remapDucks) {
+      layer = layer.replace(
+        /\.duck(?:orbit)?\(\s*(["']?)([\d:\s]+)\1\s*\)/g,
+        (_full, _q: string, list: string) => {
+          const mapped = new Set<number>();
+          for (const tok of list.split(":")) {
+            const n = Number(tok.trim());
+            if (!Number.isFinite(n)) continue;
+            for (const o of orbitMap.get(n) ?? []) mapped.add(o);
+          }
+          if (mapped.size === 0) return "";
+          return `.duck("${[...mapped].sort((a, b) => a - b).join(":")}")`;
+        },
+      );
+    }
     const at = layerAppendPos(layer);
-    out.push(`${layer.slice(0, at)}.orbit(${CHANNEL_ORBIT_BASE[ch] + slot})${layer.slice(at)}`);
+    out.push(`${layer.slice(0, at)}.orbit(${newOrbit})${layer.slice(at)}`);
   }
   return out.join("") + tail;
 }

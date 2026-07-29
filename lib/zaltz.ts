@@ -672,6 +672,20 @@ function noteToMidi(n: unknown): number | null {
   return (Number(m[3] ?? 3) + 1) * 12 + sem;
 }
 
+/** Duck target list → the engine's colon format ("20:30"). The strudel
+ *  control maps BOTH .duck() and .duckorbit() onto the hap key `duckorbit`
+ *  (scalar for one target, array for a "20:30" list); legacy song code may
+ *  still carry a plain `duck` value. Returns "" when the hap ducks nothing. */
+function duckTargets(v: HapValue): string {
+  const raw = v.duck ?? v.duckorbit;
+  if (raw == null) return "";
+  const list = Array.isArray(raw) ? raw : String(raw).split(":");
+  const nums = list
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n) && Number.isInteger(n) && n >= 0);
+  return nums.join(":");
+}
+
 // JS Number→string uses scientific notation outside ~[1e-6, 1e21) — the
 // engine's parser reads plain decimals, so "3e-9" would land as 3. Every
 // value that enters an event string goes through here.
@@ -689,7 +703,7 @@ const NUM_KEYS = [
   "attack", "decay", "sustain", "release", "gain", "velocity", "postgain", "pan",
   "lpattack", "lpdecay", "lpsustain", "lprelease", "lpenv", "vib", "vibmod",
   "unison", "spread", "detune", "speed", "begin", "end", "loop", "loopBegin", "loopEnd",
-  "orbit", "room", "roomlp", "delay", "delaytime", "delayfeedback",
+  "orbit", "room", "roomlp", "roomdim", "delay", "delaytime", "delayfeedback",
   "shape", "shapevol", "duckonset", "duckattack", "duckdepth",
   "distort", "distortvol", "tremolodepth", "tremoloskew", "tremolophase",
   "penv", "pattack", "pdecay", "psustain", "prelease", "panchor", "stretch",
@@ -761,7 +775,7 @@ function hapKv(v: HapValue, durationSec: number, atCycles: number | null = null)
       const val = v[from];
       if (typeof val === "number" && Number.isFinite(val)) parts.push(`${to}/${fnum(val)}`);
     }
-    if (v.duck != null) parts.push(`duck/${String(v.duck)}`);
+    if (duckTargets(v)) parts.push(`duck/${duckTargets(v)}`);
     if (typeof v.ftype === "string") parts.push(`ftype/${v.ftype}`);
     pushEffectKv(parts, v, atCycles);
     parts.push(`duration/${fnum(duration)}`);
@@ -812,7 +826,7 @@ function hapKv(v: HapValue, durationSec: number, atCycles: number | null = null)
     const val = v[from];
     if (typeof val === "number" && Number.isFinite(val)) parts.push(`${to}/${fnum(val)}`);
   }
-  if (v.duck != null) parts.push(`duck/${String(v.duck)}`); // "2:3" target list
+  if (duckTargets(v)) parts.push(`duck/${duckTargets(v)}`); // "2:3" target list
   if (typeof v.ftype === "string") parts.push(`ftype/${v.ftype}`); // ladder | 24db
   pushEffectKv(parts, v, atCycles);
   if (typeof v.phaser === "number" && Number.isFinite(v.phaser)) parts.push(`phaserrate/${fnum(v.phaser)}`);

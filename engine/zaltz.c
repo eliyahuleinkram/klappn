@@ -420,7 +420,7 @@ typedef struct {
   int sample_id;
   float speed, begin, endf, loopv, loop_begin, loop_end;
   int orbit;
-  float room, roomsize, roomlp, delay, delaytime, delayfeedback;
+  float room, roomsize, roomlp, roomdim, delay, delaytime, delayfeedback;
   float shape, shapevol;
   float distort, distortvol;
   int distorttype;
@@ -570,9 +570,39 @@ static Orbit orbits[MAX_ORBITS];
 // FDN line lengths: primes ≈ 21–60ms at 48k, scaled to sr
 static const int FDN_PRIMES[FDN_LINES] = { 1031, 1327, 1523, 1801, 2053, 2311, 2617, 2903 };
 
-static void orbit_config_verb(Orbit *o, float t60, float lp) {
+static void orbit_config_verb(Orbit *o, float t60, float lp, float dim) {
   float t = t60 > 0.05f ? t60 : 2.0f;
   float l = lp > 0 ? lp : 15000.0f;
+  // ROOMDIM (superdough reverbGen): the convolver IR's lowpass RAMPS linearly
+  // lp → dim (Hz) across the decay, so high frequencies die early — content at
+  // f survives only until the ramp crosses f, i.e. T60(f)/T60 ≈ (lp−f)/(lp−dim).
+  // The FDN's per-pass one-pole is the same mechanism in loop form (older
+  // energy = more passes = darker); a swept cutoff can't be expressed in a
+  // recirculating network, so match the HIGH-BAND DECAY TIME instead: pick the
+  // per-pass cutoff whose extra attenuation at f_ref makes T60(f_ref) hit the
+  // convolver's ratio. Derivation: per pass amp = g·a, want ln(g·a)/ln g = 1/r
+  // → ln a = ln g·(1/r − 1); one-pole |H(f_ref)| = a → fc = f_ref/√(a⁻²−1).
+  // dim defaults 1000 (reverb.mjs generate) — that maps to fc ≈ the plain
+  // roomlp already in use, so unset stays the calibrated sound.
+  if (!is_nan(dim) && dim > 0 && dim < l) {
+    float fref = l > 12000.0f ? 5000.0f : l * (1.0f / 3.0f);
+    float r = (l - fref) / (l - dim);
+    if (r < 0.05f) r = 0.05f;
+    if (r < 1.0f) {
+      float lng = -3.0f * 2.302585f * (0.042f / t); // mean FDN line ≈ 42ms
+      // NETWORK DILUTION 0.32, MEASURED (Schroeder band-T60 harness,
+      // verify-rdim2): the Householder mixing spreads energy across the 8
+      // lines, so the in-loop one-pole bites ~1/3 as hard as a naive
+      // per-pass cascade predicts — consistent at fc 5k (ratio .58) and
+      // 12.7k (ratio .89). The wanted per-pass loss divides by it.
+      float a = sd_exp2f(lng * (1.0f / r - 1.0f) * (1.0f / 0.32f) * 1.442695f);
+      if (a < 0.9995f) {
+        float inv = 1.0f / (a * a) - 1.0f;
+        float fc = fref / sd_sqrtf(inv);
+        if (fc < l) l = fc;
+      }
+    }
+  }
   if (o->verb_on && o->t60 == t && o->lp_hz == l) return;
   // RETUNE = new TARGETS, glided per block in the bus pass. The old code
   // ZEROED the ring memory and reset positions on every param change — an
@@ -852,7 +882,7 @@ __attribute__((export_name("sd_event"))) int sd_event(void) {
   ev.vib = 0; ev.vibmod = 0.5f; // helpers.mjs:347
   ev.sample_id = -1; ev.speed = 1; ev.begin = 0; ev.endf = 1; ev.loopv = 0; ev.loop_begin = 0; ev.loop_end = 1;
   ev.orbit = 1;
-  ev.room = 0; ev.roomsize = 2; ev.roomlp = 15000; ev.delay = 0;
+  ev.room = 0; ev.roomsize = 2; ev.roomlp = 15000; ev.roomdim = NAN_F; ev.delay = 0;
   ev.delaytime = 0.25f; ev.delayfeedback = 0.5f; // superdough defaults
   ev.shape = NAN_F; ev.shapevol = 1;
   ev.distort = NAN_F; ev.distortvol = 1; ev.distorttype = 0; // superdough DEFAULT_VALUES
@@ -924,6 +954,7 @@ __attribute__((export_name("sd_event"))) int sd_event(void) {
     else if (str_eq(key, "room")) ev.room = parse_f(val);
     else if (str_eq(key, "roomsize")) ev.roomsize = parse_f(val);
     else if (str_eq(key, "roomlp")) ev.roomlp = parse_f(val);
+    else if (str_eq(key, "roomdim")) ev.roomdim = parse_f(val);
     else if (str_eq(key, "delay")) ev.delay = parse_f(val);
     else if (str_eq(key, "delaytime")) ev.delaytime = parse_f(val);
     else if (str_eq(key, "delayfeedback")) ev.delayfeedback = parse_f(val);
@@ -1128,7 +1159,7 @@ static void start_voice(const Event *ev) {
     orbits[ob].used = true;
     v->room_send = sd_fminf(sd_fmaxf(ev->room, 0.0f), 1.0f);
     v->delay_send = sd_fminf(sd_fmaxf(ev->delay, 0.0f), 1.0f);
-    if (v->room_send > 0) orbit_config_verb(&orbits[ob], ev->roomsize, ev->roomlp);
+    if (v->room_send > 0) orbit_config_verb(&orbits[ob], ev->roomsize, ev->roomlp, ev->roomdim);
     if (v->delay_send > 0) orbit_config_delay(&orbits[ob], ev->delaytime, ev->delayfeedback);
     v->shape_on = !is_nan(ev->shape) && ev->shape > 0;
     if (v->shape_on) {

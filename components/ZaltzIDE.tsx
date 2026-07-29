@@ -493,10 +493,11 @@ export default function ZaltzIDE({
     try {
       // THE DECK'S ROUTING, applied at play time only — the pane's code is
       // never touched. Every layer lands on its channel's orbit decade, so
-      // the kills have buses to bite.
+      // the kills have buses to bite. Ducks REMAP through the re-busing (the
+      // Sets deck strips them; a live coder's sidechain pump must survive).
       await playPart(
         "zaltz-ide",
-        transformForPlayback(assignChannelOrbits(code), {
+        transformForPlayback(assignChannelOrbits(code, undefined, { ducks: "remap" }), {
           transpose: keyRef.current,
         }),
         "zaltz-ide",
