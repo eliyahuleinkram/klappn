@@ -6,7 +6,6 @@ import { MIDI_INSTRUMENTS, type MidiSnapshot } from "@/lib/midi-live";
 import type { LiveMicVoice } from "@/lib/strudel-client";
 import DeckSlider from "./DeckSlider";
 import { MicDeckGroup, type MicDevice, type MicFx } from "./DeckKit";
-import SaltShaker from "./SaltShaker";
 
 /**
  * THE MIXER — the zaltz IDE's performance desk (the Sets deck's own
@@ -266,7 +265,6 @@ export default function ZaltzMixer({
   micDotRef: React.RefObject<HTMLSpanElement | null>;
 }) {
   // The tap's shake — the shaker keeps shaking while the desk rises.
-  const [shaking, setShaking] = useState(false);
   // FOLDED (user 07-27: "hide the DJ controls from the panel itself"): the
   // desk's own grabber lays the controller flat — a slim glass bar stays
   // centre-stage where the desk was, one tap raises it again. The shaker
@@ -916,42 +914,11 @@ export default function ZaltzMixer({
           </div>
         </div>
       )}
-      {/* THE SHAKER — one circle in the corner, always in thumb's reach:
-          zaltz's own object as the door to the desk. Open, it becomes the ✕
-          (one glyph, one meaning). */}
-      <button
-        onClick={() => {
-          setShaking(true); // a shaker SHAKES every time you grab it
-          setTimeout(() => setShaking(false), 700); // backstop if the animation can't run
-          onToggle();
-        }}
-        title={
-          open
-            ? "Leave the show — back to the bench (Esc)"
-            : "The show — the picture full-on, the desk in hand"
-        }
-        aria-expanded={open}
-        className={`fixed z-20 flex h-12 w-12 items-center justify-center rounded-full border bg-black/35 backdrop-blur-xl backdrop-saturate-[1.6] transition active:scale-[.94] ${
-          open
-            ? "border-accent/50 text-accent-strong shadow-[0_0_44px_-10px_rgba(224,49,156,.8),inset_0_1px_0_rgba(255,255,255,.16)]"
-            : playing
-              ? "border-accent/40 text-accent-strong shadow-[0_0_36px_-10px_rgba(224,49,156,.7),inset_0_1px_0_rgba(255,255,255,.14)] hover:border-accent/60"
-              : "border-white/[0.14] text-muted/80 shadow-[inset_0_1px_0_rgba(255,255,255,.12)] hover:border-accent/40 hover:text-accent-strong hover:shadow-[0_0_30px_-10px_rgba(224,49,156,.6),inset_0_1px_0_rgba(255,255,255,.14)]"
-        }`}
-        style={{
-          right: "max(0.75rem, env(safe-area-inset-right))",
-          bottom: "max(0.75rem, env(safe-area-inset-bottom))",
-        }}
-      >
-        {/* The shaker never becomes an ✕ (user 07-27): it IS the mixer —
-            tap again and the desk goes away, the shaker stays itself. */}
-        <span
-          className={shaking ? "shaker-shaking" : ""}
-          onAnimationEnd={() => setShaking(false)}
-        >
-          <SaltShaker />
-        </span>
-      </button>
+      {/* THE SHAKER IS GONE (2026-07-29). It was one circle in the corner
+          doing one job — enter and leave the show — and a salt shaker floating
+          over a live instrument read as a puzzle, not a door. That job moved
+          to the header, beside the room's own name, where every other control
+          already lives. Leaving is unchanged: the ✕ on the stage, or Esc. */}
     </>
   );
 }

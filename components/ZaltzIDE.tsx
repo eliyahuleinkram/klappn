@@ -2386,6 +2386,24 @@ export default function ZaltzIDE({
             Engine
           </span>
         </span>
+        {/* THE SHOW — the door that used to float over the room as a salt
+            shaker. It belongs beside the room's name: going full-on is a
+            thing you do TO this room, not a thing hovering above it. One
+            glyph, one meaning — the frame opening at its corners. The way
+            back is unchanged: the ✕ on the stage, or Esc. */}
+        <button
+          onClick={enterShow}
+          title="The show — the picture full-on, the desk in hand"
+          className="group -ml-0.5 shrink-0 rounded-full p-1.5 text-muted/55 transition hover:bg-white/[0.06] hover:text-foreground active:scale-[.94]"
+        >
+          <svg viewBox="0 0 24 24" className="h-[15px] w-[15px]" fill="none"
+            stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M4 9V5.6a1.6 1.6 0 0 1 1.6-1.6H9" />
+            <path d="M15 4h3.4A1.6 1.6 0 0 1 20 5.6V9" />
+            <path d="M20 15v3.4a1.6 1.6 0 0 1-1.6 1.6H15" />
+            <path d="M9 20H5.6A1.6 1.6 0 0 1 4 18.4V15" />
+          </svg>
+        </button>
         {/* the air in the middle belongs to the room */}
         <span className="min-w-0 flex-1" />
         {/* THE TRANSPORT CAPSULE — play and tape are ONE machined object
