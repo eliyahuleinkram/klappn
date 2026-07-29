@@ -1696,8 +1696,9 @@ static void pv_channel(float *ring, float pf, double time_cursor, float *out_fra
     out_frame[i] = (float)((double)(float)pv_re2[i] * ((double)pv_hann[i] * 1.62));
 }
 
-// one OLA hop for both channels: feed 128 staged samples, emit 128 output
-static void pv_process(Pv *p, const float *inl, const float *inr, float *outl, float *outr, float stretch) {
+// one OLA hop: feed 128 staged samples, emit 128 output. A mono voice
+// (stereo=false) runs the L pipeline only and mirrors it to R.
+static void pv_process(Pv *p, const float *inl, const float *inr, float *outl, float *outr, float stretch, bool stereo) {
   // pitchFactor transform (processOLA): x<0 → x·0.25, then max(0, x+1)
   float pf = stretch;
   if (pf < 0) pf *= 0.25f;
@@ -1709,7 +1710,8 @@ static void pv_process(Pv *p, const float *inl, const float *inr, float *outl, f
   outs[0] = outl; outs[1] = outr;
   acc[0] = p->out_l; acc[1] = p->out_r;
   static float frame[PV_N];
-  for (int ch = 0; ch < 2; ch++) {
+  const int nch = stereo ? 2 : 1;
+  for (int ch = 0; ch < nch; ch++) {
     float *ring = rings[ch];
     // slide the analysis window forward one hop (readInputs + shiftInputBuffers)
     for (int i = 0; i < PV_N - PV_HOP; i++) ring[i] = ring[i + PV_HOP];
@@ -1725,6 +1727,8 @@ static void pv_process(Pv *p, const float *inl, const float *inr, float *outl, f
     for (int i = 0; i < PV_N - PV_HOP; i++) a[i] = a[i + PV_HOP];
     for (int i = PV_N - PV_HOP; i < PV_N; i++) a[i] = 0;
   }
+  if (!stereo)
+    for (int i = 0; i < PV_HOP; i++) outr[i] = outl[i]; // mono mirror
   p->time_cursor += (double)PV_HOP;
 }
 
@@ -1802,6 +1806,17 @@ static inline void voice_out(const Voice *v, int i, float al, float ar) {
   }
 }
 
+// A voice's channels can only differ when something in its FIXED path splits
+// them: a panner, a stereo sample, or the supersaw's alternating gains. Every
+// per-sample fx stage is channel-symmetric, so a mono voice's L==R forever —
+// the vocoder then runs ONE spectral pipeline instead of two (the hats and
+// claps this exists for are exactly these voices; halves the audio-thread
+// cost per stretch voice).
+static inline bool pv_voice_stereo(const Voice *v) {
+  return v->pan_set || v->src == SRC_SUPERSAW ||
+         (v->src == SRC_SAMPLE && v->pcm_channels == 2);
+}
+
 // the render loops emit through here: stretch voices STAGE their block for
 // the phase vocoder (pv_flush below), everything else lands on the orbit now
 static inline void voice_emit(const Voice *v, int i, float al, float ar) {
@@ -1816,22 +1831,29 @@ static inline void voice_emit(const Voice *v, int i, float al, float ar) {
 // after a stretch voice's sample loop: vocode the staged block onto the orbit.
 // When the source dies the OLA tail (16 hops of buffered audio) still drains —
 // superdough's per-hap worklet node rings out the same way before GC.
+// THE HUSK BUG (2026-07-29, "plays nicely for a bit and then it just stops"):
+// the drain used to tick only when v->active was false — but the drain loop
+// itself re-marks the voice active, and the pv_dead break leaves it that way,
+// so the counter NEVER decremented. Every finished stretch voice squatted on
+// a voice slot forever; at ~4 stretch haps/s the 128 slots choked in minutes
+// and the whole room fell silent. The drain now ticks on pv_dead, always.
 static void pv_flush(Voice *v) {
   Pv *p = v->pv;
   float ol[BLOCK], orr[BLOCK];
-  pv_process(p, pv_stage_l, pv_stage_r, ol, orr, v->pv_stretch);
+  pv_process(p, pv_stage_l, pv_stage_r, ol, orr, v->pv_stretch, pv_voice_stereo(v));
   for (int i = 0; i < BLOCK; i++) voice_out(v, i, ol[i], orr[i]);
-  if (!v->active) {
-    if (!v->pv_dead) {
-      v->pv_dead = true; // the i-loop now breaks instantly → staged silence
-      p->drain = PV_OVER;
-    }
+  if (v->pv_dead) {
     if (--p->drain <= 0) {
       pv_release(p);
-      v->pv = 0; // stays inactive — truly done
-    } else {
-      v->active = true; // live until the tail drains
+      v->pv = 0;
+      v->active = false; // truly done — the slot is free again
     }
+    return;
+  }
+  if (!v->active) {
+    v->pv_dead = true; // the i-loop now breaks instantly → staged silence
+    p->drain = PV_OVER;
+    v->active = true; // live until the tail drains
   }
 }
 
@@ -2265,7 +2287,7 @@ __attribute__((export_name("pv_test_reset"))) void pv_test_reset(void) {
 __attribute__((export_name("pv_test_block"))) void pv_test_block(float stretch) {
   if (!pv_test_state) return;
   pv_dbg_capture = true;
-  pv_process(pv_test_state, pv_test_io, pv_test_io + BLOCK, pv_test_io, pv_test_io + BLOCK, stretch);
+  pv_process(pv_test_state, pv_test_io, pv_test_io + BLOCK, pv_test_io, pv_test_io + BLOCK, stretch, true);
 }
 
 __attribute__((export_name("pv_test_npeaks"))) int pv_test_npeaks(void) { return pv_dbg_npeaks; }
@@ -2275,3 +2297,10 @@ __attribute__((export_name("pv_test_spec_re"))) double *pv_test_spec_re(void) { 
 __attribute__((export_name("pv_test_spec_im"))) double *pv_test_spec_im(void) { return pv_im; }
 __attribute__((export_name("pv_test_shift_re"))) double *pv_test_shift_re(void) { return pv_dbg_sre; }
 __attribute__((export_name("pv_test_shift_im"))) double *pv_test_shift_im(void) { return pv_dbg_sim; }
+
+__attribute__((export_name("sd_active_voices"))) int sd_active_voices(void) {
+  int n = 0;
+  for (int i = 0; i < MAX_VOICES; i++)
+    if (voices[i].active) n++;
+  return n;
+}
