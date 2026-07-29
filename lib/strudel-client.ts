@@ -4256,11 +4256,16 @@ async function ensureStarted(): Promise<StrudelModule> {
           : {}),
         // runs AFTER the built-in defaultPrebake (which does registerSynthSounds)
         prebake: async () => {
-          await Promise.all([
-            registerSoundfonts(),
-            ...SAMPLE_MAPS.map((f) => w.samples(`${MAPS_BASE}/${f}`)),
-            loadDirtSamples(w),
-          ]);
+          // ORDER IS LOAD-BEARING, and it used to be a RACE (all of these sat
+          // in one Promise.all, so whichever manifest landed last silently won
+          // — run to run). Registration overwrites by name, and ten names are
+          // defined by both the bulk Dirt library and the curated kits
+          // (bd cb cp cr hh ht lt mt sd + sax). strudel.cc resolves those from
+          // uzu-drumkit/vcsl — it never loads bulk Dirt for them — so the
+          // curated maps MUST land last or every drum differs from strudel.cc.
+          // See MANIFEST_ORDER in lib/zaltz.ts for the full account.
+          await Promise.all([registerSoundfonts(), loadDirtSamples(w)]);
+          for (const f of SAMPLE_MAPS) await w.samples(`${MAPS_BASE}/${f}`);
           // AFTER the maps settle — aliasBank snapshots the sound map when it
           // runs, so racing it in the same Promise.all can alias an empty map
           // (seen live: `circuitstom_sd` not found while akailinn_oh played).

@@ -448,6 +448,77 @@ async function ensureNode(ac: AudioContext, out?: AudioNode | null): Promise<voi
 }
 
 // ---- sample resolution (same proxy manifests superdough loads) --------------
+/**
+ * MANIFEST PRECEDENCE — later wins, so the CURATED kits must come last.
+ *
+ * strudel.cc's prebake (website/src/repl/prebake.mjs) does NOT load the bulk
+ * Dirt-Samples library. It loads piano, vcsl, tidal-drum-machines,
+ * uzu-drumkit, uzu-wavetables and mridangam, and then only a hand-picked
+ * HANDFUL of Dirt folders (casio, crow, insect, wind, jazz, metal, east,
+ * space, numbers, num). There is no `bd`, `sd` or `hh` from Dirt on
+ * strudel.cc at all — the whole core kit is uzu-drumkit.
+ *
+ * Klappn DOES want the full library (218 categories: arpy, jvbass, sitar,
+ * amencutup… the palette the composer writes from), so we load both. Ten
+ * names are defined by both — bd cb cp cr hh ht lt mt sd, plus sax from vcsl
+ * — and for those, strudel.cc's answer has to win, or every drum in the
+ * product is a different sample from the one the same code plays on
+ * strudel.cc. That was audible and wrong (2026-07-29): Dirt's `hh` list puts
+ * hh3kick1.wav / hh3kick2.wav at n=5,6, so `s("hh:<2 4 5 6>")` played kick
+ * drums out of the hi-hat folder — "it sounds like a DJ scratching, I hear no
+ * hi hat" — while uzu's `hh` is five actual hi-hats.
+ */
+export const MANIFEST_ORDER = ["lib", "d1", "d2", "d3", "d4", "d5", "d0"] as const;
+
+/**
+ * Merge fetched sample manifests in precedence order (LAST wins), resolving
+ * relative paths against each manifest's own `_base` and normalizing names the
+ * way superdough does at registration. Pure, and exported, so
+ * lib/sample-precedence.test.ts can pin the rule with fixtures — the
+ * hi-hat-that-was-a-kick bug lived exactly here.
+ */
+export function mergeSampleManifests(
+  manifests: Record<string, unknown>[],
+): Record<string, string[] | PitchedZone[]> {
+  const norm = (k: string): string => k.toLowerCase().replace(/\s+/g, "_");
+  const merged: Record<string, string[] | PitchedZone[]> = {};
+  for (const map of manifests) {
+    const base = typeof map._base === "string" ? (map._base as string) : "";
+    const abs = (u: unknown): string[] =>
+      (Array.isArray(u) ? u : [u])
+        .filter((x): x is string => typeof x === "string")
+        .map((x) => (x.startsWith("http") ? x : base + x));
+    for (const [k, v] of Object.entries(map)) {
+      if (k === "_base") continue;
+      if (Array.isArray(v)) {
+        const list = abs(v);
+        if (list.length) merged[norm(k)] = list; // REPLACES, never extends
+        continue;
+      }
+      if (!v || typeof v !== "object") continue;
+      // object entry: note-keyed multisample map (strudel.json format, e.g.
+      // piano {"A0": "A0v8.mp3", …}) — KEEP the pitch structure; flattening it
+      // makes every note play the first (lowest) zone
+      const entries = Object.entries(v as Record<string, unknown>).filter(
+        ([zk]) => !zk.startsWith("_"),
+      );
+      const zones: PitchedZone[] = [];
+      for (const [zk, zv] of entries) {
+        const midi = noteToMidi(zk);
+        if (midi == null) break; // a non-note key → not a pitched map
+        const urls = abs(zv);
+        if (urls.length) zones.push({ midi, urls });
+      }
+      if (zones.length === entries.length && zones.length) merged[norm(k)] = zones;
+      else {
+        const list = entries.flatMap(([, zv]) => abs(zv));
+        if (list.length) merged[norm(k)] = list;
+      }
+    }
+  }
+  return merged;
+}
+
 async function ensureMaps(): Promise<void> {
   if (maps) return;
   if (!mapsLoading) {
@@ -457,48 +528,18 @@ async function ensureMaps(): Promise<void> {
       // `key.toLowerCase().replace(/\s+/g,'_')`) — which is why `akailinn_oh`
       // resolves on strudel.cc. Mirror it, or CamelCase manifest keys
       // (AkaiLinn_oh) silently drop on the zaltz path.
-      const norm = (k: string): string => k.toLowerCase().replace(/\s+/g, "_");
-      for (const m of ["d0", "d1", "d2", "d3", "d4", "d5", "lib"]) {
+      const fetched: Record<string, unknown>[] = [];
+      for (const m of MANIFEST_ORDER) {
         try {
-          const map = (await fetch(`/api/snd/m/${m}.json`).then((r) => r.json())) as Record<
-            string,
-            unknown
-          >;
-          const base = typeof map._base === "string" ? (map._base as string) : "";
-          const abs = (u: unknown): string[] =>
-            (Array.isArray(u) ? u : [u])
-              .filter((x): x is string => typeof x === "string")
-              .map((x) => (x.startsWith("http") ? x : base + x));
-          for (const [k, v] of Object.entries(map)) {
-            if (k === "_base") continue;
-            if (Array.isArray(v)) {
-              const list = abs(v);
-              if (list.length) merged[norm(k)] = list;
-              continue;
-            }
-            // object entry: note-keyed multisample map (strudel.json format,
-            // e.g. piano {"A0": "A0v8.mp3", ...}) — KEEP the pitch structure;
-            // flattening it makes every note play the first (lowest) zone
-            const entries = Object.entries(v as Record<string, unknown>).filter(
-              ([zk]) => !zk.startsWith("_"),
-            );
-            const zones: PitchedZone[] = [];
-            for (const [zk, zv] of entries) {
-              const midi = noteToMidi(zk);
-              if (midi == null) break; // a non-note key → not a pitched map
-              const urls = abs(zv);
-              if (urls.length) zones.push({ midi, urls });
-            }
-            if (zones.length === entries.length && zones.length) merged[norm(k)] = zones;
-            else {
-              const list = entries.flatMap(([, zv]) => abs(zv));
-              if (list.length) merged[norm(k)] = list;
-            }
-          }
+          fetched.push(
+            (await fetch(`/api/snd/m/${m}.json`).then((r) => r.json())) as Record<string, unknown>,
+          );
         } catch {
           /* a missing manifest just narrows the palette */
         }
       }
+      Object.assign(merged, mergeSampleManifests(fetched));
+      const norm = (k: string): string => k.toLowerCase().replace(/\s+/g, "_");
       // Drum-machine shorthands (a0 = tidal-drum-machines-alias: AkaiLinn →
       // Linn, …): superdough registers `${alias}_${suffix}` beside every
       // prefixed key, so `linn_oh` plays on strudel.cc. Guarded ??= — an alias
