@@ -471,3 +471,18 @@ create table if not exists rate_limits (
   created_at timestamptz not null default now(),
   primary key (key, bucket)
 );
+
+-- SHARED ROOM SNAPSHOTS (2026-07-29): a link that hands someone else the code
+-- you're playing. Not a live stream (that's /live/<token> over the SFU) and not
+-- a song — a frozen copy of both panes, openable by anyone, editable the moment
+-- they touch it. Public by construction: the token IS the permission, so there
+-- is no row-level read check. `user_id` is nullable and ON DELETE SET NULL so a
+-- departing account never breaks links other people are holding.
+create table if not exists room_shares (
+  token      text primary key,
+  user_id    text references "user"(id) on delete set null,
+  strudel    text not null,
+  hydra      text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists room_shares_user_idx on room_shares (user_id, created_at);

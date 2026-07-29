@@ -367,12 +367,45 @@ export default function ZaltzIDE({
     // page IS the piece, always live): the bench restores exactly where you
     // left it, else opens on the first starter. Nothing to name, nothing to
     // pick.
+    // A SHARE LINK WINS THE PANES, NOT THE BENCH (?s=<token>): someone opened
+    // a link to hear a piece of code, so show them that code — but leave their
+    // own draft on disk untouched until they type (see draftParked). Their
+    // work survives a visit; the shared code becomes theirs the moment they
+    // touch it.
+    const shareToken = new URLSearchParams(location.search).get("s");
+    if (shareToken) {
+      draftParked.current = true;
+      void (async () => {
+        try {
+          const r = await fetch(`/api/room/share?t=${encodeURIComponent(shareToken)}`, {
+            cache: "no-store",
+          });
+          // code-bearing routes ship SEALED (lib/seal) — open before reading
+          const d = openDeep(
+            (await r.json().catch(() => null)) as { strudel?: string; hydra?: string } | null,
+          );
+          if (!r.ok || !d) {
+            setNotice("That share link has expired or never existed");
+            draftParked.current = false;
+            return;
+          }
+          if (typeof d.strudel === "string") setStrudel(scrubLegacyHints(d.strudel));
+          if (typeof d.hydra === "string") setHydra(scrubLegacyHints(d.hydra));
+        } catch {
+          setNotice("Couldn't open that share link");
+          draftParked.current = false;
+        }
+      })();
+    }
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (raw) {
         const d = JSON.parse(raw) as { strudel?: string; hydra?: string };
-        if (typeof d.strudel === "string") setStrudel(scrubLegacyHints(d.strudel));
-        if (typeof d.hydra === "string") setHydra(scrubLegacyHints(d.hydra));
+        // a share is being poured in — don't fight it with the old bench
+        if (!shareToken) {
+          if (typeof d.strudel === "string") setStrudel(scrubLegacyHints(d.strudel));
+          if (typeof d.hydra === "string") setHydra(scrubLegacyHints(d.hydra));
+        }
       }
     } catch {
       /* a bad draft never blocks the bench */
@@ -411,9 +444,13 @@ export default function ZaltzIDE({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The bench survives a reload — every keystroke lands in localStorage (debounced).
+  // The bench survives a reload — every keystroke lands in localStorage
+  // (debounced). PARKED while a share link is being poured in: the visitor's
+  // own draft stays on disk until they type, so opening someone's link is a
+  // visit, not a demolition. The first real edit un-parks it for good.
   useEffect(() => {
     const t = setTimeout(() => {
+      if (draftParked.current) return;
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify({ strudel, hydra }));
       } catch {
@@ -1079,6 +1116,41 @@ export default function ZaltzIDE({
   const [liveBusy, setLiveBusy] = useState(false);
   const [endArmed, setEndArmed] = useState(false);
   const [liveCopied, setLiveCopied] = useState(false);
+  // THE SHARE LINK — mint a frozen copy of both panes and copy its URL.
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  // A VISIT MUST NOT COST SOMEONE THEIR BENCH: opening a share loads its code
+  // into the panes, but the draft autosave stays parked until the visitor
+  // actually types. Reload without the link and their own work is still there;
+  // touch the shared code and it becomes the thing they're working on.
+  const draftParked = useRef(false);
+  const shareRoom = useCallback(async () => {
+    setShareBusy(true);
+    try {
+      const r = await fetch("/api/room/share", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ strudel: stateRef.current.strudel, hydra: stateRef.current.hydra }),
+      });
+      const d = (await r.json().catch(() => null)) as { token?: string; error?: string } | null;
+      if (!r.ok || !d?.token) {
+        setNotice(d?.error === "nothing to share" ? "Nothing to share yet" : "Couldn't mint a link");
+        return;
+      }
+      const url = `${location.origin}/boiler-room?s=${d.token}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2400);
+      } catch {
+        setNotice(url); // clipboard blocked — show it so it can still be copied
+      }
+    } catch {
+      setNotice("Couldn't mint a link");
+    } finally {
+      setShareBusy(false);
+    }
+  }, []);
   const liveBroadcast = useRef<Broadcast | null>(null);
   const liveBroadcastBusy = useRef(false);
   const [broadcastEpoch, setBroadcastEpoch] = useState(0);
@@ -2277,42 +2349,6 @@ export default function ZaltzIDE({
         </span>
         {/* the air in the middle belongs to the room */}
         <span className="min-w-0 flex-1" />
-        {/* THE LINEUP — the night's structure lives up top with the other
-            room-level controls (user 07-28: the corner chip read wrong).
-            Quiet word; the house dropdown opens beneath it. */}
-        <div className="relative shrink-0">
-          <button
-            onClick={() => setLineupOpen((o) => !o)}
-            aria-expanded={lineupOpen}
-            title="The lineup — your hits, ordered for the night; pour one in and play on top"
-            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] transition active:scale-[.97] ${
-              lineupOpen
-                ? "bg-white/[0.1] text-foreground"
-                : "bg-white/[0.05] text-muted/60 hover:text-foreground"
-            }`}
-          >
-            Lineup
-            {lineup.length > 0 && (
-              <span className="tabular-nums text-muted/50">{lineup.length}</span>
-            )}
-          </button>
-          <BoilerLineup
-            open={lineupOpen}
-            onClose={() => setLineupOpen(false)}
-            queue={lineup}
-            currentIdx={lineupIdx}
-            hits={lineupHits}
-            onAdd={addToLineup}
-            onRemove={removeFromLineup}
-            onMove={moveLineup}
-            onPlay={(i) => void pourSong(i)}
-            onNext={() => {
-              if (lineupIdx != null) void pourSong(lineupIdx + 1);
-            }}
-            onArrange={() => void arrangeLineup()}
-            arranging={arranging}
-          />
-        </div>
         {/* THE TRANSPORT CAPSULE — play and tape are ONE machined object
             (the seam law: one capsule, one hairline). ▶/■ rules the room;
             ● is its tape deck, fused to it because they share one life:
@@ -2406,6 +2442,45 @@ export default function ZaltzIDE({
             )}
           </button>
         </div>
+        {/* THE LINEUP — the night's structure, one quiet word. It sits AFTER
+            the transport (user 07-29: "the first pill should be play"):
+            the transport is the control you reach for every few seconds, the
+            lineup is where the night's material comes from — reached once a
+            set. Primacy follows frequency. The house dropdown opens beneath
+            it either way (anchored right on desktop, a full sheet on phones). */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setLineupOpen((o) => !o)}
+            aria-expanded={lineupOpen}
+            title="The lineup — your hits, ordered for the night; pour one in and play on top"
+            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] transition active:scale-[.97] ${
+              lineupOpen
+                ? "bg-white/[0.1] text-foreground"
+                : "bg-white/[0.05] text-muted/60 hover:text-foreground"
+            }`}
+          >
+            Lineup
+            {lineup.length > 0 && (
+              <span className="tabular-nums text-muted/50">{lineup.length}</span>
+            )}
+          </button>
+          <BoilerLineup
+            open={lineupOpen}
+            onClose={() => setLineupOpen(false)}
+            queue={lineup}
+            currentIdx={lineupIdx}
+            hits={lineupHits}
+            onAdd={addToLineup}
+            onRemove={removeFromLineup}
+            onMove={moveLineup}
+            onPlay={(i) => void pourSong(i)}
+            onNext={() => {
+              if (lineupIdx != null) void pourSong(lineupIdx + 1);
+            }}
+            onArrange={() => void arrangeLineup()}
+            arranging={arranging}
+          />
+        </div>
         {/* THE LIVE DOOR — ◉ streams the room to anyone with the link (the
             Sets contract, worn here unchanged: one DJ flow to learn). */}
         {!liveLink ? (
@@ -2445,6 +2520,19 @@ export default function ZaltzIDE({
             </button>
           </div>
         )}
+        {/* THE SHARE LINK — the live door's quiet twin. ◉ hands someone the
+            SOUND while it lasts; this hands them the CODE, frozen, theirs to
+            play and change. One tap mints the link and copies it; the word
+            tells you what you're holding, so the consequence is legible before
+            the tap. */}
+        <button
+          onClick={() => void shareRoom()}
+          disabled={shareBusy}
+          title="Share this code — a link anyone can open, play and edit"
+          className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/60 transition hover:text-foreground active:scale-[.97] disabled:opacity-60 sm:inline-flex"
+        >
+          {shareBusy ? "minting…" : shareCopied ? "link copied" : "Share"}
+        </button>
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
         <button
@@ -2518,6 +2606,7 @@ export default function ZaltzIDE({
             value={strudel}
             onChange={(v) => {
               if (ghost?.pane === "strudel") killGhost();
+              draftParked.current = false; // touched it → it's your bench now
               setStrudel(v);
             }}
             onRun={() => void runMusic()}
@@ -2559,6 +2648,7 @@ export default function ZaltzIDE({
             value={hydra}
             onChange={(v) => {
               if (ghost?.pane === "hydra") killGhost();
+              draftParked.current = false; // touched it → it's your bench now
               setHydra(v);
             }}
             onRun={runVisuals}

@@ -625,12 +625,27 @@ static void orbit_config_verb(Orbit *o, float t60, float lp, float dim) {
   o->verb_on = true;
   o->t60 = t;
   o->lp_hz = l;
+  // DECAY TRIM (2026-07-29) — the nominal law below is superdough's exactly
+  // (reverbGen: amplitude decayBase^n, −60dB at decayTime), but a FEEDBACK
+  // NETWORK is not an IR: the input diffusion allpasses, the in-loop damping
+  // one-pole and the linear interpolation on the two modulated lines each take
+  // a bite per pass, so the REALISED decay ran short — measured 1.60s for a
+  // nominal 2s, and worse the longer the room (5.02s for 8s), because more
+  // passes means more bites. The room died early and the product read drier and
+  // shorter than strudel.cc ("it just feels like it sustains a little more").
+  // Asking for a longer decay than we want cancels it. The curve is FITTED to
+  // engine/golden/roomsize.mjs, which measures the realised T60 by Schroeder
+  // integration and fails if any size drifts more than 12%.
+  float trim = 1.19f + 0.052f * t;
+  if (trim < 1.1f) trim = 1.1f;
+  if (trim > 1.75f) trim = 1.75f;
+  const float t_set = t * trim;
   for (int i = 0; i < FDN_LINES; i++) {
     int len = (int)((float)FDN_PRIMES[i] * (sr_f / 48000.0f));
     if (len >= FDN_MAX) len = FDN_MAX - 1;
     o->fdn_len[i] = len;
     // g = 10^(−3·lineSeconds/T60): −60dB after T60 (reverbGen decayBase)
-    o->fdn_g_tgt[i] = sd_pow10f(-3.0f * ((float)len / sr_f) / t);
+    o->fdn_g_tgt[i] = sd_pow10f(-3.0f * ((float)len / sr_f) / t_set);
   }
   float w = TWO_PI * sd_fminf(l, sr_f * 0.45f) / sr_f;
   o->damp_a_tgt = 1.0f - sd_exp2f(-w * 1.442695f); // one-pole coefficient
