@@ -129,7 +129,16 @@ export function classifyLayer(code: string, label?: string): Channel {
         const tail = t.slice(cut + 1);
         if (DRUM_SOUNDS.has(tail)) drum++;
         else if (BASS_SOUNDS.has(tail)) bassy++;
+        continue;
       }
+      // …and a name that ENDS in "bass" plays the bass register whatever the
+      // catalog files it under. `gm_contrabass` is cataloged "strings", which
+      // is musically true and routing-wrong: the deck's channels are about
+      // REGISTER, not orchestral family. Ends-with is the precise test — it
+      // takes contrabass and every *_bass, and leaves `gm_bassoon`,
+      // `gm_lead_8_bass_lead` and `recorder_bass_sus` alone. Drum names like
+      // `bassdrum1` never reach here; DRUM_SOUNDS is checked first.
+      if (t.endsWith("bass")) bassy++;
     }
   }
   // note() = pitched; n() is only pitched with a scale — on a raw sample it
