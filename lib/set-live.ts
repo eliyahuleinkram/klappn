@@ -107,8 +107,29 @@ export function classifyLayer(code: string, label?: string): Channel {
   for (const m of code.matchAll(/\b(?:s|sound)\(\s*["'`]([^"'`]*)["'`]/g)) {
     for (const t of m[1].toLowerCase().split(/[^a-z0-9_]+/)) {
       if (!t) continue;
-      if (DRUM_SOUNDS.has(t)) drum++;
-      else if (BASS_SOUNDS.has(t)) bassy++;
+      if (DRUM_SOUNDS.has(t)) {
+        drum++;
+        continue;
+      }
+      if (BASS_SOUNDS.has(t)) {
+        bassy++;
+        continue;
+      }
+      // MACHINE-PREFIXED DRUMS (2026-07-29). A drum machine's name travels
+      // WITH the token — `akailinn_oh`, `mfb512_cp`, `circuitstom_sd`,
+      // `rolandtr909_bd` — and the catalog only knows the bare token, so
+      // every one of them fell through to "melody". That put the hats, the
+      // clap and the snare on the MELODIC bus: they shared the fiddle's
+      // orbit, its reverb and its sidechain, while on strudel.cc they sit on
+      // the default drum bus and are never ducked at all. Read the suffix.
+      // `gm_*` is excluded on purpose — those are soundfont INSTRUMENTS
+      // (gm_fiddle, gm_synth_brass_1), never kit pieces.
+      const cut = t.lastIndexOf("_");
+      if (cut > 0 && !t.startsWith("gm_")) {
+        const tail = t.slice(cut + 1);
+        if (DRUM_SOUNDS.has(tail)) drum++;
+        else if (BASS_SOUNDS.has(tail)) bassy++;
+      }
     }
   }
   // note() = pitched; n() is only pitched with a scale — on a raw sample it

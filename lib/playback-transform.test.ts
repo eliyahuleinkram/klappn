@@ -33,6 +33,10 @@ $: s("bd:2!4").soft(.6).duckatt(.2).duckorbit(2).postgain(1.2)
 
 $: s("hh:<2 4 5 6>".fast(8)).vel(.9).mask("<1!14 0!2>")
 
+$: s("~ akailinn_oh".fast(4)).stretch(.1).vel(.9).mask("<1!14 0!2>")
+
+$: s("~ mfb512_cp, ~ circuitstom_sd ".fast(2)).stretch(.1).early(.006).vel(.6).mask("<1!14 0!2>")
+
 $: s("gm_fretless_bass").chord("<AbM13 Bb13>").offset("< -12 -10 >")
   .voicing().arp("<3!3 <7 1>>".fast(4)).diode("2.1:.4").orbit(2).vel(.8)
   .struct("x ~ x ~ x ~ x ~ x ~ x x ~ x ~ ~").lpf(245).mask("<1!16 0!8>")`;
@@ -128,4 +132,32 @@ test("a commented-out layer never steals the next layer's routing", () => {
 test("transformForPlayback keeps exactly one setcpm", () => {
   const out = transformForPlayback(WRAPPED_PATCH, { bpm: 120, timeSignature: "4/4" });
   assert.equal((out.match(/setcpm\(/g) ?? []).length, 1);
+});
+
+test("machine-prefixed drums route to the KIT, not the melody bus", () => {
+  // 2026-07-29, the user's fiddle: `akailinn_oh`, `mfb512_cp` and
+  // `circuitstom_sd` carry their drum machine's name in the token, and the
+  // catalog only knows the bare `oh`/`cp`/`sd` — so all three classified as
+  // MELODY and landed on the melodic orbit, where the kick's sidechain ducked
+  // them. On strudel.cc they have no .orbit() at all and are never ducked.
+  const out = assignChannelOrbits(WRAPPED_PATCH, undefined, { ducks: "remap" });
+  const orbitOf = (needle: string) => {
+    const layer = layersOf(out).find((l) => l.includes(needle));
+    assert.ok(layer, `layer ${needle} vanished`);
+    return Number(layer.match(/\.orbit\((\d+)\)/)?.[1]);
+  };
+  const duck = out.match(/\.duck\("([\d:]+)"\)/);
+  assert.ok(duck, "the kick lost its sidechain");
+  const ducked = new Set(duck[1].split(":").map(Number));
+
+  for (const perc of ["akailinn_oh", "mfb512_cp"]) {
+    const o = orbitOf(perc);
+    assert.ok(o >= 10 && o < 20, `${perc} sits on orbit ${o} — that is not the kit`);
+    assert.ok(!ducked.has(o), `${perc} is being ducked by the kick; strudel.cc never ducks it`);
+  }
+  // and the melodic layers ARE still ducked — the patch asks for that
+  const fiddle = orbitOf("gm_fiddle");
+  assert.ok(ducked.has(fiddle), "the melodic bus must still pump — the patch says so");
+  // the kick shares the kit's decade with the hats, never the melody's
+  assert.ok(orbitOf("bd:2!4") >= 10 && orbitOf("bd:2!4") < 20);
 });
