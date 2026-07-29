@@ -259,7 +259,7 @@ export default function SignIn({
                 </form>
                 <p className="mt-2 select-none text-[12px] text-muted/60">
                   No password — a 6-digit code lands in your inbox, and your
-                  first $1.20 of composing is on the house. Signing in
+                  first 240k tokens are on the house. Signing in
                   agrees to the{" "}
                   <a
                     href="/terms"

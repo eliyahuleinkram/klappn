@@ -60,13 +60,20 @@ export interface Plan {
  * THE GIFT, IN ONE SENTENCE — the only place this is worded.
  *
  * A walk-in gets the instrument free forever; the MACHINE (the whispers, the
- * composing) runs on prepaid tokens, and a claimed account starts with $1.20
- * of them. Said once, at the moment it matters, and never as a nag: the house
+ * composing) runs on prepaid tokens, and a claimed account starts with 240k of
+ * them. Said once, at the moment it matters, and never as a nag: the house
  * rule is that we are confident enough not to push. Every gate that needs an
  * account answers with this line, so a guest never reads two versions of the
  * same offer.
+ *
+ * TOKENS, NEVER DOLLARS (user law, 2026-07-28, re-stated 07-29). Customer-
+ * facing copy speaks OUR unit and only our unit — no dollar equivalence, no
+ * loop-math, no model's-cost framing. A price lives on the billing page; the
+ * gift is an amount of machine time, and that amount is 240k tokens. Writing
+ * "$1.20" here made the app speak two currencies at once.
  */
-export const SIGNUP_GIFT = "Make an account and the first $1.20 of machine time is on the house.";
+export const SIGNUP_GIFT =
+  "Make an account and the first 240k tokens are on the house.";
 
 export const PLANS: Record<PlanId, Plan> = {
   // Free is the pre-subscription state, not a plan on the page. `tokens` is

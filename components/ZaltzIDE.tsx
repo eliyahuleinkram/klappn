@@ -3214,8 +3214,8 @@ export default function ZaltzIDE({
                 {!me?.signedIn || me?.isGuest ? (
                   <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
                     Your work stays yours — and the first{" "}
-                    <span className="text-accent-strong">$1.20</span> of machine
-                    time is on the house.
+                    <span className="text-accent-strong">240k tokens</span> are
+                    on the house.
                   </p>
                 ) : null}
                 {siState === "sent" || siState === "verifying" ? (
