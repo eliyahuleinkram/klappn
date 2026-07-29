@@ -1147,7 +1147,17 @@ export default function ZaltzIDE({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ strudel: stateRef.current.strudel, hydra: stateRef.current.hydra }),
       });
-      const d = (await r.json().catch(() => null)) as { token?: string; error?: string } | null;
+      const d = (await r.json().catch(() => null)) as {
+        token?: string;
+        error?: string;
+        code?: string;
+      } | null;
+      if (r.status === 401 && d?.code === "account_required") {
+        // not an error — an invitation. Open the door, carry the reason.
+        setSheet("signin");
+        setNotice(d.error || null);
+        return;
+      }
       if (!r.ok || !d?.token) {
         setNotice(d?.error === "nothing to share" ? "Nothing to share yet" : "Couldn't mint a link");
         return;
@@ -1261,7 +1271,16 @@ export default function ZaltzIDE({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({}),
       });
-      if (!r.ok) return;
+      if (!r.ok) {
+        // Going live is account-only — a broadcast is a public link under a
+        // name. Open the door with the reason, never a dead button.
+        const e = (await r.json().catch(() => null)) as { error?: string; code?: string } | null;
+        if (r.status === 401 && e?.code === "account_required") {
+          setSheet("signin");
+          setNotice(e.error || null);
+        }
+        return;
+      }
       const d = (await r.json()) as { token: string; expiresAt: string };
       setLiveLink({ token: d.token, expiresAt: d.expiresAt });
       // the room going on air is a corpus moment — what was live-coded when
@@ -3187,6 +3206,18 @@ export default function ZaltzIDE({
                 <h2 className="text-[15px] font-medium text-foreground">
                   {me?.isGuest ? "Claim your work" : "Sign in"}
                 </h2>
+                {/* THE GIFT, SAID ONCE (2026-07-29) — at the door, where it is
+                    an answer rather than an advertisement. One sentence, the
+                    same sentence the API gives; no badge, no banner, no timer.
+                    The instrument is already free; this is only about the
+                    machine, so it never reads as a toll. */}
+                {!me?.signedIn || me?.isGuest ? (
+                  <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+                    Your work stays yours — and the first{" "}
+                    <span className="text-accent-strong">$1.20</span> of machine
+                    time is on the house.
+                  </p>
+                ) : null}
                 {siState === "sent" || siState === "verifying" ? (
                   <>
                     <p className="mt-1.5 text-[13px] leading-relaxed text-muted">

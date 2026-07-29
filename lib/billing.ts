@@ -56,6 +56,18 @@ export interface Plan {
   blurb: string;
 }
 
+/**
+ * THE GIFT, IN ONE SENTENCE — the only place this is worded.
+ *
+ * A walk-in gets the instrument free forever; the MACHINE (the whispers, the
+ * composing) runs on prepaid tokens, and a claimed account starts with $1.20
+ * of them. Said once, at the moment it matters, and never as a nag: the house
+ * rule is that we are confident enough not to push. Every gate that needs an
+ * account answers with this line, so a guest never reads two versions of the
+ * same offer.
+ */
+export const SIGNUP_GIFT = "Make an account and the first $1.20 of machine time is on the house.";
+
 export const PLANS: Record<PlanId, Plan> = {
   // Free is the pre-subscription state, not a plan on the page. `tokens` is
   // the value of the SIGN-UP TASTE (2026-07-28, user reopened it — $1.20:
@@ -408,7 +420,36 @@ export async function assertQuota(userId: string): Promise<Response | null> {
   const taste = plan.id === "free" ? await claimTasteGrant(userId) : true;
   const limit = allowanceFor(plan.id, credits, taste);
   if (used < limit) return null;
+  // A GUEST IS NOT OUT OF MONEY — THEY ARE OUT OF ACCOUNT (2026-07-29). The
+  // dollar only mints for a claimed name, so telling a walk-in to "top up"
+  // asks them to pay for something already waiting for them. Offer the gift
+  // instead; the till comes later, and only for people it actually applies to.
+  if (await isGuestAccount(userId)) return accountRequired();
   return quotaExceeded(plan.id, used, limit, credits);
+}
+
+/** Unclaimed walk-in? (the anonymous plugin's real-but-nameless user row) */
+export async function isGuestAccount(userId: string, sql = db()): Promise<boolean> {
+  try {
+    const rows = (await sql`
+      select coalesce("isAnonymous", false) as guest from "user" where id = ${userId} limit 1
+    `) as { guest: boolean }[];
+    return rows.length ? Boolean(rows[0].guest) : false;
+  } catch {
+    return false; // never lock someone out because a lookup blinked
+  }
+}
+
+/** The one answer every account-only door gives. 401 so the client opens the
+ *  door rather than the till. */
+export function accountRequired(what?: string): Response {
+  return Response.json(
+    {
+      error: what ? `${what} ${SIGNUP_GIFT}` : SIGNUP_GIFT,
+      code: "account_required",
+    },
+    { status: 401 },
+  );
 }
 
 /** The 402 body assertQuota returns — factored so the reservation gate reuses

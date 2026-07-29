@@ -1,5 +1,6 @@
 import { createZaltzLiveLink, endZaltzLinks, getActiveZaltzLink } from "@/lib/live";
 import { getUserId, unauthorized } from "@/lib/session";
+import { accountRequired, isGuestAccount } from "@/lib/billing";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,9 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const userId = await getUserId(req);
   if (!userId) return unauthorized();
+  // GOING LIVE NEEDS A NAME ON THE DOOR (2026-07-29): a broadcast is a public
+  // link other people hold, so it belongs to an account, not a walk-in.
+  if (await isGuestAccount(userId)) return accountRequired("Going live needs an account.");
   const link = await getActiveZaltzLink(userId);
   return Response.json(
     link ? { token: link.token, expiresAt: link.expires_at } : { token: null },

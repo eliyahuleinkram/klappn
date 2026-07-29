@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { getUserId, unauthorized } from "@/lib/session";
 import { clientIp, rateLimit, tooMany } from "@/lib/rate-limit";
 import { sealDeep } from "@/lib/seal";
+import { accountRequired, isGuestAccount } from "@/lib/billing";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,9 @@ export async function POST(req: Request) {
   const userId = await getUserId(req);
   if (!userId) return unauthorized();
   if (!(await rateLimit(`share:ip:${clientIp(req)}`, 20, 60))) return tooMany();
+  // A share is public and authored — it outlives the tab that made it, so it
+  // needs an account behind it. Reading one never does.
+  if (await isGuestAccount(userId)) return accountRequired("Sharing needs an account.");
 
   const body = (await req.json().catch(() => null)) as {
     strudel?: unknown;
