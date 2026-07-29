@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * THE LINEUP — the boiler room's set list, a HEADER control now (2026-07-28,
+ * THE LINEUP — the engine room's set list, a HEADER control now (2026-07-28,
  * user: the corner chip read wrong; the lineup is the night's structure, it
  * belongs up top). One quiet word in the bar; tap it and the house dropdown
  * opens — same machined glass as AccountMenu and the code door, no gradient
@@ -19,7 +19,7 @@ export interface LineupHit {
   ready: boolean;
 }
 
-export default function BoilerLineup({
+export default function EngineLineup({
   open,
   onClose,
   queue,

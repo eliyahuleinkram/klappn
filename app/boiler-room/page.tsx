@@ -1,45 +1,22 @@
-import type { Metadata } from "next";
-import { headers } from "next/headers";
-import { getAuth } from "@/lib/auth";
-import { warmPool } from "@/lib/db";
-import ZaltzIDE from "@/components/ZaltzIDE";
+import { redirect } from "next/navigation";
 
-// Session is read per-request so the avatar is RIGHT on first paint — the
-// client-only /api/me fetch made every visit open as "you" for a beat
-// (user 07-27: klappn.com doesn't blink; neither may the instrument).
-export const dynamic = "force-dynamic";
-
-// MERGED INTO KLAPPN (2026-07-28, user: "it is a feature within klappn"):
-// the room is Klappn's own — Klappn title, Klappn mark; "zaltz" stays the
-// ENGINE's name (the repo, the npm package), never this surface's brand.
-export const metadata: Metadata = {
-  title: "Klappn",
-  description:
-    "Strudel on the left, Hydra on the right, our own engine underneath. Sketches keep themselves, the machine whispers the next line, and every take lands in the running mix. Type a bar — the room moves.",
-};
-
-/** PUBLIC IDE (zaltz.klappn.com lands here) — no account, no gate: play first,
- *  a guest session appears only when you save or ask the machine, and one
- *  email later it's all yours forever. */
-export default async function ZaltzPage() {
-  // Identity only — the meter still hydrates via /api/me (billing needs its
-  // own queries); this is just so the avatar never flashes "you" at a friend.
-  let initialMe: { signedIn: boolean; isGuest: boolean; email: string | null } | null = null;
-  try {
-    // Better Auth reads the session through Kysely, whose driver reserve()s a
-    // connection — and a cold reserve() over Hyperdrive hangs the whole render
-    // (live 1101s on zaltz.klappn.com 07-27, any visit WITH a session cookie).
-    // Same law as every other server page: warm the pool first.
-    await warmPool();
-    const session = await getAuth().api.getSession({ headers: await headers() });
-    const u = session?.user as
-      | { email?: string | null; isAnonymous?: boolean | null }
-      | undefined;
-    initialMe = u
-      ? { signedIn: true, isGuest: !!u.isAnonymous, email: u.email ?? null }
-      : { signedIn: false, isGuest: false, email: null };
-  } catch {
-    /* DB not up (fresh clone) — the client fetch takes over as before */
+/**
+ * THE OLD DOOR (2026-07-29) — the room is at /engine now. Every share link
+ * ever minted points here (`/boiler-room?s=<token>`), and Reddit holds the
+ * name too, so this is a permanent forward, not a stub: the QUERY travels
+ * with it, or a shared snapshot would land on an empty bench.
+ */
+export default async function BoilerRoomMoved({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (typeof v === "string") qs.set(k, v);
+    else if (Array.isArray(v)) for (const one of v) qs.append(k, one);
   }
-  return <ZaltzIDE initialMe={initialMe} />;
+  const q = qs.toString();
+  redirect(q ? `/engine?${q}` : "/engine");
 }

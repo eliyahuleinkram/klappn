@@ -31,7 +31,7 @@ export default async function LivePage({
     return (
       <ZaltzListenClient
         token={token}
-        title={link.title ?? "the boiler room"}
+        title={link.title ?? "the engine"}
         expiresAt={link.expires_at}
         initialVisual={link.visual ?? null}
       />

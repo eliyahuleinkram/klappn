@@ -150,7 +150,7 @@ export default function SignIn({
           className="pointer-events-none fixed inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,.32),transparent_24%,transparent_58%,rgba(0,0,0,.58))]"
         />
         {/* the brand signs the corner — the room belongs to the music
-            (user 07-28: nothing else up here; the boiler room is a
+            (user 07-28: nothing else up here; the engine is a
             signed-in feature, its door is the nav inside) */}
         <div className="relative z-10 flex items-center gap-2.5 pt-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}

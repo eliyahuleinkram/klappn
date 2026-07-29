@@ -51,7 +51,7 @@ import {
 } from "@/components/DeckKit";
 import { isDead, publishStream, type Broadcast } from "@/lib/rtc";
 import { extractHydra } from "@/lib/hydra-embed";
-import BoilerLineup, { type LineupHit } from "@/components/BoilerLineup";
+import EngineLineup, { type LineupHit } from "@/components/EngineLineup";
 import {
   disableLiveMidi,
   enableLiveMidi,
@@ -87,7 +87,7 @@ import {
   TOKENS_PER_GHOST,
   tokensForUsdCents,
 } from "@/lib/pricing";
-import BoilerMark from "@/components/BoilerMark";
+import EngineMark from "@/components/EngineMark";
 
 /**
  * THE ZALTZ IDE — a live-coding surface where the picture is the room and the
@@ -1162,7 +1162,7 @@ export default function ZaltzIDE({
         setNotice(d?.error === "nothing to share" ? "Nothing to share yet" : "Couldn't mint a link");
         return;
       }
-      const url = `${location.origin}/boiler-room?s=${d.token}`;
+      const url = `${location.origin}/engine?s=${d.token}`;
       setShareUrl(url); // it stays on screen — see the capsule in the header
       void copyShare(url); // and the first mint copies it for you
     } catch {
@@ -1328,7 +1328,7 @@ export default function ZaltzIDE({
     void endLive();
   };
 
-  // SAVE SAVE SAVE (2026-07-28, user: the future model eats the boiler room)
+  // SAVE SAVE SAVE (2026-07-28, user: the future model eats the engine room)
   // — the room's authored code lands in room_snapshots, throttled so the
   // corpus gets moments, not keystrokes: the evolving code while playing
   // (30s + only-when-changed), every accepted whisper (the strongest
@@ -1377,7 +1377,7 @@ export default function ZaltzIDE({
     return () => clearTimeout(t);
   }, [hydra, playing, snapRoom]);
 
-  // THE LINEUP — the boiler room's crate (2026-07-28, user: Sets folds into
+  // THE LINEUP — the engine room's crate (2026-07-28, user: Sets folds into
   // the room). Your hits queue up; tapping a row POURS that song's first loop
   // into the panes (setcpm + music into sound, its hydra into visual) — the
   // whisper then reads the song for free (the pane IS the context), and
@@ -2046,7 +2046,7 @@ export default function ZaltzIDE({
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ usd, back: "/boiler-room" }),
+        body: JSON.stringify({ usd, back: "/engine" }),
       });
       const d = (await res.json().catch(() => ({}))) as {
         url?: string;
@@ -2371,9 +2371,9 @@ export default function ZaltzIDE({
           <span className="hidden sm:inline">Hits</span>
         </Link>
         <span className="flex min-w-0 shrink-0 items-center gap-2">
-          <BoilerMark className="h-[17px] w-[17px] shrink-0" />
+          <EngineMark className="h-[17px] w-[17px] shrink-0" />
           <span className="truncate text-[15px] font-medium tracking-tight text-foreground">
-            Boiler room
+            Engine
           </span>
         </span>
         {/* the air in the middle belongs to the room */}
@@ -2493,7 +2493,7 @@ export default function ZaltzIDE({
               <span className="tabular-nums text-muted/50">{lineup.length}</span>
             )}
           </button>
-          <BoilerLineup
+          <EngineLineup
             open={lineupOpen}
             onClose={() => setLineupOpen(false)}
             queue={lineup}

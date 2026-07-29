@@ -34,7 +34,7 @@ import {
 import { useNowPlayingValue } from "@/lib/use-now-playing";
 import { useKeyboardInset } from "@/lib/use-keyboard-inset";
 import { DISCORD_URL } from "@/lib/links";
-import BoilerMark from "./BoilerMark";
+import EngineMark from "./EngineMark";
 import OpenSourceMenu from "./OpenSourceMenu";
 
 // Evocative, hopeful status lines shown while a loop is being built — they make
@@ -519,12 +519,12 @@ export default function HomeClient({
               performance surface, so the Sets pill is gone): the name alone,
               no icon. Import your hits, order the night, live-code on top. */}
           <Link
-            href="/boiler-room"
-            title="The boiler room — your hits underneath, live code on top"
+            href="/engine"
+            title="The engine room — your hits underneath, live code on top"
             className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 py-1.5 text-[13px] font-medium text-foreground/80 transition hover:bg-white/[0.08]"
           >
-            <BoilerMark className="h-[14px] w-[14px]" />
-            Boiler room
+            <EngineMark className="h-[14px] w-[14px]" />
+            Engine
           </Link>
           {isGuest && (
             <Link

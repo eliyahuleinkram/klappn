@@ -130,10 +130,10 @@ export default function OpenPage() {
           you type a sentence and it writes the song: the sound, the picture,
           the code, yours to keep. The{" "}
           <a
-            href="/boiler-room"
+            href="/engine"
             className="text-foreground/80 underline decoration-white/20 underline-offset-2 transition hover:text-foreground"
           >
-            boiler room
+            engine room
           </a>{" "}
           is the same machine with the lid off — your hits underneath, live
           code on top, sound the moment it lands — powered by{" "}
@@ -185,7 +185,7 @@ export default function OpenPage() {
           <p>
             On this hosted service we keep the record of the making — your
             prompt, the model’s work, your edits, what you kept, what you
-            killed, and the code you play in the boiler room. Here’s why,
+            killed, and the code you play in the engine room. Here’s why,
             said now so you never find it out later:
             we’re going to raise Klappn’s own music model on the best of
             what’s made here, so this tool stops renting anyone else’s

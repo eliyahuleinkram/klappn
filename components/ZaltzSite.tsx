@@ -3,7 +3,7 @@
 /**
  * zaltz.klappn.com — the ENGINE's own front door.
  *
- * Not the instrument. The instrument is klappn.com/boiler-room, and this page
+ * Not the instrument. The instrument is klappn.com/engine, and this page
  * deliberately isn't it: no copilot, no tape, no lineup, no second pane. This
  * is the shop window for the open-source part — the same shape as
  * zissl.klappn.com, which shows off the picture engine.
@@ -234,7 +234,7 @@ export default function ZaltzSite() {
             <>
               <p className="mt-4 text-[11.5px] text-[#8a8290]">{demo.blurb}</p>
               {/* READ-ONLY on purpose: the editor is the instrument's job, and
-                  the instrument lives at klappn.com/boiler-room. */}
+                  the instrument lives at klappn.com/engine. */}
               <pre className="mt-2 max-h-[34vh] overflow-auto whitespace-pre-wrap rounded-xl border border-white/[0.08] bg-black/40 p-3 text-[11.5px] text-[#c9c0cd]">
                 {demo.code}
               </pre>
@@ -247,8 +247,8 @@ export default function ZaltzSite() {
             </div>
             <p className="mb-3">
               Want to play it rather than read it?{" "}
-              <a href="https://klappn.com/boiler-room" className={`text-accent-strong ${link}`}>
-                klappn.com/boiler-room
+              <a href="https://klappn.com/engine" className={`text-accent-strong ${link}`}>
+                klappn.com/engine
               </a>{" "}
               is the instrument built on this engine — two panes, a copilot, and
               a tape deck.

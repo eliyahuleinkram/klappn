@@ -3,7 +3,7 @@ import ZaltzSite from "@/components/ZaltzSite";
 
 export const metadata: Metadata = {
   // zaltz is the ENGINE's name — never the room's. The room is Klappn's
-  // boiler room; this is the free software underneath it.
+  // engine room; this is the free software underneath it.
   title: "zaltz — the audio engine you can read",
   description:
     "A live-coding audio engine in C, compiled to WebAssembly, running on the audio thread: superdough's sound rebuilt so nothing allocates while it plays. Nine distortion algorithms, a phase vocoder, an FDN room, per-orbit buses. AGPL, on npm.",
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 
 /** THE ENGINE'S FRONT DOOR (zaltz.klappn.com lands here — a rewrite, never a
  *  redirect). Deliberately NOT the IDE: the instrument lives at
- *  klappn.com/boiler-room. This page is the open-source shop window, the same
+ *  klappn.com/engine. This page is the open-source shop window, the same
  *  shape zissl.klappn.com wears for the picture engine. */
 export default function ZaltzPage() {
   return <ZaltzSite />;
