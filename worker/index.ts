@@ -56,18 +56,35 @@ export default {
       return Response.redirect(url.toString(), 301);
     }
 
-    // zaltz merged INTO klappn (2026-07-28, user: "it is a feature within
-    // klappn"): the room lives at klappn.com/live, and this host — already
-    // posted to Reddit — REDIRECTS there for good. Root lands on the room;
-    // any deeper path keeps itself on the apex (one worker serves both).
+    // zaltz's front door (2026-07-29, user: "that page should not have any
+    // redirects and it should look more like the zissl page"). The INSTRUMENT
+    // merged into klappn and lives at klappn.com/boiler-room — but the ENGINE
+    // is free software with its own name, and this host is its shop window,
+    // rewritten (never redirected) exactly the way zissl's is. Deep links that
+    // used to mean "the room" still hop to the apex, so the Reddit posts and
+    // the old /engine and /live URLs keep landing somewhere true.
     let req = request;
     if (url.hostname === "zaltz.klappn.com") {
-      url.hostname = "klappn.com";
-      url.pathname =
-        url.pathname === "/" || url.pathname === "/engine" || url.pathname === "/live"
-          ? "/boiler-room"
-          : url.pathname;
-      return Response.redirect(url.toString(), 301);
+      if (url.pathname === "/") {
+        // NOT "/zaltz" — that path is the ENGINE BINARY itself
+        // (public/zaltz, served extensionless), which would shadow the page.
+        url.pathname = "/zaltz-engine";
+        req = new Request(url.toString(), request);
+      } else if (url.pathname === "/favicon.ico") {
+        url.pathname = "/zaltz-favicon.ico";
+        req = new Request(url.toString(), request);
+      } else if (
+        url.pathname === "/apple-touch-icon.png" ||
+        url.pathname === "/apple-touch-icon-precomposed.png"
+      ) {
+        url.pathname = "/zaltz-icon-180.png";
+        req = new Request(url.toString(), request);
+      } else if (url.pathname === "/engine" || url.pathname === "/live" || url.pathname === "/boiler-room") {
+        // these ever only meant the room — send them to the instrument
+        url.hostname = "klappn.com";
+        url.pathname = "/boiler-room";
+        return Response.redirect(url.toString(), 301);
+      }
     }
     // The room's old addresses (pre-merge and pre-naming deep links) — one
     // hop, forever. /live/<token> listener links are NOT the room and stay.
