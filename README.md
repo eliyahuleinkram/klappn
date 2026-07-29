@@ -48,9 +48,9 @@ not transmitted.
 Three doors into the same machine:
 
 - **[klappn.com](https://klappn.com)** — the studio. Say what you want to hear.
-- **[klappn.com/boiler-room](https://klappn.com/boiler-room)** — the same
-  machine with the lid off: your hits underneath, live code on top, sound the
-  moment it lands.
+- **[klappn.com/engine](https://klappn.com/engine)** — the engine room: the
+  same machine with the lid off, your hits underneath, live code on top, sound
+  the moment it lands.
 - **[zaltz.klappn.com](https://zaltz.klappn.com)** · **[zissl.klappn.com](https://zissl.klappn.com)**
   — the engines' own front doors. Press a patch; the waveform is the C talking.
   Type a chain; the room lights up.
