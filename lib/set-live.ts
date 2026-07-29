@@ -164,6 +164,19 @@ export function assignChannelOrbits(
      *  room, 2026-07-29: a live coder's sidechain pump must SURVIVE re-busing)
      *  rewrites duck targets through the old-orbit → new-orbit map instead. */
     ducks?: "strip" | "remap";
+    /** "shared" (default) gives layers with the SAME reverb/delay signature one
+     *  orbit — one effect bus built exactly once. "per-layer" gives every layer
+     *  its own, which is what the TAPE wants: a grain per orbit means a shared
+     *  bus can only ever produce one merged stem (the user, 07-29: "is there
+     *  really no way to better more surgically split up the grains?").
+     *
+     *  It is safe because a reverb is LINEAR: summing layers into one FDN and
+     *  reverberating equals reverberating each and summing. Splitting is
+     *  transparent, it only costs buses — and a bus is free until something
+     *  actually sends to it (engine: orbit_config_verb runs on room_send > 0).
+     *  Beyond the decade's 10 slots the overflow shares the last one, exactly
+     *  as before. */
+    orbits?: "shared" | "per-layer";
   },
 ): string {
   if (!code) return code;
@@ -212,7 +225,9 @@ export function assignChannelOrbits(
     if (!remapDucks) layer = stripDuckFamily(layer);
     const ch = classifyLayer(layer, labels?.[li]);
     const slots = slotOf[ch];
-    const sig = layerSignature(layer);
+    // per-layer: a key nothing else can collide with, so every layer earns its
+    // own bus (and therefore its own grain)
+    const sig = opts?.orbits === "per-layer" ? `#${li}` : layerSignature(layer);
     let slot = slots.get(sig);
     if (slot === undefined) {
       slot = Math.min(slots.size, DECADE - 1); // decade overflow: share the last bus

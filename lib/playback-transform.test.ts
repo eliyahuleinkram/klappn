@@ -161,3 +161,35 @@ test("machine-prefixed drums route to the KIT, not the melody bus", () => {
   // the kick shares the kit's decade with the hats, never the melody's
   assert.ok(orbitOf("bd:2!4") >= 10 && orbitOf("bd:2!4") < 20);
 });
+
+test("per-layer orbits give the tape one grain per layer", () => {
+  // The tape records per ORBIT, so a shared bus can only ever produce one
+  // merged stem — the user's 9 layers came off as 4 files. Splitting is safe
+  // because a reverb is linear: sum-then-reverberate equals
+  // reverberate-then-sum. This asserts the split is total and that the
+  // sidechain follows every layer it used to name.
+  const shared = assignChannelOrbits(WRAPPED_PATCH, undefined, { ducks: "remap" });
+  const split = assignChannelOrbits(WRAPPED_PATCH, undefined, {
+    ducks: "remap",
+    orbits: "per-layer",
+  });
+  const busesOf = (code: string) =>
+    new Set([...code.matchAll(/\.orbit\((\d+)\)/g)].map((m) => Number(m[1])));
+  const layers = layersOf(split).length;
+  assert.equal(busesOf(split).size, layers, "every layer must own a bus to own a grain");
+  assert.ok(busesOf(split).size > busesOf(shared).size, "splitting must actually split");
+
+  // the duck still reaches every melodic layer it named before
+  const duckedIn = (code: string) =>
+    new Set((code.match(/\.duck\("([\d:]+)"\)/)?.[1] ?? "").split(":").map(Number));
+  const ducked = duckedIn(split);
+  for (const layer of layersOf(split)) {
+    const o = Number(layer.match(/\.orbit\((\d+)\)/)?.[1]);
+    const melodic = /gm_fiddle|gm_contrabass|gm_fretless_bass|gm_synth_brass/.test(layer);
+    assert.equal(
+      ducked.has(o),
+      melodic,
+      `${melodic ? "melodic layer lost" : "kit layer gained"} the sidechain on orbit ${o}`,
+    );
+  }
+});

@@ -534,7 +534,7 @@ export default function ZaltzIDE({
       // Sets deck strips them; a live coder's sidechain pump must survive).
       await playPart(
         "zaltz-ide",
-        transformForPlayback(assignChannelOrbits(code, undefined, { ducks: "remap" }), {
+        transformForPlayback(assignChannelOrbits(code, undefined, { ducks: "remap", orbits: "per-layer" }), {
           transpose: keyRef.current,
         }),
         "zaltz-ide",
