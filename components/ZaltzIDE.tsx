@@ -2392,16 +2392,39 @@ export default function ZaltzIDE({
             glyph, one meaning — the frame opening at its corners. The way
             back is unchanged: the ✕ on the stage, or Esc. */}
         <button
-          onClick={enterShow}
-          title="The show — the picture full-on, the desk in hand"
-          className="group -ml-0.5 shrink-0 rounded-full p-1.5 text-muted/55 transition hover:bg-white/[0.06] hover:text-foreground active:scale-[.94]"
+          onClick={() => (show ? exitShow() : enterShow())}
+          aria-expanded={show}
+          title={
+            show
+              ? "Leave the show — back to the bench (Esc)"
+              : "The show — the picture full-on, the desk in hand"
+          }
+          className={`group -ml-0.5 shrink-0 rounded-full p-1.5 transition hover:bg-white/[0.06] hover:text-foreground active:scale-[.94] ${
+            show ? "text-accent-strong" : "text-muted/55"
+          }`}
         >
           <svg viewBox="0 0 24 24" className="h-[15px] w-[15px]" fill="none"
             stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M4 9V5.6a1.6 1.6 0 0 1 1.6-1.6H9" />
-            <path d="M15 4h3.4A1.6 1.6 0 0 1 20 5.6V9" />
-            <path d="M20 15v3.4a1.6 1.6 0 0 1-1.6 1.6H15" />
-            <path d="M9 20H5.6A1.6 1.6 0 0 1 4 18.4V15" />
+            {show ? (
+              /* the same four corners, turned INWARD — the frame closing.
+                 THE ONLY WAY BACK ON A PHONE: no Esc key, and a touch show
+                 never enters browser fullscreen, so there is no system
+                 chrome to escape from either. The shaker used to carry this
+                 and was deleted; the door has to swing both ways. */
+              <>
+                <path d="M9 4v3.4A1.6 1.6 0 0 1 7.4 9H4" />
+                <path d="M20 9h-3.4A1.6 1.6 0 0 1 15 7.4V4" />
+                <path d="M15 20v-3.4a1.6 1.6 0 0 1 1.6-1.6H20" />
+                <path d="M4 15h3.4A1.6 1.6 0 0 1 9 16.6V20" />
+              </>
+            ) : (
+              <>
+                <path d="M4 9V5.6a1.6 1.6 0 0 1 1.6-1.6H9" />
+                <path d="M15 4h3.4A1.6 1.6 0 0 1 20 5.6V9" />
+                <path d="M20 15v3.4a1.6 1.6 0 0 1-1.6 1.6H15" />
+                <path d="M9 20H5.6A1.6 1.6 0 0 1 4 18.4V15" />
+              </>
+            )}
           </svg>
         </button>
         {/* the air in the middle belongs to the room */}
