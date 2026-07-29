@@ -79,17 +79,32 @@ export default {
       ) {
         url.pathname = "/zaltz-icon-180.png";
         req = new Request(url.toString(), request);
-      } else if (url.pathname === "/engine" || url.pathname === "/live" || url.pathname === "/boiler-room") {
+      } else if (
+        url.pathname === "/engine" ||
+        url.pathname === "/live" ||
+        url.pathname === "/boiler-room"
+      ) {
         // these ever only meant the room — send them to the instrument
         url.hostname = "klappn.com";
-        url.pathname = "/boiler-room";
+        url.pathname = "/engine";
         return Response.redirect(url.toString(), 301);
       }
     }
-    // The room's old addresses (pre-merge and pre-naming deep links) — one
-    // hop, forever. /live/<token> listener links are NOT the room and stay.
-    if (url.pathname === "/engine" || url.pathname === "/live") {
-      url.pathname = "/boiler-room";
+    // The room's old addresses — one hop, forever. /live/<token> listener
+    // links are NOT the room and stay.
+    //
+    // THE ROOM IS /engine NOW (2026-07-29). This edge rule used to point the
+    // other way, and the moment the app route flipped it became a LOOP:
+    // /engine → /boiler-room → /engine, both doors dead in prod. A rename is
+    // never done until the redirect that predates it is turned around — an
+    // app-level forward cannot win against the edge.
+    //
+    // /boiler-room is NOT redirected here on purpose: the app route owns it,
+    // because only the route can carry the QUERY across (a share link is
+    // /boiler-room?s=<token>, and dropping the token lands someone on an
+    // empty bench).
+    if (url.pathname === "/live") {
+      url.pathname = "/engine";
       return Response.redirect(url.toString(), 301);
     }
 
