@@ -296,26 +296,41 @@ export function clampAudioParams(code: string): string {
   // `.voicing()` ONLY voices a chord("…") FIELD. The model sometimes builds a chord by
   // interval-stacking — note("<d3 …>").add(note("0,7,12")) — and then ALSO appends
   // `.voicing()`; with no chord field that reads undefined → "[voicing]: unknown chord
-  // undefined" + dead harmony. Per LINE: if it has no chord(…), the notes are already set
-  // by note()/add — strip the spurious .voicing() (it voices nothing).
+  // undefined" + dead harmony. Strip the spurious .voicing() (it voices nothing).
   // Also strip a spurious `.bank(...)` on a MELODIC layer: .bank() PREFIXES the sound
   // (`note(...).bank("RolandTR909").s("sawtooth")` → "RolandTR909_sawtooth not found",
   // the layer plays SILENT). .bank() is ONLY for drum sample patterns (s("bd hh")) — a
   // pitched note()/n() layer or a waveform/gm_/wt_ sound must not carry it.
-  s = s
-    .split("\n")
-    .map((ln) => {
-      if (!/\bchord\(/.test(ln))
-        ln = ln.replace(/\.voicing\((?:[^()]|\([^()]*\))*\)/g, "");
-      const melodic =
-        /\bnote\(|\bn\(/.test(ln) ||
-        /\b(?:s|sound)\(\s*["'`](?:sawtooth|saw|square|sqr|sine|triangle|tri|pulse|supersaw|isaw|white|pink|brown|crackle|gm_|wt_)/.test(
-          ln,
-        );
-      if (melodic) ln = ln.replace(/\.bank\((?:[^()]|\([^()]*\))*\)/g, "");
-      return ln;
-    })
-    .join("\n");
+  // PER `$:` LAYER, never per physical line (2026-07-29, the boiler-room
+  // octave bug): hand-written layers WRAP — chord("…") on one line, .voicing()
+  // on the next — and the old per-line test stripped the voicing from every
+  // wrapped harmonic layer. Un-voiced chord haps carry NO note, so each engine
+  // played its own fallback (superdough c3, zaltz C4): "an octave apart, and
+  // nothing like the video". The unit of meaning is the layer.
+  {
+    const starts: number[] = [];
+    for (const m of s.matchAll(/^[ \t]*_?\$:/gm)) starts.push(m.index ?? 0);
+    const segs: string[] = [];
+    if (starts.length === 0) segs.push(s);
+    else {
+      segs.push(s.slice(0, starts[0]));
+      for (let i = 0; i < starts.length; i++)
+        segs.push(s.slice(starts[i], i + 1 < starts.length ? starts[i + 1] : s.length));
+    }
+    s = segs
+      .map((seg) => {
+        if (!/\bchord\(/.test(seg))
+          seg = seg.replace(/\.voicing\((?:[^()]|\([^()]*\))*\)/g, "");
+        const melodic =
+          /\bnote\(|\bn\(/.test(seg) ||
+          /\b(?:s|sound)\(\s*["'`](?:sawtooth|saw|square|sqr|sine|triangle|tri|pulse|supersaw|isaw|white|pink|brown|crackle|gm_|wt_)/.test(
+            seg,
+          );
+        if (melodic) seg = seg.replace(/\.bank\((?:[^()]|\([^()]*\))*\)/g, "");
+        return seg;
+      })
+      .join("");
+  }
   // Transposition: a TOP-LEVEL `.add("…")` / `.add(N)` on a control pattern logs "Can't
   // do arithmetic on control pattern" — the bare operand becomes {value} with no matching
   // field, so the transpose is silently dropped. Wrap that bare operand in note() so it's
