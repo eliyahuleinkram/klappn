@@ -2970,19 +2970,20 @@ export default function ZaltzIDE({
         </div>
       )}
       {take && !takeFolded && (
-        <div className="pill-pop fixed bottom-4 left-4 z-[18] w-[290px] overflow-hidden rounded-[26px] border border-accent/30 bg-black/45 shadow-[0_24px_80px_-18px_rgba(224,49,156,.6),inset_0_1px_0_rgba(255,255,255,.12)] backdrop-blur-2xl backdrop-saturate-[1.6]">
-          {/* the crown — one thread of the hot gradient along the top edge,
-              the same pour as every machined object in the house */}
-          <span
-            aria-hidden
-            className="block h-[2px] w-full bg-gradient-to-r from-[#ff63c1] via-[#e0319c] to-[#b3126f] opacity-90"
-          />
+        /* QUIETER (user 07-29: "I hate that pink title… it must fuck, but in
+           more of a quieter way"). The take is already the loudest thing that
+           can happen in the room — it does not need a crown and a gradient
+           wordmark shouting the word. The pink now lives only where it MEANS
+           something: the live dot on the master row and the download that
+           takes everything. The card is glass, the label is a small caps
+           whisper, and the confidence comes from the restraint. */
+        <div className="pill-pop fixed bottom-4 left-4 z-[18] w-[290px] overflow-hidden rounded-[26px] border border-white/[0.1] bg-black/55 shadow-[0_24px_80px_-24px_rgba(0,0,0,.9),inset_0_1px_0_rgba(255,255,255,.07)] backdrop-blur-2xl backdrop-saturate-[1.4]">
           <div className="p-4">
             <div className="flex items-baseline gap-2">
-              <span className="wordmark bg-gradient-to-r from-[#ff63c1] via-[#e0319c] to-[#b3126f] bg-clip-text text-[17px] leading-none text-transparent">
+              <span className="text-[11px] uppercase tracking-[0.18em] text-muted/50">
                 grains
               </span>
-              <span className="text-[12px] tabular-nums text-muted/80">
+              <span className="text-[12px] tabular-nums text-muted/60">
                 {fmtClock(take.seconds)}
               </span>
               <span className="flex-1" />
