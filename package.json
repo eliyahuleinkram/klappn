@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
-  "description": "Open-source AI music studio \u2014 describe a sound, get editable, playable loops.",
+  "description": "Describe a sound. Get a song you can open \u2014 Strudel code, not a bounced MP3. Runs on zaltz and zissl, the audio and picture engines we wrote ourselves.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/eliyahuleinkram/klappn.git"
