@@ -3200,9 +3200,21 @@ export default function ZaltzIDE({
                   </span>
                 </div>
                 <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-                  The machine writes when you feed it. $5 per million — the
-                  model&apos;s own rate, passed straight through — flat, never
-                  expiring — the whole price sheet is a screen of open code.
+                  {/* NOT A DEFENCE (user 07-29). The old line listed
+                      properties — passed through, flat, never expiring, open —
+                      which reads as a company explaining itself. Say the one
+                      thing that matters and let it land: this money is not
+                      ours — WITHOUT SAYING IT (user 07-29: "a way to say it
+                      without saying it, it's about a feeling"). So no "at
+                      cost", no "we keep nothing": those are claims, and a
+                      claim invites doubt and dates badly the day a provider
+                      reprices. One fact instead, and let the reader draw the
+                      conclusion themselves — nobody taking a cut halves their
+                      price the day their costs fall. It happened (pricing.ts:
+                      launched at $10/1M under Fable 5, halved to $5 when Opus
+                      took over), so it is a story, not a promise. */}
+                  Tokens are machine time, bought at the model&apos;s own rate.
+                  When the model got cheaper, we halved ours the same day.
                 </p>
                 <div className="mt-3.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {CREDIT_PACK_USD.map((usd, i) => {
