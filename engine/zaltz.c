@@ -294,6 +294,13 @@ static float frandf(void) {
   return (float)(rng_state >> 8) * (1.0f / 16777216.0f);
 }
 
+// PHASE VOCODER (stretch) — forward decls; implementation lives with the
+// other worklet ports below (phaze OLA + spectral peak shift, per voice)
+typedef struct Pv Pv;
+static Pv *pv_alloc(void);
+static void pv_release(Pv *p);
+static void pv_tables_init(void);
+
 typedef struct {
   bool active;
   int src;
@@ -389,6 +396,12 @@ typedef struct {
   double end_frame; // end fraction × frames
   bool smp_loop;
   double loop_a, loop_b;
+  // PHASE VOCODER (stretch): superdough spawns a fresh phase-vocoder worklet
+  // per hap; here each stretch voice owns a fresh Pv (arena, freelist-reused).
+  // pv == 0 with stretch set means the PV pool was exhausted → voice plays dry.
+  Pv *pv;
+  float pv_stretch; // RAW stretch value; the worklet's transform runs per block
+  bool pv_dead;     // source ended — OLA tail still draining
 } Voice;
 
 typedef struct {
@@ -413,6 +426,7 @@ typedef struct {
   int distorttype;
   float tremolo, tremolodepth, tremoloskew, tremolophase, tremtime;
   float penv, pattack, pdecay, psustain, prelease, panchor;
+  float stretch; // phase-vocoder pitch factor (NaN = off)
   int duck_targets[8];
   int duck_n;
   float duckonset, duckattack, duckdepth;
@@ -797,7 +811,10 @@ __attribute__((export_name("sd_retire"))) void sd_retire(float seconds) {
 // wavetables here (~2.5M sinf) starved the render thread for tens of ms —
 // the "glitches for a moment at play start" the ear caught.
 __attribute__((export_name("sd_hush"))) void sd_hush(void) {
-  for (int i = 0; i < MAX_VOICES; i++) voices[i].active = false;
+  for (int i = 0; i < MAX_VOICES; i++) {
+    voices[i].active = false;
+    if (voices[i].pv) { pv_release(voices[i].pv); voices[i].pv = 0; } // capped pool must never leak
+  }
   for (int i = 0; i < MAX_EVENTS; i++) events[i].used = false;
   for (int i = 0; i < MAX_CUT_GROUPS; i++) cut_last[i] = -1;
   for (int i = 0; i < MAX_ORBITS; i++) {
@@ -815,6 +832,7 @@ __attribute__((export_name("sd_init"))) void sd_init(float sample_rate) {
   sr_f = sample_rate;
   engine_frame = 0;
   build_wavetables(sample_rate); // ONCE per boot — never on the hush path
+  pv_tables_init();              // FFT twiddles + Hann, once
   sd_hush();
 }
 
@@ -842,6 +860,7 @@ __attribute__((export_name("sd_event"))) int sd_event(void) {
   ev.tremolophase = 0; ev.tremtime = 0;
   ev.penv = NAN_F; ev.pattack = NAN_F; ev.pdecay = NAN_F; ev.psustain = NAN_F;
   ev.prelease = NAN_F; ev.panchor = NAN_F;
+  ev.stretch = NAN_F;
   ev.duck_n = 0; ev.duckonset = 0; ev.duckattack = 0.1f; ev.duckdepth = 1;
   ev.crush = 0; ev.coarse = 0; ev.cut = -1;
   ev.src = SRC_TRIANGLE; // superdough default osc type (synth getOscillator)
@@ -925,6 +944,7 @@ __attribute__((export_name("sd_event"))) int sd_event(void) {
       else if (str_eq(val, "chebyshev")) ev.distorttype = 8;
       else ev.distorttype = ((int)parse_f(val)) % 9;
     }
+    else if (str_eq(key, "stretch")) ev.stretch = parse_f(val);
     else if (str_eq(key, "tremolo")) ev.tremolo = parse_f(val);
     else if (str_eq(key, "tremolodepth")) ev.tremolodepth = parse_f(val);
     else if (str_eq(key, "tremoloskew")) ev.tremoloskew = parse_f(val);
@@ -1153,6 +1173,12 @@ static void start_voice(const Event *ev) {
       v->penv_max = cents - cents * anchor;
       v->penv_env = adsr_values(pa, pd, ps, pr, 0, 0, 0, 0);
     }
+    // PHASE VOCODER: fresh state per hap, like superdough's per-trigger
+    // worklet node. Pool exhausted → dry (documented cap, never unbounded).
+    v->pv = 0;
+    v->pv_dead = false;
+    v->pv_stretch = ev->stretch;
+    if (!is_nan(ev->stretch)) v->pv = pv_alloc();
     v->crush = ev->crush;
     v->coarse = ev->coarse >= 2 ? (int)ev->coarse : 0;
     v->coarse_ctr = 0;
@@ -1181,6 +1207,7 @@ static void start_voice(const Event *ev) {
     if (ev->src == SRC_SAMPLE) {
       if (ev->sample_id < 0 || ev->sample_id >= MAX_SAMPLES || samples[ev->sample_id].frames == 0 ||
           !samples[ev->sample_id].ready) {
+        if (v->pv) { pv_release(v->pv); v->pv = 0; }
         v->active = false;
         return;
       }
@@ -1320,6 +1347,387 @@ static inline float lfo_tri(float phase, float skew) {
 
 static inline float sd_roundf(float x) { return (float)(int)(x + (x >= 0 ? 0.5f : -0.5f)); }
 
+// ---------- PHASE VOCODER — phaze port (worklets.mjs PhaseVocoderProcessor +
+// ola-processor.js + fft.js), term for term ----------------------------------
+// superdough: `.stretch(x)` inserts a phase-vocoder worklet as the FIRST fx of
+// the sound chain, pitchFactor = x (transformed per block: x<0 → x·0.25, then
+// max(0, x+1)), and shifts the hap onset 40ms early for the OLA latency
+// (superdough.mjs:446-451 — the bridge clones that shift host-side).
+// OLA: block 2048, hop 128 (= one WebAudio quantum), 16 overlaps, Hann ×1.62
+// applied on analysis AND synthesis.
+// PLACEMENT NOTE (documented deviation): here the PV runs on the voice's
+// FINISHED stereo contribution (post filters/fx, pre orbit) instead of first
+// in the chain — restructuring three fused render paths risks regressions the
+// mandate forbids. For linear stages this commutes; a patch that stacks
+// distortion ON TOP of stretch will color slightly differently.
+#define PV_N 2048
+#define PV_HOP 128 /* == BLOCK */
+#define PV_OVER (PV_N / PV_HOP)
+#define PV_HALF (PV_N / 2)
+#define PV_MAX 64 /* beyond this many live stretch voices → new ones play dry */
+
+struct Pv {
+  float in_l[PV_N], in_r[PV_N];   // sliding analysis windows (newest at tail)
+  float out_l[PV_N], out_r[PV_N]; // OLA accumulators
+  double time_cursor;             // samples — phase-correction clock
+  int drain;                      // silence blocks left after the source dies
+};
+
+static float pv_hann[PV_N];
+// SPECTRAL PATH IN DOUBLE — fft.js runs float64, and the peak finder reads
+// the numerical floor: a float32 FFT grows a forest of spurious micro-peaks
+// there (98 vs the reference's 5 on pure sines, measured) whose regions of
+// influence carve up the real peaks' phase corrections → 20% RMS divergence
+// at down-shifts. Precision is part of the algorithm here.
+static double pv_tw_cos[PV_HALF], pv_tw_sin[PV_HALF]; // e^{-i2πk/N} (forward)
+static unsigned short pv_bitrev[PV_N];
+static bool pv_tables_ready = false;
+
+// shared per-block scratch — voices render sequentially on the audio thread
+static double pv_re[PV_N], pv_im[PV_N];   // analysis spectrum
+static double pv_re2[PV_N], pv_im2[PV_N]; // shifted spectrum
+static float pv_mag[PV_HALF + 1]; // Float32Array in phaze — compared as f32
+static int pv_peaks[PV_HALF + 1];
+static int pv_dbg_npeaks = -1; // harness observability (last channel processed)
+static bool pv_dbg_capture = false;
+static double pv_dbg_sre[PV_N], pv_dbg_sim[PV_N]; // shifted-spectrum snapshot
+
+// double sin/cos for the twiddles + phase factors: Taylor on [0, π/4] (8
+// terms ≈ 4e-17) + exact-grid quadrant reduction. sd_sinf's float pipeline
+// would put ~1e-7 noise straight into the peak floor (see above).
+static double pv_sin_poly(double x) {
+  double x2 = x * x;
+  return x * (1.0 + x2 * (-1.0 / 6 + x2 * (1.0 / 120 + x2 * (-1.0 / 5040 + x2 * (1.0 / 362880 + x2 * (-1.0 / 39916800.0 + x2 * (1.0 / 6227020800.0 + x2 * (-1.0 / 1307674368000.0))))))));
+}
+static double pv_cos_poly(double x) {
+  double x2 = x * x;
+  return 1.0 + x2 * (-0.5 + x2 * (1.0 / 24 + x2 * (-1.0 / 720 + x2 * (1.0 / 40320 + x2 * (-1.0 / 3628800.0 + x2 * (1.0 / 479001600.0 + x2 * (-1.0 / 87178291200.0)))))));
+}
+#define PV_PI 3.14159265358979323846
+static void pv_sincos64(double a, double *c, double *s) {
+  // a reduced to [0, 2π) by the caller; split into quadrant + [0, π/4] wing
+  int q = (int)(a / (PV_PI / 2)); // 0..3
+  if (q > 3) q = 3;
+  double b = a - (double)q * (PV_PI / 2);
+  double cb, sb;
+  if (b > PV_PI / 4) {
+    double w = PV_PI / 2 - b;
+    cb = pv_sin_poly(w);
+    sb = pv_cos_poly(w);
+  } else {
+    cb = pv_cos_poly(b);
+    sb = pv_sin_poly(b);
+  }
+  switch (q) {
+    case 0: *c = cb;  *s = sb;  break;
+    case 1: *c = -sb; *s = cb;  break;
+    case 2: *c = -cb; *s = -sb; break;
+    default: *c = sb; *s = -cb; break;
+  }
+}
+static float pv_stage_l[BLOCK], pv_stage_r[BLOCK]; // voice staging pre-PV
+
+static Pv *pv_freelist[PV_MAX];
+static int pv_nfree = 0;
+static int pv_total = 0;
+
+// fft.js clone — the ANALYSIS transform must be indutny's _realTransform4
+// EXACTLY: it computes only the lower half-spectrum properly and leaves
+// deterministic radix-4 INTERMEDIATES in the upper bins, which phaze's
+// shiftPeaks then READS for the last peak's region of influence. On
+// down-shifts that junk folds into the audible band — it is part of the
+// stretch sound on strudel.cc (measured: ref bins ~789 carried mag ~92 of
+// it while a mathematically-correct FFT left zeros → 22% RMS divergence).
+#define PV_CSIZE (2 * PV_N)
+#define PV_WIDTH 11 // power of 2048; odd → initial len=4 radix-2 pass
+static double pv_fft_table[PV_CSIZE]; // [cos(πi/N), −sin(πi/N)] pairs
+static int pv_bitrev4[1 << PV_WIDTH];
+static double pv_spec[PV_CSIZE]; // interleaved complex spectrum (JS `out`)
+static double pv_win[PV_N];      // windowed real input (JS `data`)
+
+// JS `x << s` semantics: shift count masked to 5 bits (the table builder hits
+// revShift = −1 on the last digit pair; operand is 0 for reachable indices,
+// but the construction is cloned without UB)
+static inline int js_shl(int x, int s) { return (int)((unsigned)x << ((unsigned)s & 31u)); }
+
+static void pv_tables_init(void) {
+  if (pv_tables_ready) return;
+  pv_tables_ready = true;
+  // radix-2 twiddles + bitrev for the INVERSE (mathematically identical to
+  // fft.js _transform4 on real spectra — rounding-level only, verified)
+  for (int i = 0; i < PV_N; i++) {
+    unsigned int r = 0, x = (unsigned int)i;
+    for (int b = 0; b < 11; b++) { r = (r << 1) | (x & 1u); x >>= 1; } // 2^11 = 2048
+    pv_bitrev[i] = (unsigned short)r;
+  }
+  for (int k = 0; k < PV_HALF; k++) {
+    double a = TWO_PI * (double)k / (double)PV_N;
+    double c, s;
+    pv_sincos64(a, &c, &s);
+    pv_tw_cos[k] = c;
+    pv_tw_sin[k] = -s; // forward convention e^{-iωk}
+  }
+  // fft.js constructor: table[i] = cos(πi/size), table[i+1] = −sin(πi/size)
+  for (int i = 0; i < PV_CSIZE; i += 2) {
+    double a = PV_PI * (double)i / (double)PV_N; // < 2π
+    double c, s;
+    pv_sincos64(a, &c, &s);
+    pv_fft_table[i] = c;
+    pv_fft_table[i + 1] = -s;
+  }
+  // fft.js base-4 digit reversal, width 11
+  for (int j = 0; j < (1 << PV_WIDTH); j++) {
+    int r = 0;
+    for (int shift = 0; shift < PV_WIDTH; shift += 2) {
+      int rev = PV_WIDTH - shift - 2;
+      r |= js_shl((j >> shift) & 3, rev);
+    }
+    pv_bitrev4[j] = r;
+  }
+  for (int i = 0; i < PV_N; i++) {
+    // genHannWindow: 0.5·(1 − cos(2πi/N)) — periodic Hann, length N, f32 store
+    double a = TWO_PI * (double)i / (double)PV_N;
+    double c, s;
+    pv_sincos64(a, &c, &s);
+    pv_hann[i] = (float)(0.5 * (1.0 - c));
+  }
+}
+
+// fft.js _singleRealTransform2 (initial pass, len=4, odd width)
+static inline void pv_srt2(double *out, const double *data, int outOff, int off, int step) {
+  double evenR = data[off];
+  double oddR = data[off + step];
+  out[outOff] = evenR + oddR;
+  out[outOff + 1] = 0;
+  out[outOff + 2] = evenR - oddR;
+  out[outOff + 3] = 0;
+}
+
+// fft.js _realTransform4, forward only (inv = 1), verbatim
+static void pv_real_transform4(double *out, const double *data) {
+  const int size = PV_CSIZE;
+  int step = 1 << PV_WIDTH;
+  int len = (size / step) << 1; // 4 for width 11
+  int outOff, t;
+  for (outOff = 0, t = 0; outOff < size; outOff += len, t++) {
+    int off = pv_bitrev4[t];
+    pv_srt2(out, data, outOff, off >> 1, step >> 1);
+  }
+  const double inv = 1.0;
+  for (step >>= 2; step >= 2; step >>= 2) {
+    len = (size / step) << 1;
+    int halfLen = len >> 1;
+    int quarterLen = halfLen >> 1;
+    int hquarterLen = quarterLen >> 1;
+    for (outOff = 0; outOff < size; outOff += len) {
+      for (int i = 0, k = 0; i <= hquarterLen; i += 2, k += step) {
+        int A = outOff + i, B = A + quarterLen, C = B + quarterLen, D = C + quarterLen;
+        double Ar = out[A], Ai = out[A + 1];
+        double Br = out[B], Bi = out[B + 1];
+        double Cr = out[C], Ci = out[C + 1];
+        double Dr = out[D], Di = out[D + 1];
+        double MAr = Ar, MAi = Ai;
+        double tBr = pv_fft_table[k], tBi = inv * pv_fft_table[k + 1];
+        double MBr = Br * tBr - Bi * tBi, MBi = Br * tBi + Bi * tBr;
+        double tCr = pv_fft_table[2 * k], tCi = inv * pv_fft_table[2 * k + 1];
+        double MCr = Cr * tCr - Ci * tCi, MCi = Cr * tCi + Ci * tCr;
+        double tDr = pv_fft_table[3 * k], tDi = inv * pv_fft_table[3 * k + 1];
+        double MDr = Dr * tDr - Di * tDi, MDi = Dr * tDi + Di * tDr;
+        double T0r = MAr + MCr, T0i = MAi + MCi;
+        double T1r = MAr - MCr, T1i = MAi - MCi;
+        double T2r = MBr + MDr, T2i = MBi + MDi;
+        double T3r = inv * (MBr - MDr), T3i = inv * (MBi - MDi);
+        double FAr = T0r + T2r, FAi = T0i + T2i;
+        double FBr = T1r + T3i, FBi = T1i - T3r;
+        out[A] = FAr; out[A + 1] = FAi;
+        out[B] = FBr; out[B + 1] = FBi;
+        if (i == 0) {
+          out[C] = T0r - T2r;
+          out[C + 1] = T0i - T2i;
+          continue;
+        }
+        if (i == hquarterLen) continue; // do not overwrite ourselves
+        double ST0r = T1r, ST0i = -T1i;
+        double ST1r = T0r, ST1i = -T0i;
+        double ST2r = -inv * T3i, ST2i = -inv * T3r;
+        double ST3r = -inv * T2i, ST3i = -inv * T2r;
+        double SFAr = ST0r + ST2r, SFAi = ST0i + ST2i;
+        double SFBr = ST1r + ST3i, SFBi = ST1i - ST3r;
+        int SA = outOff + quarterLen - i, SB = outOff + halfLen - i;
+        out[SA] = SFAr; out[SA + 1] = SFAi;
+        out[SB] = SFBr; out[SB + 1] = SFBi;
+      }
+    }
+  }
+}
+
+// iterative radix-2 complex FFT, in place, DOUBLE; inv flips the twiddle sign
+// and scales by 1/N (fft.js inverseTransform normalizes the same way)
+static void pv_fft(double *re, double *im, bool inv) {
+  for (int i = 0; i < PV_N; i++) {
+    int j = pv_bitrev[i];
+    if (j > i) {
+      double tr = re[i]; re[i] = re[j]; re[j] = tr;
+      double ti = im[i]; im[i] = im[j]; im[j] = ti;
+    }
+  }
+  for (int len = 2; len <= PV_N; len <<= 1) {
+    int half = len >> 1, step = PV_N / len;
+    for (int base = 0; base < PV_N; base += len) {
+      for (int k = 0; k < half; k++) {
+        double wr = pv_tw_cos[k * step];
+        double wi = pv_tw_sin[k * step];
+        if (inv) wi = -wi;
+        int a = base + k, b = a + half;
+        double xr = re[b] * wr - im[b] * wi;
+        double xi = re[b] * wi + im[b] * wr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi;
+        re[a] += xr;        im[a] += xi;
+      }
+    }
+  }
+  if (inv) {
+    double s = 1.0 / (double)PV_N;
+    for (int i = 0; i < PV_N; i++) { re[i] *= s; im[i] *= s; }
+  }
+}
+
+static Pv *pv_alloc(void) {
+  Pv *p;
+  if (pv_nfree > 0) p = pv_freelist[--pv_nfree];
+  else {
+    if (pv_total >= PV_MAX) return 0;
+    p = (Pv *)arena_take((long)((sizeof(Pv) + 3) / 4));
+    if (!p) return 0;
+    pv_total++;
+  }
+  for (int i = 0; i < PV_N; i++) {
+    p->in_l[i] = 0; p->in_r[i] = 0; p->out_l[i] = 0; p->out_r[i] = 0;
+  }
+  p->time_cursor = 0;
+  p->drain = -1;
+  return p;
+}
+
+static void pv_release(Pv *p) {
+  if (p && pv_nfree < PV_MAX) pv_freelist[pv_nfree++] = p;
+}
+
+// phaze helpers cloned EXACTLY: fround = floor(x+0.5), fceil = floor(x+1)
+// (worklets.mjs:28-29 — note fceil(2) = 3; Math.ceil would give 2)
+static inline float pv_jround(float x) { return sd_floorf(x + 0.5f); }
+static inline float pv_jceil(float x) { return sd_floorf(x + 1.0f); }
+
+// cos/sin of omegaDelta·timeCursor — the argument grows unbounded, so reduce
+// mod 2π in double, then the double Taylor pipeline (float trig would seed
+// the shifted spectrum with 1e-7 phase noise)
+static inline void pv_phasor(double a, double *c, double *s) {
+  double t = a / TWO_PI;
+  t -= __builtin_floor(t);
+  pv_sincos64(t * TWO_PI, c, s);
+}
+
+// one channel: analysis window → FFT → peak shift → IFFT → synthesis window
+static void pv_channel(float *ring, float pf, double time_cursor, float *out_frame) {
+  for (int i = 0; i < PV_N; i++) {
+    // applyHannWindow runs on a Float32Array: value = f32(x·(hann·1.62)) —
+    // clone the rounding, THEN promote to double for the transform
+    pv_win[i] = (double)(float)((double)ring[i] * ((double)pv_hann[i] * 1.62));
+  }
+  // indutny realTransform — upper-half bins carry its radix-4 intermediates,
+  // which the peak regions below deliberately read (see pv_real_transform4)
+  pv_real_transform4(pv_spec, pv_win);
+  for (int k = 0; k < PV_N; k++) {
+    pv_re[k] = pv_spec[2 * k];
+    pv_im[k] = pv_spec[2 * k + 1];
+  }
+  // magnitudes land in a Float32Array in phaze — the peak comparisons happen
+  // at f32, cloned exactly
+  for (int k = 0; k <= PV_HALF; k++) pv_mag[k] = (float)(pv_re[k] * pv_re[k] + pv_im[k] * pv_im[k]);
+  // findPeaks: strictly greater than the 2 neighbours each side, i starts 2
+  int npeaks = 0;
+  pv_dbg_npeaks = -1; /* set below; harness-only observability */
+  {
+    int i = 2;
+    const int end = PV_HALF + 1 - 2; // magnitudes.length - 2
+    while (i < end) {
+      float m = pv_mag[i];
+      if (pv_mag[i - 1] >= m || pv_mag[i - 2] >= m) { i++; continue; }
+      if (pv_mag[i + 1] >= m || pv_mag[i + 2] >= m) { i++; continue; }
+      pv_peaks[npeaks++] = i;
+      i += 2;
+    }
+  }
+  pv_dbg_npeaks = npeaks;
+  // shiftPeaks
+  for (int i = 0; i < PV_N; i++) { pv_re2[i] = 0; pv_im2[i] = 0; }
+  for (int pi = 0; pi < npeaks; pi++) {
+    int peak = pv_peaks[pi];
+    int shifted = (int)pv_jround((float)peak * pf);
+    if (shifted > PV_HALF + 1) break; // `> this.magnitudes.length` verbatim
+    int start_i = 0, end_i = PV_N;
+    if (pi > 0) start_i = peak - (int)pv_jround((float)(peak - pv_peaks[pi - 1]) / 2.0f);
+    if (pi < npeaks - 1) end_i = peak + (int)pv_jceil((float)(pv_peaks[pi + 1] - peak) / 2.0f);
+    int start_off = start_i - peak, end_off = end_i - peak;
+    double omega_delta = TWO_PI * (1.0 / (double)PV_N) * (double)(shifted - peak);
+    double ps_r, ps_i;
+    pv_phasor(omega_delta * time_cursor, &ps_r, &ps_i);
+    for (int j = start_off; j < end_off; j++) {
+      int bin = peak + j;
+      int bin_s = shifted + j;
+      if (bin_s >= PV_HALF + 1) break;
+      if (bin < 0 || bin_s < 0) continue; // JS negative indices vanish into Array properties; skip
+      double vr = pv_re[bin], vi = pv_im[bin];
+      pv_re2[bin_s] += vr * ps_r - vi * ps_i;
+      pv_im2[bin_s] += vr * ps_i + vi * ps_r;
+    }
+  }
+  // completeSpectrum: conjugate-mirror bins 1..N/2−1 (Nyquist untouched)
+  for (int k = 1; k < PV_HALF; k++) {
+    pv_re2[PV_N - k] = pv_re2[k];
+    pv_im2[PV_N - k] = -pv_im2[k];
+  }
+  if (pv_dbg_capture) // harness-only: the inverse below destroys the spectrum
+    for (int i = 0; i < PV_N; i++) { pv_dbg_sre[i] = pv_re2[i]; pv_dbg_sim[i] = pv_im2[i]; }
+  pv_fft(pv_re2, pv_im2, true);
+  // fromComplexArray lands doubles in a Float32Array, then applyHannWindow
+  // multiplies that f32 — clone both roundings
+  for (int i = 0; i < PV_N; i++)
+    out_frame[i] = (float)((double)(float)pv_re2[i] * ((double)pv_hann[i] * 1.62));
+}
+
+// one OLA hop for both channels: feed 128 staged samples, emit 128 output
+static void pv_process(Pv *p, const float *inl, const float *inr, float *outl, float *outr, float stretch) {
+  // pitchFactor transform (processOLA): x<0 → x·0.25, then max(0, x+1)
+  float pf = stretch;
+  if (pf < 0) pf *= 0.25f;
+  pf += 1.0f;
+  if (pf < 0) pf = 0;
+  float *rings[2]; const float *ins[2]; float *outs[2]; float *acc[2];
+  rings[0] = p->in_l; rings[1] = p->in_r;
+  ins[0] = inl; ins[1] = inr;
+  outs[0] = outl; outs[1] = outr;
+  acc[0] = p->out_l; acc[1] = p->out_r;
+  static float frame[PV_N];
+  for (int ch = 0; ch < 2; ch++) {
+    float *ring = rings[ch];
+    // slide the analysis window forward one hop (readInputs + shiftInputBuffers)
+    for (int i = 0; i < PV_N - PV_HOP; i++) ring[i] = ring[i + PV_HOP];
+    for (int i = 0; i < PV_HOP; i++) ring[PV_N - PV_HOP + i] = ins[ch][i];
+    pv_channel(ring, pf, p->time_cursor, frame);
+    // handleOutputBuffersToRetrieve: accumulate ÷ overlaps, emit head, shift
+    float *a = acc[ch];
+    for (int i = 0; i < PV_N; i++) a[i] += frame[i] * (1.0f / (float)PV_OVER);
+    for (int i = 0; i < PV_HOP; i++) {
+      float y = a[i];
+      outs[ch][i] = y == y ? y : 0; // NaN can never reach the graph (law)
+    }
+    for (int i = 0; i < PV_N - PV_HOP; i++) a[i] = a[i + PV_HOP];
+    for (int i = PV_N - PV_HOP; i < PV_N; i++) a[i] = 0;
+  }
+  p->time_cursor += (double)PV_HOP;
+}
+
 // crush (bit reduce) + coarse (sample-hold) + the cut-group 10ms kill —
 // applied at the one output chokepoint so every voice path gets them
 static inline void voice_fx(Voice *v, double f, float *al, float *ar) {
@@ -1394,6 +1802,39 @@ static inline void voice_out(const Voice *v, int i, float al, float ar) {
   }
 }
 
+// the render loops emit through here: stretch voices STAGE their block for
+// the phase vocoder (pv_flush below), everything else lands on the orbit now
+static inline void voice_emit(const Voice *v, int i, float al, float ar) {
+  if (v->pv) {
+    pv_stage_l[i] = al;
+    pv_stage_r[i] = ar;
+    return;
+  }
+  voice_out(v, i, al, ar);
+}
+
+// after a stretch voice's sample loop: vocode the staged block onto the orbit.
+// When the source dies the OLA tail (16 hops of buffered audio) still drains —
+// superdough's per-hap worklet node rings out the same way before GC.
+static void pv_flush(Voice *v) {
+  Pv *p = v->pv;
+  float ol[BLOCK], orr[BLOCK];
+  pv_process(p, pv_stage_l, pv_stage_r, ol, orr, v->pv_stretch);
+  for (int i = 0; i < BLOCK; i++) voice_out(v, i, ol[i], orr[i]);
+  if (!v->active) {
+    if (!v->pv_dead) {
+      v->pv_dead = true; // the i-loop now breaks instantly → staged silence
+      p->drain = PV_OVER;
+    }
+    if (--p->drain <= 0) {
+      pv_release(p);
+      v->pv = 0; // stays inactive — truly done
+    } else {
+      v->active = true; // live until the tail drains
+    }
+  }
+}
+
 // polyBLEP residual — band-limits saw/square edges like OscillatorNode does.
 static inline float polyblep(double t, double dt) {
   if (t < dt) {
@@ -1423,7 +1864,11 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
   for (int vi = 0; vi < MAX_VOICES; vi++) {
     Voice *v = &voices[vi];
     if (!v->active) continue;
+    const bool pv_on = v->pv != 0;
+    if (pv_on) // pre-zero: a mid-block start/stop leaves true silence staged
+      for (int i = 0; i < BLOCK; i++) { pv_stage_l[i] = 0; pv_stage_r[i] = 0; }
     for (int i = 0; i < BLOCK; i++) {
+      if (v->pv_dead) break; // OLA drain: source silent, vocoder still ringing
       double f = engine_frame + i;
       if (f < v->start_frame) continue;
       float tt = (float)((f - v->start_frame) / (double)sr_f);
@@ -1546,7 +1991,7 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
           }
         }
         voice_fx(v, engine_frame + i, &al, &ar);
-        voice_out(v, i, al, ar);
+        voice_emit(v, i, al, ar);
         continue;
       }
       double t = v->phase;
@@ -1607,7 +2052,7 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
           }
         }
         voice_fx(v, engine_frame + i, &al, &ar);
-        voice_out(v, i, al, ar);
+        voice_emit(v, i, al, ar);
         continue;
       }
       switch (v->src) {
@@ -1679,8 +2124,9 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
       x *= v->postgain;
       float al = x * v->pan_l, ar = x * v->pan_r;
       voice_fx(v, engine_frame + i, &al, &ar);
-      voice_out(v, i, al, ar);
+      voice_emit(v, i, al, ar);
     }
+    if (pv_on) pv_flush(v); // stretch voices: vocode the staged block now
   }
   // ---- BUS PASS: per used orbit — delay ring, FDN reverb, duck, mix ----
   for (int oi = 0; oi < MAX_ORBITS; oi++) {
@@ -1802,3 +2248,30 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
   }
   engine_frame += BLOCK;
 }
+
+// ---------- OFFLINE-HARNESS HOOKS (pv) — drive the vocoder directly so the
+// golden scripts can diff it against the JS phaze reference, block by block --
+static Pv *pv_test_state = 0;
+static float pv_test_io[BLOCK * 2]; // L at [0..128), R at [128..256); in place
+
+__attribute__((export_name("pv_test_io"))) float *pv_test_io_ptr(void) { return pv_test_io; }
+
+__attribute__((export_name("pv_test_reset"))) void pv_test_reset(void) {
+  pv_tables_init();
+  if (pv_test_state) pv_release(pv_test_state);
+  pv_test_state = pv_alloc();
+}
+
+__attribute__((export_name("pv_test_block"))) void pv_test_block(float stretch) {
+  if (!pv_test_state) return;
+  pv_dbg_capture = true;
+  pv_process(pv_test_state, pv_test_io, pv_test_io + BLOCK, pv_test_io, pv_test_io + BLOCK, stretch);
+}
+
+__attribute__((export_name("pv_test_npeaks"))) int pv_test_npeaks(void) { return pv_dbg_npeaks; }
+__attribute__((export_name("pv_test_peaks"))) int *pv_test_peaks(void) { return pv_peaks; }
+
+__attribute__((export_name("pv_test_spec_re"))) double *pv_test_spec_re(void) { return pv_re; }
+__attribute__((export_name("pv_test_spec_im"))) double *pv_test_spec_im(void) { return pv_im; }
+__attribute__((export_name("pv_test_shift_re"))) double *pv_test_shift_re(void) { return pv_dbg_sre; }
+__attribute__((export_name("pv_test_shift_im"))) double *pv_test_shift_im(void) { return pv_dbg_sim; }

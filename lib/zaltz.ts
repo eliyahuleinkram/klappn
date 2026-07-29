@@ -692,7 +692,7 @@ const NUM_KEYS = [
   "orbit", "room", "roomlp", "delay", "delaytime", "delayfeedback",
   "shape", "shapevol", "duckonset", "duckattack", "duckdepth",
   "distort", "distortvol", "tremolodepth", "tremoloskew", "tremolophase",
-  "penv", "pattack", "pdecay", "psustain", "prelease", "panchor",
+  "penv", "pattack", "pdecay", "psustain", "prelease", "panchor", "stretch",
   "crush", "coarse", "cut", "drive", "density", "phaserrate", "phaserdepth", "phasercenter", "phasersweep",
 ] as const;
 const RENAME: Record<string, string> = {
@@ -842,7 +842,11 @@ function tick(): void {
     try {
       h.ensureObjectValue();
       const beginCycles = h.whole.begin.valueOf();
-      const tAbs = t0 + beginCycles / cps;
+      let tAbs = t0 + beginCycles / cps;
+      // superdough.mjs:446-451: a stretch hap starts 40ms EARLY to cover the
+      // phase vocoder's OLA latency — clone the shift or every stretched
+      // layer lands ~two window-hops late
+      if (typeof h.value?.stretch === "number" && Number.isFinite(h.value.stretch)) tAbs -= 0.04;
       const kv = hapKv(h.value, h.duration.valueOf() / cps, beginCycles);
       if (kv) batch.push({ ev: kv, t: tAbs });
       if (kv && orbitSounds) {
