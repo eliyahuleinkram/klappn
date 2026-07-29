@@ -2,16 +2,25 @@
 
 import { useId } from "react";
 
-/** THE ENGINE'S MARK (2026-07-29, replacing the boiler room's pressure gauge)
- *  — a PISTON at the top of its stroke. The bore, the rod, and the crank
- *  throw: the smallest drawing that still says "something is being driven".
+/** THE ENGINE'S MARK (2026-07-29) — a ROTOR: the Reuleaux triangle of a
+ *  Wankel, with the eccentric shaft knocked out of its middle.
  *
- *  It reads as an engine at 14px because the silhouette is asymmetric — a
- *  filled slug high in a hollow bore, weight up top, the throw swinging off
- *  the bottom left. (A circle with spokes reads as a wheel or a clock; the
- *  gauge it replaces had exactly that problem.) House gradient, and
- *  per-instance gradient ids — the SVG law: two marks on one page must never
- *  share a def. */
+ *  It replaced a piston assembly (bore + slug + rod + crank throw + pin) that
+ *  was five hairlines pretending to be a drawing: correct machinery, and a
+ *  smudge at 16px. One glyph, one meaning — so this is ONE closed shape,
+ *  filled, no strokes to thin out. A rotor is unmistakably an engine to anyone
+ *  who knows engines and confident geometry to everyone who doesn't, and its
+ *  curved-triangle silhouette is unlike anything else in a browser chrome (a
+ *  circle reads as a clock, a triangle reads as play).
+ *
+ *  The hole is knocked through with fill-rule evenodd rather than painted over,
+ *  so the mark carries the page's own background and never assumes a dark one.
+ *  Arc geometry is exact: vertices on r=9.4, each arc centred on the opposite
+ *  vertex with radius = side = r√3 (which is also the shape's constant width).
+ *  It is nudged DOWN by 0.134r — a Reuleaux triangle's bounding box does not
+ *  centre on its circumcircle, and left alone the mark floats with a gap under
+ *  it. The bore sits on the true centroid, not the box centre. House gradient, per-instance ids — two
+ *  marks on one page must never share a def. */
 export default function EngineMark({ className = "h-[16px] w-[16px]" }: { className?: string }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const g = `engine${uid}`;
@@ -19,9 +28,6 @@ export default function EngineMark({ className = "h-[16px] w-[16px]" }: { classN
     <svg
       viewBox="0 0 24 24"
       fill="none"
-      stroke={`url(#${g})`}
-      strokeLinecap="round"
-      strokeLinejoin="round"
       className={className}
       aria-hidden
     >
@@ -31,15 +37,12 @@ export default function EngineMark({ className = "h-[16px] w-[16px]" }: { classN
           <stop offset="1" stopColor="#e0319c" />
         </linearGradient>
       </defs>
-      {/* the bore — open at the top, so the piston reads as travelling INTO it */}
-      <path d="M6.6 3.2v9.4a5.4 5.4 0 0 0 10.8 0V3.2" strokeWidth="1.7" />
-      {/* the piston itself: a solid slug at the top of the stroke */}
-      <rect x="8.4" y="5" width="7.2" height="3.5" rx="1.1" fill={`url(#${g})`} stroke="none" />
-      {/* the rod, dropping out of the slug */}
-      <path d="M12 8.5v6.6" strokeWidth="2.1" />
-      {/* the crank throw — the swing that turns the stroke into rotation */}
-      <path d="M12 15.1 7.7 19.2" strokeWidth="2.1" />
-      <circle cx="6.5" cy="20.4" r="1.45" fill={`url(#${g})`} stroke="none" />
+      <path
+        d="M12 3.86A16.28 16.28 0 0 1 20.14 17.96A16.28 16.28 0 0 1 3.86 17.96A16.28 16.28 0 0 1 12 3.86ZM15 13.26a3 3 0 1 0 -6 0a3 3 0 1 0 6 0Z"
+        fill={`url(#${g})`}
+        fillRule="evenodd"
+        stroke="none"
+      />
     </svg>
   );
 }
