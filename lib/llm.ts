@@ -318,14 +318,27 @@ async function completeAnthropic(
   // The prompt must be answer-only — our pick/copy prompts already say "Output ONLY …", and
   // the callers regex-extract the fields. (effort still maps to "low" below purely to pick
   // the smallest max_tokens tier for these calls.)
-  // 2026-07-28 FINAL (user, third revision same day — high → medium → OFF):
-  // thinking is DISABLED for EVERY Opus 5 call. No reasoning tokens anywhere;
-  // the deterministic gates + critique/refine loops are the quality net. The
-  // requested effort survives ONLY as the max_tokens tier (output_config is
-  // never sent with disabled thinking — legal at effort ≤ high, which every
-  // route satisfies). Non-Opus models keep their requested behavior.
-  const noThink = opts?.thinking === false || isOpus5;
-  const effort = opts?.thinking === false ? "low" : (opts?.effort ?? "high");
+  // 2026-07-30 (user, fourth revision: high → medium → OFF → ON at MEDIUM):
+  // Opus 5 THINKS AGAIN, at medium effort. Off was the experiment; medium is
+  // the settled answer — reasoning where it earns its keep, without the
+  // overthink/overrun risk of high on a per-step wall clock. One number for
+  // every Opus 5 route, so there is nothing to drift: medium supersedes the
+  // ROUTE table's own effort (which only ever described the pre-OFF world).
+  //
+  // A call can still opt OUT explicitly with thinking:false, and several do,
+  // for reasons that have nothing to do with quality — every one of them is
+  // either LATENCY-critical or answer-only:
+  //    the room's fast lane (complete/explain/edit-sel/fix — a whisper that
+  //    arrives late is a wrong whisper), take-names, arrange-plan, the
+  //    notation enrich and the done-check (both Sonnet-pinned anyway).
+  // Those keep {type:"disabled"} and the "low" max_tokens tier. Non-Opus
+  // models keep their requested behavior untouched.
+  const noThink = opts?.thinking === false;
+  const effort = opts?.thinking === false
+    ? "low"
+    : isOpus5
+      ? "medium"
+      : (opts?.effort ?? "high");
   // Output budget TIERED BY EFFORT — thinking bills as output ($50/M on the top
   // models), so a flat 64k cap lets one runaway think cost dollars. 64k is only
   // what Anthropic recommends for max/xhigh; lower efforts think far less.
