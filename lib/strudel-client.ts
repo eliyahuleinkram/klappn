@@ -4260,8 +4260,11 @@ async function ensureStarted(): Promise<StrudelModule> {
             registerSoundfonts(),
             ...SAMPLE_MAPS.map((f) => w.samples(`${MAPS_BASE}/${f}`)),
             loadDirtSamples(w),
-            ...ALIAS_MAPS.map((f) => w.aliasBank?.(`${MAPS_BASE}/${f}`)),
           ]);
+          // AFTER the maps settle — aliasBank snapshots the sound map when it
+          // runs, so racing it in the same Promise.all can alias an empty map
+          // (seen live: `circuitstom_sd` not found while akailinn_oh played).
+          await Promise.all(ALIAS_MAPS.map((f) => w.aliasBank?.(`${MAPS_BASE}/${f}`)));
         },
       })) as { scheduler?: { now?: () => number } };
       // PRELOAD the AudioWorklet DSP modules onto the engine's context NOW, during

@@ -452,6 +452,11 @@ async function ensureMaps(): Promise<void> {
   if (!mapsLoading) {
     mapsLoading = (async () => {
       const merged: Record<string, string[] | PitchedZone[]> = {};
+      // superdough lowercases every sound name at registration (sampler:
+      // `key.toLowerCase().replace(/\s+/g,'_')`) — which is why `akailinn_oh`
+      // resolves on strudel.cc. Mirror it, or CamelCase manifest keys
+      // (AkaiLinn_oh) silently drop on the zaltz path.
+      const norm = (k: string): string => k.toLowerCase().replace(/\s+/g, "_");
       for (const m of ["d0", "d1", "d2", "d3", "d4", "d5", "lib"]) {
         try {
           const map = (await fetch(`/api/snd/m/${m}.json`).then((r) => r.json())) as Record<
@@ -467,7 +472,7 @@ async function ensureMaps(): Promise<void> {
             if (k === "_base") continue;
             if (Array.isArray(v)) {
               const list = abs(v);
-              if (list.length) merged[k] = list;
+              if (list.length) merged[norm(k)] = list;
               continue;
             }
             // object entry: note-keyed multisample map (strudel.json format,
@@ -483,15 +488,38 @@ async function ensureMaps(): Promise<void> {
               const urls = abs(zv);
               if (urls.length) zones.push({ midi, urls });
             }
-            if (zones.length === entries.length && zones.length) merged[k] = zones;
+            if (zones.length === entries.length && zones.length) merged[norm(k)] = zones;
             else {
               const list = entries.flatMap(([, zv]) => abs(zv));
-              if (list.length) merged[k] = list;
+              if (list.length) merged[norm(k)] = list;
             }
           }
         } catch {
           /* a missing manifest just narrows the palette */
         }
+      }
+      // Drum-machine shorthands (a0 = tidal-drum-machines-alias: AkaiLinn →
+      // Linn, …): superdough registers `${alias}_${suffix}` beside every
+      // prefixed key, so `linn_oh` plays on strudel.cc. Guarded ??= — an alias
+      // never shadows a real palette name.
+      try {
+        const al = (await fetch(`/api/snd/m/a0.json`).then((r) => r.json())) as Record<
+          string,
+          unknown
+        >;
+        for (const [machine, a] of Object.entries(al)) {
+          const aliases = (Array.isArray(a) ? a : [a]).filter(
+            (x): x is string => typeof x === "string",
+          );
+          const prefix = `${norm(machine)}_`;
+          for (const k of Object.keys(merged)) {
+            if (!k.startsWith(prefix)) continue;
+            const suffix = k.slice(prefix.length);
+            for (const alias of aliases) merged[`${norm(alias)}_${suffix}`] ??= merged[k];
+          }
+        }
+      } catch {
+        /* no aliases, no loss — the full machine names still resolve */
       }
       maps = merged;
     })();
@@ -555,7 +583,8 @@ function startSampleLoad(key: string, name: string, n: number, midi: number): vo
   trackLoad((async () => {
     try {
       await ensureMaps();
-      const entry = maps?.[name];
+      // lookup through the same normalization the map was built with
+      const entry = maps?.[name.toLowerCase().replace(/\s+/g, "_")];
       let url: string | undefined;
       let trans = 0;
       if (entry?.length && typeof entry[0] === "object") {
@@ -662,6 +691,8 @@ const NUM_KEYS = [
   "unison", "spread", "detune", "speed", "begin", "end", "loop", "loopBegin", "loopEnd",
   "orbit", "room", "roomlp", "delay", "delaytime", "delayfeedback",
   "shape", "shapevol", "duckonset", "duckattack", "duckdepth",
+  "distort", "distortvol", "tremolodepth", "tremoloskew", "tremolophase",
+  "penv", "pattack", "pdecay", "psustain", "prelease", "panchor",
   "crush", "coarse", "cut", "drive", "density", "phaserrate", "phaserdepth", "phasercenter", "phasersweep",
 ] as const;
 const RENAME: Record<string, string> = {
@@ -670,7 +701,28 @@ const RENAME: Record<string, string> = {
   size: "roomsize", roomsize: "roomsize", rsize: "roomsize", sz: "roomsize",
 };
 
-function hapKv(v: HapValue, durationSec: number): string | null {
+/** The 07-28 effect families' derived/string controls — distorttype (name),
+ *  tremolo (tremolosync resolves against the live cps) and the LFO's phase
+ *  seed time (the hap's cycle position in seconds; LFOProcessor:
+ *  phase = ffrac(time·freq + phaseoffset)). Shared by every source path. */
+function pushEffectKv(parts: string[], v: HapValue, atCycles: number | null): void {
+  const dt = v.distorttype;
+  if (typeof dt === "string" || (typeof dt === "number" && Number.isFinite(dt)))
+    parts.push(`distorttype/${dt}`);
+  const sync = v.tremolosync;
+  const trem =
+    typeof sync === "number" && Number.isFinite(sync)
+      ? cps * sync
+      : typeof v.tremolo === "number" && Number.isFinite(v.tremolo)
+        ? v.tremolo
+        : null;
+  if (trem != null && trem > 0) {
+    parts.push(`tremolo/${fnum(trem)}`);
+    if (atCycles != null && cps > 0) parts.push(`tremtime/${fnum(atCycles / cps)}`);
+  }
+}
+
+function hapKv(v: HapValue, durationSec: number, atCycles: number | null = null): string | null {
   let s = typeof v.s === "string" ? v.s : "triangle";
   if (v.bank && typeof v.bank === "string" && v.s) s = `${v.bank}_${v.s}`;
   const parts: string[] = [];
@@ -711,6 +763,7 @@ function hapKv(v: HapValue, durationSec: number): string | null {
     }
     if (v.duck != null) parts.push(`duck/${String(v.duck)}`);
     if (typeof v.ftype === "string") parts.push(`ftype/${v.ftype}`);
+    pushEffectKv(parts, v, atCycles);
     parts.push(`duration/${fnum(duration)}`);
     return parts.join("/");
   }
@@ -761,6 +814,7 @@ function hapKv(v: HapValue, durationSec: number): string | null {
   }
   if (v.duck != null) parts.push(`duck/${String(v.duck)}`); // "2:3" target list
   if (typeof v.ftype === "string") parts.push(`ftype/${v.ftype}`); // ladder | 24db
+  pushEffectKv(parts, v, atCycles);
   if (typeof v.phaser === "number" && Number.isFinite(v.phaser)) parts.push(`phaserrate/${fnum(v.phaser)}`);
   for (const heavy of ["chorus"]) {
     if (v[heavy] != null) dropOnce(`${heavy} (superdough has no chorus either)`);
@@ -789,7 +843,7 @@ function tick(): void {
       h.ensureObjectValue();
       const beginCycles = h.whole.begin.valueOf();
       const tAbs = t0 + beginCycles / cps;
-      const kv = hapKv(h.value, h.duration.valueOf() / cps);
+      const kv = hapKv(h.value, h.duration.valueOf() / cps, beginCycles);
       if (kv) batch.push({ ev: kv, t: tAbs });
       if (kv && orbitSounds) {
         // stem naming: note the sound landing on this orbit (engine default 1).

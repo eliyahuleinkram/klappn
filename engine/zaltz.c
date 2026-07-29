@@ -87,6 +87,19 @@ static float sd_fminf(float a, float b) { return a < b ? a : b; }
 // software-float mode (intermittent crackle, worst in quiet tails). Flush.
 static inline float undenorm(float x) { return (x < 1e-15f && x > -1e-15f) ? 0.0f : x; }
 static float sd_fmaxf(float a, float b) { return a > b ? a : b; }
+static inline float sd_clampf(float x, float lo, float hi) { return x < lo ? lo : x > hi ? hi : x; }
+// e^x − 1 / ln(1+x) / true tanh — the distortion family (helpers.mjs:496-567)
+// uses Math.expm1/log1p/tanh; the ladder's fast_tanh is an approximation
+// calibrated for THAT filter, not for waveshaping character.
+static inline float sd_expm1f(float x) { return sd_exp2f(x * 1.442695041f) - 1.0f; }
+static inline float sd_log1pf(float x) { return sd_log2f(1.0f + x) * 0.69314718056f; }
+static inline float sd_tanh_true(float x) {
+  if (x > 9.0f) return 1.0f;
+  if (x < -9.0f) return -1.0f;
+  float e = sd_exp2f(2.0f * x * 1.442695041f); // e^(2x)
+  return (e - 1.0f) / (e + 1.0f);
+}
+static inline float sd_floorf(float x) { float t = (float)(int)x; return (x < 0 && t != x) ? t - 1.0f : t; }
 
 // ---------- ADSR — exact port of superdough getADSRValues + getParamADSR ----
 // helpers.mjs:167 getADSRValues: envmin .001, releaseMin .01, envmax 1;
@@ -300,6 +313,20 @@ typedef struct {
   float room_send, delay_send;
   float shape_k, shapevol; // (1+k)x/(1+k|x|) drive (ShapeProcessor port)
   bool shape_on;
+  // DISTORTION FAMILY (DistortProcessor port): y = pg·algo(x, expm1(distort))
+  bool dist_on;
+  float dist_k, dist_pg;
+  int dist_alg;
+  // TREMOLO (superdough.mjs:796-827 + LFOProcessor): amp gain =
+  // max(1−depth,0) + clamp(pow(tri(phase,skew)·depth, 1.5), 0, 1)
+  bool trem_on;
+  float trem_rate, trem_depth, trem_skew, trem_base;
+  double trem_phase;
+  // PITCH ENVELOPE (helpers.mjs getPitchEnvelope): cents ADSR on the source
+  // frequency — min = −cents·anchor, max = cents − cents·anchor (linear curve)
+  bool penv_on;
+  Adsr penv_env;
+  float penv_min, penv_max;
   float crush; // bit reduce: round(x·2^(crush−1))/2^(crush−1) (webdirt)
   int coarse;  // sample-hold every N samples (webdirt)
   float coarse_hold_l, coarse_hold_r;
@@ -382,6 +409,10 @@ typedef struct {
   int orbit;
   float room, roomsize, roomlp, delay, delaytime, delayfeedback;
   float shape, shapevol;
+  float distort, distortvol;
+  int distorttype;
+  float tremolo, tremolodepth, tremoloskew, tremolophase, tremtime;
+  float penv, pattack, pdecay, psustain, prelease, panchor;
   int duck_targets[8];
   int duck_n;
   float duckonset, duckattack, duckdepth;
@@ -806,6 +837,11 @@ __attribute__((export_name("sd_event"))) int sd_event(void) {
   ev.room = 0; ev.roomsize = 2; ev.roomlp = 15000; ev.delay = 0;
   ev.delaytime = 0.25f; ev.delayfeedback = 0.5f; // superdough defaults
   ev.shape = NAN_F; ev.shapevol = 1;
+  ev.distort = NAN_F; ev.distortvol = 1; ev.distorttype = 0; // superdough DEFAULT_VALUES
+  ev.tremolo = NAN_F; ev.tremolodepth = 1; ev.tremoloskew = 1; // skew default 1 when no tremoloshape (superdough.mjs:818)
+  ev.tremolophase = 0; ev.tremtime = 0;
+  ev.penv = NAN_F; ev.pattack = NAN_F; ev.pdecay = NAN_F; ev.psustain = NAN_F;
+  ev.prelease = NAN_F; ev.panchor = NAN_F;
   ev.duck_n = 0; ev.duckonset = 0; ev.duckattack = 0.1f; ev.duckdepth = 1;
   ev.crush = 0; ev.coarse = 0; ev.cut = -1;
   ev.src = SRC_TRIANGLE; // superdough default osc type (synth getOscillator)
@@ -874,6 +910,32 @@ __attribute__((export_name("sd_event"))) int sd_event(void) {
     else if (str_eq(key, "delayfeedback")) ev.delayfeedback = parse_f(val);
     else if (str_eq(key, "shape")) ev.shape = parse_f(val);
     else if (str_eq(key, "shapevol")) ev.shapevol = parse_f(val);
+    else if (str_eq(key, "distort")) ev.distort = parse_f(val);
+    else if (str_eq(key, "distortvol")) ev.distortvol = parse_f(val);
+    else if (str_eq(key, "distorttype")) {
+      // name or index (getDistortionAlgorithm: names wrap by index too)
+      if (str_eq(val, "scurve")) ev.distorttype = 0;
+      else if (str_eq(val, "soft")) ev.distorttype = 1;
+      else if (str_eq(val, "hard")) ev.distorttype = 2;
+      else if (str_eq(val, "cubic")) ev.distorttype = 3;
+      else if (str_eq(val, "diode")) ev.distorttype = 4;
+      else if (str_eq(val, "asym")) ev.distorttype = 5;
+      else if (str_eq(val, "fold")) ev.distorttype = 6;
+      else if (str_eq(val, "sinefold")) ev.distorttype = 7;
+      else if (str_eq(val, "chebyshev")) ev.distorttype = 8;
+      else ev.distorttype = ((int)parse_f(val)) % 9;
+    }
+    else if (str_eq(key, "tremolo")) ev.tremolo = parse_f(val);
+    else if (str_eq(key, "tremolodepth")) ev.tremolodepth = parse_f(val);
+    else if (str_eq(key, "tremoloskew")) ev.tremoloskew = parse_f(val);
+    else if (str_eq(key, "tremolophase")) ev.tremolophase = parse_f(val);
+    else if (str_eq(key, "tremtime")) ev.tremtime = parse_f(val);
+    else if (str_eq(key, "penv")) ev.penv = parse_f(val);
+    else if (str_eq(key, "pattack")) ev.pattack = parse_f(val);
+    else if (str_eq(key, "pdecay")) ev.pdecay = parse_f(val);
+    else if (str_eq(key, "psustain")) ev.psustain = parse_f(val);
+    else if (str_eq(key, "prelease")) ev.prelease = parse_f(val);
+    else if (str_eq(key, "panchor")) ev.panchor = parse_f(val);
     else if (str_eq(key, "duckonset")) ev.duckonset = parse_f(val);
     else if (str_eq(key, "duckattack")) ev.duckattack = parse_f(val);
     else if (str_eq(key, "duckdepth")) ev.duckdepth = parse_f(val);
@@ -1057,6 +1119,40 @@ static void start_voice(const Event *ev) {
       float pg = ev->shapevol;
       v->shapevol = sd_fminf(sd_fmaxf(pg, 0.001f), 1.0f);
     }
+    v->dist_on = !is_nan(ev->distort) && ev->distort > 0;
+    if (v->dist_on) {
+      v->dist_k = sd_expm1f(ev->distort);            // DistortProcessor: expm1(distort)
+      v->dist_pg = sd_clampf(ev->distortvol, 0.001f, 1.0f);
+      v->dist_alg = ev->distorttype;
+      if (v->dist_alg < 0 || v->dist_alg > 8) v->dist_alg = 0;
+    }
+    v->trem_on = !is_nan(ev->tremolo) && ev->tremolo > 0;
+    if (v->trem_on) {
+      v->trem_rate = ev->tremolo;
+      v->trem_depth = is_nan(ev->tremolodepth) ? 1.0f : ev->tremolodepth;
+      v->trem_skew = is_nan(ev->tremoloskew) ? 1.0f : sd_clampf(ev->tremoloskew, 0.0f, 1.0f);
+      v->trem_base = sd_fmaxf(1.0f - v->trem_depth, 0.0f); // amGain base (superdough.mjs:814)
+      // LFOProcessor phase seed: ffrac(time·frequency + phaseoffset), where
+      // time = the hap's cycle position in seconds (cycle/cps)
+      float seed = ev->tremtime * v->trem_rate + ev->tremolophase;
+      v->trem_phase = (double)(seed - sd_floorf(seed));
+    }
+    // getPitchEnvelope: active when ANY of the p-family was given; defaults
+    // [0.2, 0.001, 1, 0.001], penv default 1 semitone, anchor default sustain.
+    v->penv_on = !is_nan(ev->penv) || !is_nan(ev->pattack) || !is_nan(ev->pdecay) ||
+                 !is_nan(ev->psustain) || !is_nan(ev->prelease);
+    if (v->penv_on) {
+      float pen = is_nan(ev->penv) ? 1.0f : ev->penv;
+      float pa = is_nan(ev->pattack) ? 0.2f : ev->pattack;
+      float pd = is_nan(ev->pdecay) ? 0.001f : ev->pdecay;
+      float ps = is_nan(ev->psustain) ? 1.0f : ev->psustain;
+      float pr = is_nan(ev->prelease) ? 0.001f : ev->prelease;
+      float anchor = is_nan(ev->panchor) ? ps : ev->panchor;
+      float cents = pen * 100.0f;
+      v->penv_min = 0.0f - cents * anchor;
+      v->penv_max = cents - cents * anchor;
+      v->penv_env = adsr_values(pa, pd, ps, pr, 0, 0, 0, 0);
+    }
     v->crush = ev->crush;
     v->coarse = ev->coarse >= 2 ? (int)ev->coarse : 0;
     v->coarse_ctr = 0;
@@ -1137,6 +1233,91 @@ static inline float shape_drive(float x, float k, float vol) {
   return ((1.0f + k) * x) / (1.0f + k * (x < 0 ? -x : x)) * vol;
 }
 
+// ── THE DISTORTION FAMILY (superdough helpers.mjs:496-567, DistortProcessor
+// worklets.mjs) — memoryless waveshapers, ported term-for-term. k arrives
+// PRE-SHAPED: DistortProcessor computes shape = expm1(distort) per block and
+// postgain = clamp(pg, .001, 1); both are computed ONCE at voice start here
+// (zaltz events are static per voice — no param ramps to follow).
+// Algorithm order = Object.keys(distortionAlgorithms):
+//   0 scurve · 1 soft · 2 hard · 3 cubic · 4 diode · 5 asym · 6 fold ·
+//   7 sinefold · 8 chebyshev
+static inline float dist_squash(float x) { return x / (1.0f + x); } // [0,inf)→[0,1)
+static inline float dist_mod4(float y) { return y - 4.0f * sd_floorf(y * 0.25f); } // _mod(y,4)
+static inline float dist_scurve(float x, float k) {
+  return ((1.0f + k) * x) / (1.0f + k * sd_fabsf(x));
+}
+static inline float dist_soft(float x, float k) { return sd_tanh_true(x * (1.0f + k)); }
+static inline float dist_hard(float x, float k) { return sd_clampf((1.0f + k) * x, -1.0f, 1.0f); }
+static inline float dist_fold(float x, float k) {
+  float y = (1.0f + 0.5f * k) * x;
+  float w = dist_mod4(y + 1.0f);
+  return 1.0f - sd_fabsf(w - 2.0f);
+}
+static inline float dist_sinefold(float x, float k) {
+  return sd_sinf((PI_F * 0.5f) * dist_fold(x, k));
+}
+static inline float dist_cubic(float x, float k) {
+  float t = dist_squash(sd_log1pf(k));
+  float cubic = (x - (t / 3.0f) * x * x * x) / (1.0f - t / 3.0f);
+  return dist_soft(cubic, k);
+}
+static float dist_diode(float x, float k, bool asym) {
+  float g = 1.0f + 2.0f * k;
+  float t = dist_squash(sd_log1pf(k));
+  float bias = 0.07f * t;
+  float pos = dist_soft(x + bias, 2.0f * k);
+  float neg = dist_soft(asym ? bias : -x + bias, 2.0f * k);
+  float y = pos - neg;
+  // divide by the derivative at 0 so small values pass undistorted
+  float e = sd_exp2f(g * bias * 1.442695041f); // e^(g·bias)
+  float sech = 2.0f / (e + 1.0f / e);          // 1/cosh
+  float sech2 = sech * sech;
+  float denom = sd_fmaxf(1e-8f, (asym ? 1.0f : 2.0f) * g * sech2);
+  return dist_soft(y / denom, k);
+}
+static float dist_chebyshev(float x, float k) {
+  float kl = 10.0f * sd_log1pf(k);
+  float tnm1 = 1.0f, tnm2 = x, tn;
+  float y = 0;
+  for (int i = 1; i < 64; i++) {
+    if (i < 2) { y += (i == 0) ? tnm1 : tnm2; continue; }
+    tn = 2.0f * x * tnm1 - tnm2;
+    tnm2 = tnm1;
+    tnm1 = tn;
+    if ((i & 1) == 0) y += sd_fminf((1.3f * kl) / (float)i, 2.0f) * tn;
+  }
+  return dist_soft(y, kl / 20.0f);
+}
+static inline float dist_run(int alg, float x, float k) {
+  switch (alg) {
+    case 1: return dist_soft(x, k);
+    case 2: return dist_hard(x, k);
+    case 3: return dist_cubic(x, k);
+    case 4: return dist_diode(x, k, false);
+    case 5: return dist_diode(x, k, true); // asym
+    case 6: return dist_fold(x, k);
+    case 7: return dist_sinefold(x, k);
+    case 8: return dist_chebyshev(x, k);
+    default: return dist_scurve(x, k);
+  }
+}
+
+// LFO tri waveshape (worklets.mjs waveshapes.tri) — the tremolo's default
+// (and only, here) modulator shape. The skew edges are handled EXPLICITLY:
+// the double phase accumulator cast to float can round 0.99999… up to exactly
+// 1.0f, and at skew 1 the general branch then divides by zero (one NaN per
+// LFO wrap, seen in the offline harness at precisely the 0.25s wrap of 4Hz).
+static inline float lfo_tri(float phase, float skew) {
+  if (skew >= 0.999999f) return phase >= 1.0f ? 0.0f : phase;      // pure ramp
+  if (skew <= 0.000001f) return phase >= 1.0f ? 1.0f : 1.0f - phase; // pure saw
+  if (phase >= skew) {
+    float x = 1.0f - skew;
+    float y = 1.0f / x - phase / x;
+    return y < 0 ? 0.0f : y;
+  }
+  return phase / skew;
+}
+
 static inline float sd_roundf(float x) { return (float)(int)(x + (x >= 0 ? 0.5f : -0.5f)); }
 
 // crush (bit reduce) + coarse (sample-hold) + the cut-group 10ms kill —
@@ -1151,6 +1332,26 @@ static inline void voice_fx(Voice *v, double f, float *al, float *ar) {
   if (v->phaser_on) {
     *al = biquad_run(&v->ph_l, *al);
     *ar = biquad_run(&v->ph_r, *ar);
+  }
+  // DISTORTION FAMILY (DistortProcessor): y = postgain·algo(x, k). Sits after
+  // shape (in-path) like superdough's chain (shape → distort); crush lands
+  // after — a pre-existing zaltz ordering trait, kept (corpus-calibrated).
+  if (v->dist_on) {
+    *al = v->dist_pg * dist_run(v->dist_alg, *al, v->dist_k);
+    *ar = v->dist_pg * dist_run(v->dist_alg, *ar, v->dist_k);
+  }
+  // TREMOLO: base amGain max(1−depth,0) + LFO tri(phase, skew), curved 1.5
+  // (LFOProcessor: modval = pow(tri·depth, 1.5), clamped [0,1])
+  if (v->trem_on) {
+    float w = lfo_tri((float)v->trem_phase, v->trem_skew) * v->trem_depth;
+    if (w < 0) w = 0;
+    w = w * sd_sqrtf(w); // pow(x, 1.5) for x ≥ 0
+    if (w > 1) w = 1;
+    float g = v->trem_base + w;
+    *al *= g;
+    *ar *= g;
+    v->trem_phase += (double)(v->trem_rate / sr_f);
+    if (v->trem_phase >= 1.0) v->trem_phase -= 1.0;
   }
   if (v->crush >= 1.0f) {
     float x = sd_exp2f(v->crush - 1.0f); // webdirt: round(x·2^(crush−1))/2^(crush−1)
@@ -1232,9 +1433,21 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
       // WebAudio automates these a-rate; 16-sample control is inaudible for
       // exponential glides and keeps coefficients cheap
       if (((int)(f - v->start_frame) & 15) == 0) {
-        if (v->vib_hz > 0) {
-          float cents = sd_sinf(TWO_PI * v->vib_hz * tt) * v->vibmod * 100.0f;
-          float mult = sd_exp2f(cents / 1200.0f);
+        if (v->vib_hz > 0 || v->penv_on) {
+          float mult = 1.0f;
+          if (v->vib_hz > 0) {
+            float cents = sd_sinf(TWO_PI * v->vib_hz * tt) * v->vibmod * 100.0f;
+            mult *= sd_exp2f(cents / 1200.0f);
+          }
+          if (v->penv_on) {
+            // getPitchEnvelope: detune cents ride the param ADSR between
+            // min=−cents·anchor and max=cents−cents·anchor (linear curve;
+            // pcurve exponential falls back to linear here — negative-cents
+            // ranges can't ride an exponential ramp anyway)
+            float e01 = adsr_at(&v->penv_env, tt, v->dur);
+            float cents = v->penv_min + (v->penv_max - v->penv_min) * e01;
+            mult *= sd_exp2f(cents / 1200.0f);
+          }
           if (v->src == SRC_SAMPLE) v->rate = v->base_rate * (double)mult;
           else v->phase_inc = (double)(v->base_freq * mult) / (double)sr_f;
         }
