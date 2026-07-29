@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
-  "description": "Open-source AI music studio — describe a sound, get editable, playable loops.",
+  "description": "Open-source AI music studio \u2014 describe a sound, get editable, playable loops.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/eliyahuleinkram/klappn.git"
@@ -20,10 +20,11 @@
     "start": "vinext start",
     "deploy": "node scripts/stamp-engine.mjs && vinext build && npx wrangler deploy",
     "lint": "eslint",
-    "test": "tsx --test lib/*.test.ts",
+    "test": "tsx --test lib/*.test.ts && npm run test:engine",
     "auth:generate": "better-auth generate --config lib/auth.ts -y",
     "auth:migrate": "better-auth migrate --config lib/auth.ts -y",
-    "db:schema": "psql \"${DATABASE_URL:?export DATABASE_URL first — npm scripts do not read .env}\" -f lib/schema.sql"
+    "db:schema": "psql \"${DATABASE_URL:?export DATABASE_URL first \u2014 npm scripts do not read .env}\" -f lib/schema.sql",
+    "test:engine": "node engine/golden/fx.mjs && node engine/golden/vocoder.mjs && node engine/golden/soak.mjs && node engine/golden/rdim.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
@@ -53,6 +54,7 @@
     "@vitejs/plugin-rsc": "^0.5.27",
     "eslint": "^10",
     "eslint-config-next": "16.2.10",
+    "node-web-audio-api": "^2.1.0",
     "react-server-dom-webpack": "^19.2.7",
     "tailwindcss": "^4",
     "tsx": "^4.23.1",

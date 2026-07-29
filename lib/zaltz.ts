@@ -64,6 +64,7 @@ interface Pat {
 }
 
 import { ENGINE_V } from "./engine-version";
+import { NUM_KEYS, RENAME, UNSUPPORTED } from "./zaltz-controls";
 import { pinWorkletConstructors } from "./worklet-pin";
 
 // Set when the engine cannot BOOT on this browser (wasm instantiate/addModule
@@ -699,21 +700,10 @@ function fnum(x: number): string {
   return trimmed === "" || trimmed === "-" ? "0" : trimmed;
 }
 
-const NUM_KEYS = [
-  "attack", "decay", "sustain", "release", "gain", "velocity", "postgain", "pan",
-  "lpattack", "lpdecay", "lpsustain", "lprelease", "lpenv", "vib", "vibmod",
-  "unison", "spread", "detune", "speed", "begin", "end", "loop", "loopBegin", "loopEnd",
-  "orbit", "room", "roomlp", "roomdim", "delay", "delaytime", "delayfeedback",
-  "shape", "shapevol", "duckonset", "duckattack", "duckdepth",
-  "distort", "distortvol", "tremolodepth", "tremoloskew", "tremolophase",
-  "penv", "pattack", "pdecay", "psustain", "prelease", "panchor", "stretch",
-  "crush", "coarse", "cut", "drive", "density", "phaserrate", "phaserdepth", "phasercenter", "phasersweep",
-] as const;
-const RENAME: Record<string, string> = {
-  cutoff: "lpf", lpf: "lpf", resonance: "lpq", lpq: "lpq",
-  hcutoff: "hpf", hpf: "hpf", hresonance: "hpq", hpq: "hpq",
-  size: "roomsize", roomsize: "roomsize", rsize: "roomsize", sz: "roomsize",
-};
+// NUM_KEYS / RENAME live in lib/zaltz-controls.ts — the control CONTRACT,
+// which lib/zaltz-controls.test.ts checks against Strudel's own control list
+// so a control can never again be dropped in silence.
+const NUM_KEYS_ARR: readonly string[] = NUM_KEYS;
 
 /** The 07-28 effect families' derived/string controls — distorttype (name),
  *  tremolo (tremolosync resolves against the live cps) and the LFO's phase
@@ -736,7 +726,11 @@ function pushEffectKv(parts: string[], v: HapValue, atCycles: number | null): vo
   }
 }
 
-function hapKv(v: HapValue, durationSec: number, atCycles: number | null = null): string | null {
+/** Hap → engine event string. EXPORTED for lib/zaltz-bridge.test.ts, which
+ *  asserts that every control Strudel writes actually reaches the engine —
+ *  the check that was missing when `.duck()`/`.stretch()`/`.rdim()` were
+ *  silently dropped. Not part of the module's runtime surface. */
+export function hapKv(v: HapValue, durationSec: number, atCycles: number | null = null): string | null {
   let s = typeof v.s === "string" ? v.s : "triangle";
   if (v.bank && typeof v.bank === "string" && v.s) s = `${v.bank}_${v.s}`;
   const parts: string[] = [];
@@ -766,7 +760,7 @@ function hapKv(v: HapValue, durationSec: number, atCycles: number | null = null)
     const g = typeof v.gain === "number" ? v.gain : 0.8;
     const vel = typeof v.velocity === "number" ? v.velocity : 1;
     parts.push(`gain/${fnum(0.3 * g * vel)}`);
-    for (const k of NUM_KEYS) {
+    for (const k of NUM_KEYS_ARR) {
       if (k === "gain" || k === "velocity" || k === "speed" || k === "loop" || k === "loopBegin" || k === "loopEnd") continue;
       const val = v[k];
       if (typeof val === "number" && Number.isFinite(val)) parts.push(`${k}/${fnum(val)}`);
@@ -817,7 +811,7 @@ function hapKv(v: HapValue, durationSec: number, atCycles: number | null = null)
     }
   }
 
-  for (const k of NUM_KEYS) {
+  for (const k of NUM_KEYS_ARR) {
     if (k === "speed" && repitched) continue; // combined value already pushed
     const val = v[k];
     if (typeof val === "number" && Number.isFinite(val)) parts.push(`${k}/${fnum(val)}`);
@@ -830,8 +824,13 @@ function hapKv(v: HapValue, durationSec: number, atCycles: number | null = null)
   if (typeof v.ftype === "string") parts.push(`ftype/${v.ftype}`); // ladder | 24db
   pushEffectKv(parts, v, atCycles);
   if (typeof v.phaser === "number" && Number.isFinite(v.phaser)) parts.push(`phaserrate/${fnum(v.phaser)}`);
-  for (const heavy of ["chorus"]) {
-    if (v[heavy] != null) dropOnce(`${heavy} (superdough has no chorus either)`);
+  // A control we have not ported must SAY SO. Three bugs (stretch, rdim, the
+  // whole duck family) hid for weeks as "zaltz just sounds different" because
+  // an unhandled control was indistinguishable from silence. The classifier
+  // is the contract in lib/zaltz-controls.ts; the warning fires once per key.
+  for (const k of Object.keys(v)) {
+    const why = UNSUPPORTED[k];
+    if (why != null && v[k] != null) dropOnce(`${k} — ${why}`);
   }
   parts.push(`duration/${fnum(duration)}`);
   return parts.join("/");

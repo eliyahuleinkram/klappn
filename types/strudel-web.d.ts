@@ -65,3 +65,11 @@ declare module "@strudel/core";
 declare module "@strudel/mini";
 declare module "@strudel/tonal";
 declare module "@strudel/transpiler";
+
+// Deep entry points used by the contract tests (lib/zaltz-controls.test.ts,
+// lib/zaltz-bridge.test.ts): they import Strudel's control registry directly
+// rather than the package barrel, because the barrel pulls a transitive
+// dependency that cannot load headlessly. Untyped on purpose — the tests read
+// the shapes from Strudel at runtime, which is the entire point of them.
+declare module "@strudel/core/controls.mjs";
+declare module "@strudel/core/pattern.mjs";

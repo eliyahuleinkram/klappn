@@ -23,7 +23,16 @@
 
 #define SR_MAX 96000
 #define BLOCK 128
-#define MAX_VOICES 128
+// PHYSICAL slots. The MUSICAL cap is POLY_CAP below — superdough's
+// maxPolyphony semantics need headroom above it, because a stolen voice keeps
+// sounding (fading) for 0.25s after it is stolen.
+#define MAX_VOICES 320
+// superdough DEFAULT_MAX_POLYPHONY (superdough.mjs:36) — the same 128 the
+// client re-asserts on every play (strudel-client maxVoices).
+#define POLY_CAP 128
+// superdough steals by ramping the victim to 0 over 0.25s (superdough.mjs:527
+// `const endTime = t + 0.25`).
+#define STEAL_FADE 0.25f
 #define MAX_EVENTS 256
 #define EVENT_BUF 2048
 #define OUT_CH 2
@@ -374,6 +383,9 @@ typedef struct {
   // loop instead of being hushed — set on live voices by sd_retire and
   // inherited by voices spawned from pre-retire events
   double retire_start; // frame the fade began (-1 = not retiring)
+  // VOICE STEALING (superdough parity): when the musical cap is reached the
+  // OLDEST voice is ramped to 0 over 0.25s and the new note always starts.
+  double steal_at; // frame the steal ramp began (-1 = not stolen)
   // PHASER (superdough.mjs getPhaser): ONE notch at center+282, LFO ±sweep
   // cents on its frequency at `rate` Hz; Q = 2 − clamp(2·depth, 0, 1.9)
   bool phaser_on;
@@ -843,6 +855,7 @@ __attribute__((export_name("sd_retire"))) void sd_retire(float seconds) {
 __attribute__((export_name("sd_hush"))) void sd_hush(void) {
   for (int i = 0; i < MAX_VOICES; i++) {
     voices[i].active = false;
+    voices[i].steal_at = -1;
     if (voices[i].pv) { pv_release(voices[i].pv); voices[i].pv = 0; } // capped pool must never leak
   }
   for (int i = 0; i < MAX_EVENTS; i++) events[i].used = false;
@@ -1032,11 +1045,38 @@ __attribute__((export_name("sd_event"))) int sd_event(void) {
   return -3; // queue full
 }
 
+/** superdough's polyphony law (superdough.mjs:524-531), which zaltz used to
+ *  invert: when the cap is exceeded superdough ramps the OLDEST sound to 0
+ *  over 0.25s and ALWAYS plays the new one. zaltz used to scan for a free
+ *  slot and, finding none, silently DROP the new note — so in a dense patch
+ *  long ringing tails starved every fresh hit (the user's "the hi-hat is not
+ *  even playing"). Voices that are already stolen or retiring don't count
+ *  against the cap (they are on their way out) and are never stolen twice. */
+static void enforce_polyphony(double at_frame) {
+  for (;;) {
+    int live = 0, oldest = -1;
+    unsigned int oldest_vid = 0;
+    for (int i = 0; i < MAX_VOICES; i++) {
+      const Voice *v = &voices[i];
+      if (!v->active || v->steal_at >= 0 || v->retire_start >= 0) continue;
+      live++;
+      if (oldest < 0 || v->vid < oldest_vid) {
+        oldest = i;
+        oldest_vid = v->vid;
+      }
+    }
+    if (live < POLY_CAP || oldest < 0) return;
+    voices[oldest].steal_at = at_frame; // 0.25s ramp, then the slot frees
+  }
+}
+
 static void start_voice(const Event *ev) {
+  enforce_polyphony(ev->at_frame);
   for (int i = 0; i < MAX_VOICES; i++) {
     if (voices[i].active) continue;
     Voice *v = &voices[i];
     v->active = true;
+    v->steal_at = -1;
     v->src = ev->src;
     v->phase = 0;
     v->phase_inc = (double)ev->freq / (double)sr_f;
@@ -1283,7 +1323,24 @@ static void start_voice(const Event *ev) {
     }
     return;
   }
-  // voice pool exhausted — drop (superdough steals; v0.2)
+  // EVERY physical slot busy — only reachable if ~192 stolen voices are still
+  // inside their 0.25s fades at once (≈770 steals/s). superdough's contract is
+  // that the NEW sound always plays, so take the oldest slot outright rather
+  // than dropping the note; whatever is there is already fading toward zero.
+  {
+    int oldest = -1;
+    unsigned int oldest_vid = 0;
+    for (int i = 0; i < MAX_VOICES; i++)
+      if (oldest < 0 || voices[i].vid < oldest_vid) {
+        oldest = i;
+        oldest_vid = voices[i].vid;
+      }
+    if (oldest >= 0) {
+      voices[oldest].active = false;
+      if (voices[oldest].pv) { pv_release(voices[oldest].pv); voices[oldest].pv = 0; }
+      start_voice(ev); // the slot is free now; recursion depth is 1 by construction
+    }
+  }
 }
 
 // ShapeProcessor port (worklets.mjs:259-295): y = (1+k)x / (1+k|x|), ×shapevol
@@ -1763,22 +1820,42 @@ static void pv_process(Pv *p, const float *inl, const float *inr, float *outl, f
   p->time_cursor += (double)PV_HOP;
 }
 
-// crush (bit reduce) + coarse (sample-hold) + the cut-group 10ms kill —
-// applied at the one output chokepoint so every voice path gets them
-static inline void voice_fx(Voice *v, double f, float *al, float *ar) {
-  if (v->retire_start >= 0) {
-    float k = 1.0f - (float)(f - v->retire_start) * retire_inv;
-    if (k <= 0) { v->active = false; *al = 0; *ar = 0; return; }
-    *al *= k;
-    *ar *= k;
+// THE VOICE CHAIN, IN SUPERDOUGH'S ORDER (superdough.mjs:585-930, read top to
+// bottom): source → gain(gain·velocity) → lpf → hpf → bpf → vowel → coarse →
+// crush → shape → distort → tremolo → compressor → PAN → phaser → postgain →
+// orbit sends. Order is not cosmetic here: every one of coarse/crush/shape/
+// distort is NONLINEAR, so moving a gain across one changes the sound, not
+// just the level. zaltz used to run shape → postgain → pan → phaser → distort
+// → tremolo → crush → coarse, which fed `postgain` INTO the distortion —
+// `.soft(.6).postgain(1.2)` saturated harder and came out ~1.2dB quieter than
+// strudel.cc (the user's kick with "no umph"). Split in two around the pan
+// stage, because the pan law differs per source path.
+//
+// voice_pre_pan: everything from coarse through tremolo. All stages are
+// channel-symmetric; a mono voice passes the same pointer twice-safe values
+// via voice_pre_pan_mono, which keeps the per-sample state (coarse counter,
+// tremolo phase) advancing exactly once.
+static inline void voice_pre_pan(Voice *v, float *al, float *ar) {
+  if (v->coarse >= 2) { // superdough: coarse BEFORE crush, both before shape
+    if (v->coarse_ctr == 0) {
+      v->coarse_hold_l = *al;
+      v->coarse_hold_r = *ar;
+    }
+    *al = v->coarse_hold_l;
+    *ar = v->coarse_hold_r;
+    v->coarse_ctr++;
+    if (v->coarse_ctr >= v->coarse) v->coarse_ctr = 0;
   }
-  if (v->phaser_on) {
-    *al = biquad_run(&v->ph_l, *al);
-    *ar = biquad_run(&v->ph_r, *ar);
+  if (v->crush >= 1.0f) {
+    float x = sd_exp2f(v->crush - 1.0f); // webdirt: round(x·2^(crush−1))/2^(crush−1)
+    *al = sd_roundf(*al * x) / x;
+    *ar = sd_roundf(*ar * x) / x;
   }
-  // DISTORTION FAMILY (DistortProcessor): y = postgain·algo(x, k). Sits after
-  // shape (in-path) like superdough's chain (shape → distort); crush lands
-  // after — a pre-existing zaltz ordering trait, kept (corpus-calibrated).
+  if (v->shape_on) {
+    *al = shape_drive(*al, v->shape_k, v->shapevol);
+    *ar = shape_drive(*ar, v->shape_k, v->shapevol);
+  }
+  // DISTORTION FAMILY (DistortProcessor): y = postgain·algo(x, k)
   if (v->dist_on) {
     *al = v->dist_pg * dist_run(v->dist_alg, *al, v->dist_k);
     *ar = v->dist_pg * dist_run(v->dist_alg, *ar, v->dist_k);
@@ -1796,20 +1873,40 @@ static inline void voice_fx(Voice *v, double f, float *al, float *ar) {
     v->trem_phase += (double)(v->trem_rate / sr_f);
     if (v->trem_phase >= 1.0) v->trem_phase -= 1.0;
   }
-  if (v->crush >= 1.0f) {
-    float x = sd_exp2f(v->crush - 1.0f); // webdirt: round(x·2^(crush−1))/2^(crush−1)
-    *al = sd_roundf(*al * x) / x;
-    *ar = sd_roundf(*ar * x) / x;
+}
+
+/** Mono form: one channel in/out, per-sample state advanced exactly once. */
+static inline void voice_pre_pan_mono(Voice *v, float *x) {
+  float dummy = *x;
+  voice_pre_pan(v, x, &dummy);
+}
+
+// voice_post_pan: phaser → postgain → the klappn-only fades. The fades sit at
+// the very end so a crossfade or a steal is TRANSPARENT — a gain ride ahead of
+// a nonlinearity would change the timbre as it moves.
+static inline void voice_post_pan(Voice *v, double f, float *al, float *ar) {
+  if (v->phaser_on) {
+    *al = biquad_run(&v->ph_l, *al);
+    *ar = biquad_run(&v->ph_r, *ar);
   }
-  if (v->coarse >= 2) {
-    if (v->coarse_ctr == 0) {
-      v->coarse_hold_l = *al;
-      v->coarse_hold_r = *ar;
+  *al *= v->postgain; // superdough: `post = GainNode(postgain)`, last before sends
+  *ar *= v->postgain;
+  if (v->retire_start >= 0) {
+    float k = 1.0f - (float)(f - v->retire_start) * retire_inv;
+    if (k <= 0) { v->active = false; *al = 0; *ar = 0; return; }
+    *al *= k;
+    *ar *= k;
+  }
+  if (v->steal_at >= 0) { // superdough voice steal: 0.25s linear ramp to 0
+    float k = 1.0f - (float)((f - v->steal_at) / ((double)STEAL_FADE * (double)sr_f));
+    if (k <= 0) {
+      v->active = false;
+      if (v->pv) { pv_release(v->pv); v->pv = 0; }
+      *al = 0; *ar = 0;
+      return;
     }
-    *al = v->coarse_hold_l;
-    *ar = v->coarse_hold_r;
-    v->coarse_ctr++;
-    if (v->coarse_ctr >= v->coarse) v->coarse_ctr = 0;
+    *al *= k;
+    *ar *= k;
   }
   if (v->cutkill) {
     double dt = f - v->cutkill_at;
@@ -2016,12 +2113,13 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
           ar = v->pcm_channels == 1 ? al : biquad_run(&v->hpf_r, ar);
           if (v->hp24) { al = biquad_run(&v->hpf2, al); ar = v->pcm_channels == 1 ? al : biquad_run(&v->hpf2_r, ar); }
         }
-        if (v->shape_on) {
-          al = shape_drive(al, v->shape_k, v->shapevol);
-          ar = shape_drive(ar, v->shape_k, v->shapevol);
+        // coarse → crush → shape → distort → tremolo (superdough's order)
+        if (v->pcm_channels == 1) {
+          voice_pre_pan_mono(v, &al);
+          ar = al;
+        } else {
+          voice_pre_pan(v, &al, &ar);
         }
-        al *= v->postgain;
-        ar *= v->postgain;
         if (v->pan_set) {
           if (v->pcm_channels == 1) {
             // MONO source → StereoPanner MONO equal-power law (spec): the
@@ -2043,7 +2141,7 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
             }
           }
         }
-        voice_fx(v, engine_frame + i, &al, &ar);
+        voice_post_pan(v, engine_frame + i, &al, &ar);
         voice_emit(v, i, al, ar);
         continue;
       }
@@ -2083,12 +2181,7 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
           al = biquad_run(&v->hpf, al); ar = biquad_run(&v->hpf_r, ar);
           if (v->hp24) { al = biquad_run(&v->hpf2, al); ar = biquad_run(&v->hpf2_r, ar); }
         }
-        if (v->shape_on) {
-          al = shape_drive(al, v->shape_k, v->shapevol);
-          ar = shape_drive(ar, v->shape_k, v->shapevol);
-        }
-        al *= v->postgain;
-        ar *= v->postgain;
+        voice_pre_pan(v, &al, &ar); // coarse → crush → shape → distort → tremolo
         if (v->pan_set) {
           // StereoPanner STEREO law (spec): x>0 folds L into R, x<0 folds R into L
           float x = v->pan_x;
@@ -2104,7 +2197,7 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
             al = nl; ar = nr;
           }
         }
-        voice_fx(v, engine_frame + i, &al, &ar);
+        voice_post_pan(v, engine_frame + i, &al, &ar);
         voice_emit(v, i, al, ar);
         continue;
       }
@@ -2173,10 +2266,9 @@ __attribute__((export_name("sd_dsp"))) void sd_dsp(void) {
         x = biquad_run(&v->hpf, x);
         if (v->hp24) x = biquad_run(&v->hpf2, x);
       }
-      if (v->shape_on) x = shape_drive(x, v->shape_k, v->shapevol);
-      x *= v->postgain;
+      voice_pre_pan_mono(v, &x); // coarse → crush → shape → distort → tremolo
       float al = x * v->pan_l, ar = x * v->pan_r;
-      voice_fx(v, engine_frame + i, &al, &ar);
+      voice_post_pan(v, engine_frame + i, &al, &ar);
       voice_emit(v, i, al, ar);
     }
     if (pv_on) pv_flush(v); // stretch voices: vocode the staged block now
