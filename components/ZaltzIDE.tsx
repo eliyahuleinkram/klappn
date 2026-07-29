@@ -1116,9 +1116,24 @@ export default function ZaltzIDE({
   const [liveBusy, setLiveBusy] = useState(false);
   const [endArmed, setEndArmed] = useState(false);
   const [liveCopied, setLiveCopied] = useState(false);
-  // THE SHARE LINK — mint a frozen copy of both panes and copy its URL.
+  // THE SHARE LINK — mint a frozen copy of both panes. The minted URL STAYS
+  // on screen beside the button that made it (user 07-29: "the link should be
+  // shown next to where it is asked for") with a copy glyph you can tap as
+  // often as you like — the first mint copies for you, but a link you can see
+  // is a link you can trust, and a clipboard write can always fail silently.
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const copyShare = useCallback(async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // clipboard blocked — the URL is on screen and selectable anyway
+      setNotice("Copy blocked — select the link and copy it by hand");
+    }
+  }, []);
   // A VISIT MUST NOT COST SOMEONE THEIR BENCH: opening a share loads its code
   // into the panes, but the draft autosave stays parked until the visitor
   // actually types. Reload without the link and their own work is still there;
@@ -1138,19 +1153,14 @@ export default function ZaltzIDE({
         return;
       }
       const url = `${location.origin}/boiler-room?s=${d.token}`;
-      try {
-        await navigator.clipboard.writeText(url);
-        setShareCopied(true);
-        setTimeout(() => setShareCopied(false), 2400);
-      } catch {
-        setNotice(url); // clipboard blocked — show it so it can still be copied
-      }
+      setShareUrl(url); // it stays on screen — see the capsule in the header
+      void copyShare(url); // and the first mint copies it for you
     } catch {
       setNotice("Couldn't mint a link");
     } finally {
       setShareBusy(false);
     }
-  }, []);
+  }, [copyShare]);
   const liveBroadcast = useRef<Broadcast | null>(null);
   const liveBroadcastBusy = useRef(false);
   const [broadcastEpoch, setBroadcastEpoch] = useState(0);
@@ -2525,14 +2535,68 @@ export default function ZaltzIDE({
             play and change. One tap mints the link and copies it; the word
             tells you what you're holding, so the consequence is legible before
             the tap. */}
-        <button
-          onClick={() => void shareRoom()}
-          disabled={shareBusy}
-          title="Share this code — a link anyone can open, play and edit"
-          className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/60 transition hover:text-foreground active:scale-[.97] disabled:opacity-60 sm:inline-flex"
-        >
-          {shareBusy ? "minting…" : shareCopied ? "link copied" : "Share"}
-        </button>
+        {!shareUrl ? (
+          <button
+            onClick={() => void shareRoom()}
+            disabled={shareBusy}
+            title="Share this code — a link anyone can open, play and edit"
+            className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/60 transition hover:text-foreground active:scale-[.97] disabled:opacity-60 sm:inline-flex"
+          >
+            {shareBusy ? "minting…" : "Share"}
+          </button>
+        ) : (
+          /* ONE machined capsule (the seam law): the link itself, then the
+             copy glyph behind a hairline, then ✕ to put it away. The URL is
+             selectable text — if the clipboard is ever blocked, the link is
+             still right there to grab by hand. */
+          <div className="hidden shrink-0 items-stretch overflow-hidden rounded-full border border-white/[0.12] bg-white/[0.05] text-[12.5px] sm:flex">
+            <button
+              onClick={() => void copyShare(shareUrl)}
+              title={shareUrl}
+              className="max-w-[16rem] truncate px-3 py-2 text-left text-muted/70 transition hover:text-foreground"
+            >
+              {shareUrl.replace(/^https?:\/\//, "")}
+            </button>
+            <span className="w-px bg-black/30" aria-hidden />
+            <button
+              onClick={() => void copyShare(shareUrl)}
+              title="Copy the link"
+              className={`flex items-center gap-1.5 px-3 py-2 transition active:scale-[.96] ${
+                shareCopied
+                  ? "bg-accent/[0.14] text-accent-strong"
+                  : "text-muted/70 hover:bg-white/[0.06] hover:text-foreground"
+              }`}
+            >
+              {shareCopied ? (
+                <svg viewBox="0 0 14 14" className="h-[13px] w-[13px]" aria-hidden>
+                  <path
+                    d="M2.5 7.5 L5.5 10.5 L11.5 3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              ) : (
+                /* the universal copy mark: one sheet behind another */
+                <svg viewBox="0 0 14 14" className="h-[13px] w-[13px]" aria-hidden>
+                  <rect x="1.6" y="1.6" width="7.6" height="7.6" rx="1.7" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                  <rect x="4.8" y="4.8" width="7.6" height="7.6" rx="1.7" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                </svg>
+              )}
+              {shareCopied ? "copied" : "copy"}
+            </button>
+            <span className="w-px bg-black/30" aria-hidden />
+            <button
+              onClick={() => setShareUrl(null)}
+              title="Put the link away"
+              className="px-2.5 py-2 text-muted/50 transition hover:text-foreground"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
         <button
