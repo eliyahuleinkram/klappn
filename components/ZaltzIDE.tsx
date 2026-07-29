@@ -2360,19 +2360,29 @@ export default function ZaltzIDE({
           feature's own mark and name. No logo, no code door up here (the
           brand and the GitHub both live at home). */}
       <header className="flex items-center gap-2.5 py-3">
+        {/* BRAND │ SECTION — one way home, one name for where you are.
+            What stood here was a back chevron, the word "Hits", the mark and
+            the name: four things doing two jobs, and a ‹ that made a live
+            instrument feel like a sub-page of something else. The wordmark IS
+            the way out now (everyone already knows a logo goes home), the
+            hairline does the work the arrow was doing, and the rotor carries
+            the room's identity on the other side of it. Nothing here is a
+            control — the controls are all on the right, where the hands are. */}
         <Link
           href="/"
-          className="group flex shrink-0 items-center gap-1 text-[15px] text-muted transition hover:text-foreground"
-          title="Back to your hits"
+          title="Klappn — your hits"
+          className="wordmark shrink-0 text-[15px] tracking-tight text-muted/70 transition hover:text-foreground"
         >
-          <span className="text-lg leading-none transition group-hover:-translate-x-0.5">
-            ‹
-          </span>
-          <span className="hidden sm:inline">Hits</span>
+          Klappn
         </Link>
+        <span className="h-[15px] w-px shrink-0 bg-white/[0.13]" aria-hidden />
         <span className="flex min-w-0 shrink-0 items-center gap-2">
           <EngineMark className="h-[17px] w-[17px] shrink-0" />
-          <span className="truncate text-[15px] font-medium tracking-tight text-foreground">
+          {/* on a phone the rotor says it by itself — the word costs ~55px of
+              a bar that has a transport to fit, and the old chevron it
+              replaced cost almost nothing. Brand and way-home stay at every
+              width; only the label folds. */}
+          <span className="hidden truncate text-[15px] font-medium tracking-tight text-foreground sm:inline">
             Engine
           </span>
         </span>
