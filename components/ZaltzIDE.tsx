@@ -2944,78 +2944,109 @@ export default function ZaltzIDE({
             bottom: `calc(max(0.75rem, env(safe-area-inset-bottom)) + 4.4rem + ${kbInset}px)`,
           }}
         >
-          <div className="flex items-center gap-2 rounded-full border border-accent/30 bg-black/60 py-1.5 pl-4 pr-1.5 shadow-[0_0_70px_-18px_rgba(224,49,156,.55),0_18px_50px_-20px_rgba(0,0,0,.8),inset_0_1px_0_rgba(255,255,255,.1)] backdrop-blur-2xl backdrop-saturate-[1.6]">
-            <span aria-hidden className="shrink-0 text-[13px] leading-none text-accent-strong/80">
-              ✎
-            </span>
-            {/* WHAT IS ABOUT TO CHANGE, before you say a word. A span shows
-                itself in mono; the whole pane says so in plain words — never a
-                truncated wall of the entire file pretending to be a chip. */}
-            <span
-              className={`max-w-[24%] shrink-0 truncate text-[11.5px] ${
-                editSel.whole
-                  ? "text-accent-strong/70"
-                  : "font-mono text-muted/60"
-              }`}
-              title={editSel.whole ? undefined : editSel.text}
-            >
-              {editSel.whole
-                ? editSel.pane === "hydra"
-                  ? "the whole picture"
-                  : "the whole thing"
-                : editSel.text}
-            </span>
-            <span className="h-4 w-px shrink-0 bg-white/[0.12]" aria-hidden />
-            <input
-              autoFocus
-              value={editAsk}
-              onChange={(e) => setEditAsk(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void sendEditSel();
-                if (e.key === "Escape") setEditSel(null);
-              }}
-              placeholder={
-                editSel.whole
-                  ? "say the change — it rewrites everything here"
-                  : "say the change — it rewrites just this"
-              }
-              disabled={editBusy}
-              /* 16px on touch — under that, iOS zooms the whole page into the
-                 input and the room lurches (the classic mobile form bug).
-                 Inline outline:none — the GLOBAL :focus-visible ring boxed
-                 the input inside its own capsule (the capsule's pink rim is
-                 the focus cue); inline beats the unlayered global rule. */
-              style={{ outline: "none" }}
-              className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-accent placeholder:text-muted/40 disabled:opacity-60 sm:text-[13.5px]"
+          {/* GLASS, BUT IT SITS OVER CODE. The panes' own /30 glass reads
+              beautifully over a picture; this bar lands on dense, bright text,
+              and at /60 the code behind it climbed straight through the target
+              line and the words you were typing (seen at 375px). /88 keeps the
+              blur and the saturation — still glass, still alive — while the one
+              thing that must be legible, is. */}
+          <div className="overflow-hidden rounded-[22px] border border-white/[0.14] bg-black/[0.88] shadow-[0_0_80px_-20px_rgba(224,49,156,.5),0_24px_60px_-24px_rgba(0,0,0,.85),inset_0_1px_0_rgba(255,255,255,.1)] backdrop-blur-2xl backdrop-saturate-[1.6]">
+            {/* THE THREAD — the house gradient along the top edge, the grains
+                card's own move: this is a klappn object, said in one hairline
+                instead of a slab of pink. */}
+            <div
+              aria-hidden
+              className="h-[2px] w-full"
+              style={{ backgroundImage: "linear-gradient(90deg, #ff63c1, #e0319c 55%, #b3126f)" }}
             />
-            <button
-              onClick={() => void sendEditSel()}
-              disabled={editBusy || !editAsk.trim()}
-              className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition active:scale-[.95] disabled:opacity-40 ${
-                editBusy
-                  ? "text-accent-strong"
-                  : "bg-accent/[0.12] text-accent-strong hover:bg-accent/[0.2]"
-              }`}
-            >
-              {editBusy ? (
-                <span className="shimmer-text">reworking…</span>
-              ) : (
-                <>
-                  <span
-                    aria-hidden
-                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--accent)]"
-                  />
-                  edit
-                </>
-              )}
-            </button>
-            <button
-              onClick={() => setEditSel(null)}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[13px] text-muted/60 transition hover:bg-white/[0.06] hover:text-foreground active:scale-[.92]"
-              aria-label="Let it go"
-            >
-              ✕
-            </button>
+            {/* WHAT WILL CHANGE — its own line, so it can be READ instead of
+                squeezed to 24% beside an input. The consequence is legible
+                before a word is typed, which is the whole point of the row. */}
+            <div className="flex items-center gap-2 px-4 pt-3">
+              <span
+                aria-hidden
+                className="shrink-0 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] bg-clip-text text-[13px] leading-none text-transparent"
+              >
+                ✎
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[12px] text-muted/70">
+                rewriting{" "}
+                {editSel.whole ? (
+                  <span className="text-accent-strong/85">
+                    {editSel.pane === "hydra" ? "the whole picture" : "the whole thing"}
+                  </span>
+                ) : (
+                  <span className="font-mono text-foreground/70">{editSel.text}</span>
+                )}
+              </span>
+              <button
+                onClick={() => setEditSel(null)}
+                className="-mr-1.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-[12px] text-muted/50 transition hover:bg-white/[0.07] hover:text-foreground active:scale-[.92]"
+                aria-label="Let it go"
+                title="Let it go (Esc)"
+              >
+                ✕
+              </button>
+            </div>
+            {/* THE WORDS — the hero of the object. Full width, nothing stealing
+                from it; the verb sits inside the field the way a send sits in a
+                message box, so the eye never leaves the line it is typing. */}
+            <div className="flex items-center gap-2 px-3 pb-3 pt-2">
+              <input
+                autoFocus
+                value={editAsk}
+                onChange={(e) => setEditAsk(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void sendEditSel();
+                  if (e.key === "Escape") setEditSel(null);
+                }}
+                placeholder={
+                  editSel.pane === "hydra"
+                    ? "darker · slower · one chain less"
+                    : "quieter · half time · lose the hats"
+                }
+                disabled={editBusy}
+                /* 16px on touch — under that, iOS zooms the whole page into the
+                   input and the room lurches. Inline outline:none — the GLOBAL
+                   :focus-visible ring boxes the input inside its own capsule,
+                   and an inline style beats the unlayered global rule. */
+                style={{ outline: "none" }}
+                className="min-w-0 flex-1 rounded-2xl bg-white/[0.07] px-3.5 py-2.5 text-[16px] text-foreground caret-accent transition placeholder:text-muted/35 focus:bg-white/[0.08] disabled:opacity-60 sm:text-[13.5px]"
+              />
+              <button
+                onClick={() => void sendEditSel()}
+                disabled={editBusy || !editAsk.trim()}
+                aria-label="Make the change"
+                title="Make the change (↵)"
+                className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-2xl text-white transition active:scale-[.94] disabled:opacity-30"
+                style={{
+                  backgroundImage: editAsk.trim()
+                    ? "linear-gradient(165deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)"
+                    : undefined,
+                  backgroundColor: editAsk.trim() ? undefined : "rgba(255,255,255,.06)",
+                  boxShadow: editAsk.trim()
+                    ? "0 2px 12px -2px rgba(179,18,111,.85), 0 0 34px -8px rgba(224,49,156,.8), inset 0 1px 0 rgba(255,255,255,.4)"
+                    : undefined,
+                }}
+              >
+                {editBusy ? (
+                  /* IT IS WORKING — the mark itself breathes; no word, no
+                     spinner borrowed from someone else's software. */
+                  <span className="h-2 w-2 animate-ping rounded-full bg-white/90" />
+                ) : (
+                  /* An arrow, in real geometry — the one gesture: send it. */
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path
+                      d="M5 12h13M13 6l6 6-6 6"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
