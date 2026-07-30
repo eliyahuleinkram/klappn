@@ -24,8 +24,6 @@ import {
   ensurePerfFx,
   fadeMaster,
   getBroadcastStream,
-  audioClockWait,
-  msToNextCycle,
   playPart,
   setLiveCps,
   setLiveMicDevice,
@@ -238,27 +236,6 @@ function humanizeEngineError(raw: string): string {
 // (The deck's pads, gradient and dial grid live in components/ZaltzMixer —
 // this file keeps only the wiring they pull on.)
 
-/** ON THE BAR — a bar line with the change landing exactly on it. Real
- *  geometry on one centre (state-swapped marks never use text glyphs — the
- *  advance widths differ and the icon jumps on flip). */
-function BarMark({ on }: { on: boolean }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-      {/* the bar line */}
-      <path
-        d="M6 4v16"
-        stroke="currentColor"
-        strokeWidth={on ? 2.6 : 2}
-        strokeLinecap="round"
-        opacity={on ? 1 : 0.75}
-      />
-      {/* what lands on it */}
-      <circle cx="16" cy="12" r={on ? 3.4 : 2.8} fill="currentColor" opacity={on ? 1 : 0.6} />
-      <path d="M9 12h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity={on ? 0.9 : 0.45} />
-    </svg>
-  );
-}
-
 /** The Copilot's mark — one bold spark, the sign everyone reads as "AI"
  *  (the same ✦ that fronts the fix chip). Gradient id is per-instance
  *  (useId — the shared-id/display:none trap left the mobile twin
@@ -329,42 +306,11 @@ export default function ZaltzIDE({
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  /**
-   * ON THE BAR — the quantize latch.
-   *
-   * Off, every change lands the instant it parses: right for composing, wrong
-   * for playing, because a layer that enters halfway through its own bar plays
-   * its second half first. On, every landing WAITS for the next bar line, so a
-   * change made anywhere in the bar arrives on the downbeat.
-   *
-   * It is a LATCH and not a chord on purpose: a DJ turns quantize on once and
-   * then stops thinking about it. And because two edits inside the same bar
-   * both wait for the same downbeat, muting the old part and waking the new one
-   * become ONE musical event — which is the whole trick of a live transition,
-   * with nothing to learn but a switch.
-   */
-  const [onBar, setOnBar] = useState(false);
-  const onBarRef = useRef(false);
-  onBarRef.current = onBar;
-  /** ms remaining on a landing that is waiting for the downbeat (0 = none) —
-   *  the latch counts it down so the wait is SEEN, never guessed at. */
-  const [barWait, setBarWait] = useState(0);
-  /** The room's LIVE tempo in cycles/sec (the code's own setcpm, times the
-   *  deck's nudge) — what the bar wait is measured against. Kept as a ref
-   *  because runMusic is declared long before the memo that computes it. */
-  const cpsRef = useRef<number | null>(null);
   /** A COMPLETE edit just happened (a mute) — land it without the composing
    *  debounce. Typing needs the 700ms to know the thought is finished; a mute
    *  is finished the instant it fires, and "I pressed it, it went quiet" is the
    *  whole promise. */
   const landNow = useRef(false);
-  useEffect(() => {
-    try {
-      setOnBar(localStorage.getItem("klappn-on-the-bar") === "1");
-    } catch {
-      /* private mode — the latch just starts off */
-    }
-  }, []);
 
   // THE COPILOT — ghost completions at the caret (Tab takes, Esc bins).
   const [copilot, setCopilot] = useState(true);
@@ -588,25 +534,6 @@ export default function ZaltzIDE({
       setGhost(null);
     }
     try {
-      // ── ON THE BAR ─────────────────────────────────────────────────────
-      // Hold the landing until the downbeat. Only while something is already
-      // playing (a first send IS its own downbeat) and only when the room's
-      // own tempo is known. msToNextCycle refuses a wait that isn't worth it
-      // (<55ms) and can never ask for more than one bar, so the worst case is
-      // one bar of patience, never a stuck change.
-      if (onBarRef.current && stateRef.current.playing) {
-        const cps = cpsRef.current;
-        const wait = cps ? msToNextCycle(cps) : 0;
-        if (wait > 0) {
-          setBarWait(wait);
-          // The AUDIO clock, not setTimeout: a backgrounded tab throttles
-          // timers to ~1s and the downbeat would arrive whenever the browser
-          // felt like it. This is the same wait the live sets ride.
-          await audioClockWait(wait);
-          setBarWait(0);
-          if (runId.current !== id) return; // a newer send owns the downbeat
-        }
-      }
       // THE DECK'S ROUTING, applied at play time only — the pane's code is
       // never touched. Every layer lands on its channel's orbit decade, so
       // the kills have buses to bite. Ducks REMAP through the re-busing (the
@@ -1741,11 +1668,6 @@ export default function ZaltzIDE({
     }
     return cpm != null && cpm > 0 ? cpm / 60 : null;
   }, [strudel]);
-  // The bar wait measures against the tempo actually sounding — the code's own
-  // setcpm as the nudge is currently bending it.
-  useEffect(() => {
-    cpsRef.current = baseCps == null ? null : baseCps * (1 + nudge / 100);
-  }, [baseCps, nudge]);
   const applyNudge = useCallback(
     (n: number) => {
       if (baseCps == null) return;
@@ -2758,33 +2680,6 @@ export default function ZaltzIDE({
         )}
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
-        {/* ON THE BAR — the quantize latch. Sits beside Copilot because it is
-            the other thing that changes HOW the room answers you, and it wears
-            its waiting: while a change is held for the downbeat the pill
-            breathes, so nobody wonders whether the tap took. */}
-        <button
-          onClick={() => {
-            const next = !onBar;
-            setOnBar(next);
-            try {
-              localStorage.setItem("klappn-on-the-bar", next ? "1" : "0");
-            } catch {
-              /* private mode — the latch just won't persist */
-            }
-          }}
-          aria-pressed={onBar}
-          className={`hidden shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] transition active:scale-[.97] sm:inline-flex ${
-            onBar
-              ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
-              : "bg-white/[0.05] text-muted/60 hover:text-foreground"
-          } ${barWait > 0 ? "animate-pulse" : ""}`}
-          title={
-            onBar
-              ? "On the bar — every change waits for the downbeat. Mute one part and wake another in the same bar and they swap as one move."
-              : "On the bar — hold every change until the next downbeat"
-          }
-        >
-          <BarMark on={onBar} />on the bar</button>
         <button
           onClick={toggleCopilot}
           className={`hidden shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] transition active:scale-[.97] sm:inline-flex ${

@@ -107,29 +107,6 @@ export function currentCycle(): number {
   }
 }
 
-/**
- * Milliseconds until the next BAR LINE — the room's "on the bar" landing.
- *
- * One cycle IS one bar here (every sketch opens `setcpm(bpm/beatsPerBar)`), so
- * the next boundary is simply the next whole cycle. `cps` comes from the caller
- * because the code's own tempo is the truth (the deck's nudge multiplies it) and
- * the scheduler has no getter worth trusting mid-nudge.
- *
- * Returns 0 — meaning "go now" — whenever waiting would be a lie: nothing
- * playing, no tempo, or a boundary so close (< 55ms) that the wait would cost
- * more in latency than it buys in tightness. Never returns more than one whole
- * bar, so a bad clock can't strand a change.
- */
-export function msToNextCycle(cps: number): number {
-  if (!(cps > 0)) return 0;
-  const cycle = currentCycle();
-  if (!(cycle > 0)) return 0; // not started — a first send is its own downbeat
-  const remaining = Math.ceil(cycle) - cycle;
-  const ms = (remaining / cps) * 1000;
-  if (!Number.isFinite(ms) || ms < 55) return 0;
-  return Math.min(ms, 1000 / cps);
-}
-
 function audioContext(): AudioContext | null {
   try {
     return mod?.getAudioContext?.() ?? null;
