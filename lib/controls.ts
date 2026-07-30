@@ -557,23 +557,6 @@ export function parseEdits(code: string | null | undefined): string[] {
     return [];
   }
 }
-
-/** The 1-based "$:" layer whose code USES this const (e.g. `.gain(bass)`), or
- *  null. Lets the UI pair a knob with the INSTRUMENT currently playing that
- *  layer — so a knob can read "Chords level · Vibraphone", derived live from
- *  the code (swap the instrument and the name follows, the value stays). */
-export function constLayer(code: string, name: string): number | null {
-  const music = stripMetaBlocks(code).replace(/\/\*\s*@hydra\b[\s\S]*?\*\//, "");
-  const starts: number[] = [];
-  for (const m of music.matchAll(/\$:/g)) starts.push(m.index ?? 0);
-  const re = new RegExp(`\\b${escapeRegExp(name)}\\b`);
-  for (let i = 0; i < starts.length; i++) {
-    const end = i + 1 < starts.length ? starts[i + 1] : music.length;
-    if (re.test(music.slice(starts[i], end))) return i + 1;
-  }
-  return null;
-}
-
 /** Carry the user's CURRENT knob values onto a different take: for every
  *  control the new code exposes, keep the value the old code had for that same
  *  name (clamped to the new knob's range). Switching styles never resets the

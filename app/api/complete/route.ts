@@ -1,7 +1,7 @@
 import { getUserId } from "@/lib/session";
 import { addTokenUsage, assertQuota } from "@/lib/billing";
 import { makeCallSink } from "@/lib/call-trace";
-import { complete } from "@/lib/llm";
+import { complete, ROUTE } from "@/lib/llm";
 import { sealDeep } from "@/lib/seal";
 import { clientIp, rateLimit, tooMany } from "@/lib/rate-limit";
 import { hydraServerErrors } from "@/lib/hydra-eval";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * THE COPILOT'S FAST LANE — one ghost-text completion at the caret. Runs on
- * OPUS 5 with thinking DISABLED (2026-07-26 switch from Sonnet after wrong
+ * ROUTE.ghost — OPUS 5 with thinking DISABLED (2026-07-26 switch from Sonnet after wrong
  * hydra ghosts shipped — `.out().brightness()` crashed live; no-thinking keeps
  * the latency, Opus keeps the dialect straight) with the OTHER pane as
  * read-only context — a hydra ghost should know the loop it lights.
@@ -77,11 +77,11 @@ export async function POST(req: Request) {
   );
   const sink = makeCallSink();
   try {
-    // OPUS 5, thinking off (2026-07-27, launch call): ghost quality over
-    // pennies — billed at Opus's own rate via MODEL_COST_FACTOR. Thinking
-    // stays off; the tight cap keeps latency in ghost territory.
+    // ROUTE.ghost — Opus 5, thinking off (2026-07-27, launch call): ghost
+    // quality over pennies, billed at Opus's own rate via MODEL_COST_FACTOR.
+    // Thinking stays off; the tight cap keeps latency in ghost territory. The
+    // model and the cap both live in the ROUTE table now, not here.
     const cfg = {
-      model: "opus",
       onUsage: (t: number) => void addTokenUsage(userId, t),
       onCall: sink.onCall,
     };
@@ -91,10 +91,9 @@ export async function POST(req: Request) {
     // gate → burned a repair → died again → SILENCE after ~10s of pondering
     // (seen live on a dense orchestral file). ~6 long lines need the room.
     const opts = {
-      thinking: false,
-      maxTokens: 640,
+      ...ROUTE.ghost,
       ...(stable ? { cacheStable: stable } : {}),
-    } as const;
+    };
     // THE PRE-WARM (07-28, user: "the first call takes so long") — the first
     // completion of a session pays the cache WRITE on the ~14k-token system
     // spec (the model reads the whole rulebook once; the cache then serves it

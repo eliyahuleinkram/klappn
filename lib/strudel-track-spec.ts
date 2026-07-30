@@ -36,11 +36,6 @@ Reply MORE while the brief calls for something still missing, a role nothing cov
 
 Output ONLY one word: DONE or MORE.`;
 
-/** EDIT ONE LAYER (one call) — change a single layer WITH the whole loop in view, so the rewritten line
- *  stays locked to the others (rhythm, harmony, register). Output is just that one line — the full-context
- *  version of the fast single-layer edit. */
-export const EDIT_STRUDEL_LAYER_SYSTEM = `You are editing ONE layer of an instrumental Strudel loop. You're given the whole loop — one \`$: …\` line per layer, numbered — which layer to change, and the change. Rewrite that layer with the change applied, locked to the other layers and in key; the others stay as they are. Don't write \`setcpm(…)\` or set \`.orbit(…)\`. Output EXACTLY ONE \`$:\` line — the changed layer — raw, no prose, no fences.`;
-
 /** EDIT (one call) — apply the user's change to the loop's Strudel (one \`$: …\` line per layer). Returns
  *  the edited lines (same count/order) so the caller swaps them in 1:1. */
 export const EDIT_STRUDEL_SYSTEM = `You are editing an instrumental Strudel loop — one \`$: …\` line per layer (the header says which is which). Apply the user's change, and only that change; leave the rest of the loop as it was. Keep the same number of \`$:\` lines in the same order. Don't write \`setcpm(…)\` or set \`.orbit(…)\`. Output the same number of \`$:\` lines, in order — raw, no prose, no fences.`;
@@ -48,7 +43,7 @@ export const EDIT_STRUDEL_SYSTEM = `You are editing an instrumental Strudel loop
 /** EDIT, WHOLE LOOP, FREE SHAPE (one call) — the direct edit path (2026-07-03, the user): code in →
  *  code out, no routing. The change can rewrite, add or remove layers; untouched layers come back
  *  byte-identical (they carry the user's saved tweaks — a gratuitous rewrite loses them). */
-export const EDIT_STRUDEL_WHOLE_SYSTEM = `You are editing an instrumental Strudel loop — one \`$: …\` line per layer (the header says which is which). Apply the change the user asked for: that can mean rewriting layers, adding new ones, or removing some — whatever the change needs, and nothing more. Every layer the change does not touch comes back BYTE-IDENTICAL. Don't write \`setcpm(…)\` or set \`.orbit(…)\`. Output the full revised loop: only \`$:\` lines, one per layer, raw, no prose, no fences. When the message carries THIS SECTION'S BRIEF, add ONE final line \`BRIEF: …\` — the brief word-for-word if it still describes the revised music, minimally revised where it no longer does; it stays a musical description of the section, never a mention of the edit. When the message carries THE TRACK'S DIRECTION NOTE and the change speaks to the WHOLE track's identity — a genre, era, style or energy steer, not just this loop — add ONE final line \`DIRECTION: …\`: the note rewritten whole to absorb the steer, at most 160 characters of purely musical terms (no quoted request, no artist names; the newest steer wins a conflict). A change that only touches this loop adds no DIRECTION line — when unsure, omit it.`;
+export const EDIT_STRUDEL_WHOLE_SYSTEM = `You are editing an instrumental Strudel loop — one \`$: …\` line per layer (the header says which is which). Apply the change the user asked for: that can mean rewriting layers, adding new ones, or removing some — whatever the change needs, and nothing more. Every layer the change does not touch comes back BYTE-IDENTICAL. Don't write \`setcpm(…)\` or set \`.orbit(…)\`. Output the full revised loop: only \`$:\` lines, one per layer, raw, no prose, no fences.`;
 
 /** RE-BAR (one call) — rewrite the loop's Strudel into a NEW time signature at the same tempo. */
 export const METER_STRUDEL_SYSTEM = `You re-bar an instrumental Strudel loop — one \`$: …\` line per layer — into a new time signature at the same tempo, keeping it the same loop (same voices, sounds and character) re-phrased so one cycle is one bar of the new meter. Keep the same number of \`$:\` lines in the same order. Don't write \`setcpm(…)\` or set \`.orbit(…)\`. Output the same number of \`$:\` lines, in order — raw, no prose, no fences.`;

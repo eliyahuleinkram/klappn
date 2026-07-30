@@ -3248,10 +3248,6 @@ export function setVisuals(on: boolean): void {
   visualsEnabled = on && mobileVisualsAllowed();
   if (!visualsEnabled) clearVisuals();
 }
-export function visualsOn(): boolean {
-  return visualsEnabled;
-}
-
 /** Lazy-load + initialise Hydra (WebGL canvas overlay). hydra-synth is bundled
  *  locally and handed to @strudel/hydra via a no-op `src`, so there's no runtime
  *  CDN fetch. Returns false (and disables visuals quietly) if WebGL/Hydra fail. */
@@ -3404,39 +3400,6 @@ async function ensureHydra(): Promise<boolean> {
     return false;
   }
 }
-
-/** WARM the Hydra engine's heavy modules ahead of play — the @strudel/hydra + hydra-synth
- *  dynamic imports are the slow part, and they were only fetched lazily on the FIRST play,
- *  so a song that ALREADY has visuals took a beat to light up. Call this on page load when
- *  the song has visuals: it does ONLY the imports (no canvas, no render loop — the canvas
- *  is still created on the first play), so when you hit play the visual is instant. Idempotent
- *  and best-effort — if it fails, play just lazy-loads as before. */
-export async function preloadHydra(): Promise<void> {
-  if (hydraLoaded || typeof window === "undefined") return;
-  try {
-    // zissl path: the module is the only heavy part — warm it and stop
-    // (canvas + device still come up on the first play, in ensureHydra).
-    const { zisslAllowed } = await import("./zissl-boot");
-    if (zisslAllowed()) {
-      await import("zissl");
-      return;
-    }
-  } catch {
-    /* fall through to the hydra warm below */
-  }
-  try {
-    const g = globalThis as Record<string, unknown>;
-    if (typeof g.global === "undefined") g.global = globalThis;
-    if (!hydraMod) hydraMod = (await import("@strudel/hydra")) as HydraMod;
-    const synth = await import("hydra-synth");
-    g.Hydra = (synth as { default?: unknown }).default ?? synth;
-    installSafeH(g, hydraMod.H);
-    hydraLoaded = true;
-  } catch {
-    /* best-effort warm — the first play will lazy-load if this didn't land */
-  }
-}
-
 /** Re-run ONLY the visuals from `code` (its @hydra block) — the audio scheduler
  *  is NEVER touched, so tweaking a visual knob can't pause the music. The hydra
  *  block is plain JS over globals (osc/H/… installed by initHydra/initStrudel),
@@ -5292,32 +5255,6 @@ export function refreshArrangement(): void {
   if (!a || !songActive) return;
   requestRebuild(a);
 }
-
-/** SEEK: put the playhead at `bar` (0-based) of section `sectionId` — works
- *  for ANY span of the playing arrangement, so tapping bar 9 of another loop
- *  jumps the song there. The scheduler clock is never touched: the program is
- *  re-evaluated with a whole-cycle `.late(shift)` so the CONTENT rotates under
- *  the running clock — beat-grid preserved (integer shift), no hush, no gap.
- *  Returns false when nothing arranged is playing (stepper or idle). */
-export function seekSectionBar(sectionId: string, bar: number): boolean {
-  const a = arrangement;
-  if (!a || !songActive || !transportActive) return false;
-  const span = a.spans.find((s) => s.id === sectionId);
-  if (!span) return false;
-  const raw = schedulerCycle();
-  if (raw <= 0) return false; // still settling a fresh evaluate
-  const cur = contentPos(a);
-  const target = Math.min(
-    span.end - 1,
-    span.start + Math.max(0, Math.floor(bar)),
-  );
-  const delta = Math.round(cur - target);
-  if (delta === 0) return true;
-  a.shift = (a.shift ?? 0) + delta;
-  requestRebuild(a);
-  return true;
-}
-
 export async function playSong(
   sections: SongSection[],
   opts: SongPlayOpts = {},

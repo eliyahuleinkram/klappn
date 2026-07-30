@@ -1137,77 +1137,8 @@ export function psolaShift(
 
 // ---------------------------------------------------------------------------
 // 6. scale snap
-
-/**
- * Ratio that moves f0 toward the nearest scale pitch class (minimal cents
- * distance across all octaves). strength ∈ [0,1] scales the correction in
- * cents (geometric in ratio — the musically even interpolation). The full-snap
- * correction is clamped to ±250 cents so a badly missed note is nudged, not
- * yanked a fifth.
- */
-export function snapRatioToScale(f0Hz: number, scalePcs: number[], strength: number): number {
-  if (!(f0Hz > 0) || scalePcs.length === 0) return 1;
-  const midi = 69 + 12 * Math.log2(f0Hz / 440);
-  let best = Infinity;
-  for (const pc of scalePcs) {
-    const cand = pc + 12 * Math.round((midi - pc) / 12); // nearest octave of this pc
-    const cents = (cand - midi) * 100;
-    if (Math.abs(cents) < Math.abs(best)) best = cents;
-  }
-  if (!Number.isFinite(best)) return 1;
-  const clamped = Math.max(-250, Math.min(250, best));
-  return Math.pow(2, (clamped * clamp01(strength)) / 1200);
-}
-
 // ---------------------------------------------------------------------------
 // 7. energy onsets
-
-/**
- * Onset sample positions from a 10 ms-hop RMS envelope: trigger where the
- * envelope crosses above 1.6× its 400 ms trailing median AND an absolute
- * floor (~-60 dBFS), with a 120 ms refractory.
- */
-export function onsetsEnergy(x: Float32Array, sampleRate: number): number[] {
-  const hop = Math.max(1, Math.round(0.01 * sampleRate));
-  const win = hop * 2;
-  const nFrames = Math.max(0, Math.ceil(x.length / hop));
-  const env = new Float32Array(nFrames);
-  for (let k = 0; k < nFrames; k++) {
-    const a = k * hop;
-    const b = Math.min(x.length, a + win);
-    let sum = 0;
-    for (let i = a; i < b; i++) sum += x[i] * x[i];
-    env[k] = b > a ? Math.sqrt(sum / (b - a)) : 0;
-  }
-
-  const MED_FRAMES = 40; // 400 ms of trailing context
-  const FLOOR = 1e-3;
-  const refractory = Math.round(0.12 * sampleRate);
-  const scratch = new Float32Array(MED_FRAMES);
-  const onsets: number[] = [];
-  let last = -Infinity;
-  let prevAbove = false;
-  for (let k = 0; k < nFrames; k++) {
-    const m0 = Math.max(0, k - MED_FRAMES);
-    const len = k - m0;
-    let above = false;
-    if (len > 0) {
-      for (let i = 0; i < len; i++) scratch[i] = env[m0 + i];
-      const med = medianInPlace(scratch, len);
-      above = env[k] > 1.6 * med && env[k] > FLOOR;
-    }
-    if (above && !prevAbove) {
-      const pos = k * hop;
-      if (pos - last >= refractory) {
-        onsets.push(pos);
-        last = pos;
-      }
-    }
-    prevAbove = above;
-  }
-  return onsets;
-}
-
 // ---------------------------------------------------------------------------
 // 8. timing quantize
 

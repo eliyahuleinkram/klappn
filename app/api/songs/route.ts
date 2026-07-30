@@ -74,7 +74,9 @@ export async function POST(req: Request) {
   const loopIds = Array.isArray(body.loopIds)
     ? body.loopIds.filter((x): x is string => typeof x === "string").slice(0, 8)
     : [];
-  // One model: Opus 5 (isModelId admits nothing else). Persisted per song.
+  // THE QUALITY DIAL (lib/models.ts): "opus" (Standard) or "studio". isModelId
+  // admits nothing else, and it is persisted per song so a song keeps composing
+  // the way it was born.
   const model: ModelId = isModelId(body.model) ? body.model : DEFAULT_MODEL;
 
   if (!firstLoop && loopIds.length === 0) {

@@ -20,8 +20,6 @@ export const ZALTZ_PLAYGROUND_URL = "https://klappn.com/engine";
 // …but the ENGINE has its own front door again (2026-07-29): zaltz.klappn.com
 // no longer redirects, it REWRITES to /zaltz — the open-source shop window,
 // the shape zissl.klappn.com wears for the picture engine.
-export const ZALTZ_SITE_URL = "https://zaltz.klappn.com";
-
 /** ZISSL — the compute swarm that paints the door + the desk's colony. */
 export const ZISSL_GITHUB_URL = "https://github.com/eliyahuleinkram/zissl";
 export const ZISSL_PLAYGROUND_URL = "https://zissl.klappn.com";

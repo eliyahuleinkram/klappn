@@ -28,7 +28,6 @@ import {
   STRUDEL_TRACK_SYSTEM,
   STRUDEL_DONE_SYSTEM,
   EDIT_STRUDEL_SYSTEM,
-  EDIT_STRUDEL_LAYER_SYSTEM,
   EDIT_STRUDEL_WHOLE_SYSTEM,
   METER_STRUDEL_SYSTEM,
   EDIT_STRUDEL_REPAIR_SYSTEM,
@@ -146,12 +145,12 @@ export function saysDone(reply: string): boolean {
 }
 
 /** With the parts placed, a CHEAP no-thinking call decides if the loop is complete — so the expensive
- *  HIGH compose call stays focused purely on WRITING the next layer. Run BETWEEN layers; the engine skips
- *  it below the thin-stack floor. Runs on SONNET 5, thinking off (2026-07-22, the user — same rule as the
- *  enrich naming calls: a thinking-off call needs no Opus). */
+ *  compose call stays focused purely on WRITING the next layer. Run BETWEEN layers; the engine skips
+ *  it below the thin-stack floor. ROUTE.done: Sonnet 5, thinking off (2026-07-22, the user — same rule
+ *  as the enrich naming calls: a one-word answer needs no composing tier). */
 async function loopComplete(brief: string, prior: PriorLayer[], cfg?: LlmConfig): Promise<boolean> {
   const user = `The loop so far (each layer's Strudel):\n${priorContext(prior)}\n\nIs this loop complete, or does it still need a part?`;
-  const reply = await complete(STRUDEL_DONE_SYSTEM, user, { ...cfg, model: 'sonnet' }, { ...ROUTE.pick, thinking: false, cacheStable: `Brief: ${brief}\n\n`, trace: { kind: 'done' } });
+  const reply = await complete(STRUDEL_DONE_SYSTEM, user, cfg, { ...ROUTE.done, cacheStable: `Brief: ${brief}\n\n`, trace: { kind: 'done' } });
   return saysDone(reply);
 }
 
@@ -181,9 +180,10 @@ export async function composeStagedStrudelLayer(
     `TRACKS ALREADY PLACED (their Strudel — lock to them):\n${priorContext(prior)}\n\n` +
     `Write the next $: line now (name its sound in the line) — the part the loop most needs next.`;
   for (let attempt = 0; attempt < 3; attempt++) {
-    // HIGH thinking for the Strudel MUSIC composition (the user's explicit ask). It ALWAYS writes a
-    // layer (the "are we done?" decision lives in loopComplete, above). ONE call — no polish pass.
-    const reply = (await complete(system, user, cfg, { ...ROUTE.compose, effort: 'high', cacheStable: stable, trace: { kind: 'compose', attempt } })).trim();
+    // ROUTE.compose — FABLE 5 at high effort: this is the call that INVENTS music, and its output
+    // is judged by ear with no cheap second chance. It ALWAYS writes a layer (the "are we done?"
+    // decision lives in loopComplete, above). ONE call — no polish pass.
+    const reply = (await complete(system, user, cfg, { ...ROUTE.compose, cacheStable: stable, trace: { kind: 'compose', attempt } })).trim();
     if (!hasStrudelLine(reply)) { user += `\n\nWrite the $: line itself — one raw Strudel line, no prose.`; continue; }
     const built = buildStrudelLayer(extractStrudelLine(reply));
     if ('layer' in built) return built.layer; // valid line → ship it
@@ -197,7 +197,7 @@ export async function composeStagedStrudelLayer(
 /**
  * Edit a loop in Strudel: given each layer's Strudel (the `notation`) + label + a change, return EVERY
  * layer's edited Strudel body (SAME count + order) so the caller swaps them in 1:1. Returns null when the
- * model drops/adds a line (shape change) so the caller keeps the original loop. HIGH effort.
+ * model drops/adds a line (shape change) so the caller keeps the original loop. ROUTE.edit.
  */
 export async function editStrudelLoop(
   layers: { label: string; notation: string }[],
@@ -209,7 +209,7 @@ export async function editStrudelLoop(
   const labels = layers.map((l, i) => `line ${i + 1}=${l.label || `layer ${i + 1}`}`).join(', ');
   const loop = layers.map((l) => `$: ${l.notation}`).join('\n');
   const user = `Brief: ${brief}\n\nThe loop in Strudel (${labels}):\n${loop}\n\nCHANGE TO APPLY: ${change}`;
-  const reply = (await complete(EDIT_STRUDEL_SYSTEM, user, cfg, { ...ROUTE.compose, trace: { kind: 'edit' } })).trim();
+  const reply = (await complete(EDIT_STRUDEL_SYSTEM, user, cfg, { ...ROUTE.edit, trace: { kind: 'edit' } })).trim();
   const lines = reply
     .replace(/```[a-z]*\n?/gi, '')
     .split('\n')
@@ -224,76 +224,35 @@ export async function editStrudelLoop(
  * (labelled `$:` lines), the song-aware brief and the request, and returns the COMPLETE revised loop —
  * free shape: it may rewrite, add or remove layers (unlike editStrudelLoop, a count change here is the
  * point, not a failure). Untouched layers come back byte-identical (the caller reconciles by exact
- * match). When `sectionBrief` (the card's description) is given, the SAME call also returns it revised
- * to match the new music — word-for-word when the edit didn't invalidate it, so unchanged briefs stay
- * byte-identical and the caller can skip the write. Opus 5, effort HIGH.
+ * match). ROUTE.edit — Opus 5, effort HIGH.
+ *
+ * MUSIC ONLY (2026-07-30, the user: "each AI call to focus on one task"). This call used to end by
+ * also rewriting the section's BRIEF and the track's DIRECTION note — two prose jobs riding a music
+ * call, which spent composing-tier output tokens on sentences and let a mangled trailing line cost us
+ * the whole edit. Those are now restateSectionBrief() and restateTrackDirection() (lib/anthropic.ts),
+ * two cheap Sonnet calls the caller runs in parallel after this returns (see jobs.editLoopDirect).
  */
 export async function editStrudelWholeLoop(
   layers: { label: string; body: string }[],
   brief: string,
   change: string,
   cfg?: LlmConfig,
-  sectionBrief?: string,
-  /** The track's current direction note (plan.direction) — offering it invites
-   *  the SAME call to return a `DIRECTION:` rewrite when the change steers the
-   *  whole track (the song-README update rides the edit, no extra call). */
-  directionNote?: string | null,
-): Promise<{ bodies: string[]; brief?: string; direction?: string } | null> {
+): Promise<{ bodies: string[] } | null> {
   if (!layers.length) return null;
   const labels = layers.map((l, i) => `line ${i + 1}=${l.label || `layer ${i + 1}`}`).join(', ');
   const loop = layers.map((l) => `$: ${l.body}`).join('\n');
   const user =
     `Brief: ${brief}\n\nThe loop in Strudel (${labels}):\n${loop}\n\n` +
-    (sectionBrief ? `THIS SECTION'S BRIEF: ${sectionBrief}\n\n` : '') +
-    `THE TRACK'S DIRECTION NOTE: ${(directionNote ?? '').trim() || '(none yet)'}\n\n` +
     `CHANGE TO APPLY: ${change}`;
   const reply = (
-    await complete(EDIT_STRUDEL_WHOLE_SYSTEM, user, cfg, { ...ROUTE.compose, effort: 'high', trace: { kind: 'edit' } })
+    await complete(EDIT_STRUDEL_WHOLE_SYSTEM, user, cfg, { ...ROUTE.edit, trace: { kind: 'edit' } })
   ).trim();
-  const rows = reply
+  const lines = reply
     .replace(/```[a-z]*\n?/gi, '')
     .split('\n')
-    .map((s) => s.trim());
-  const lines = rows.filter((s) => /^\$:/.test(s));
-  const revised = rows
-    .filter((s) => /^BRIEF:/i.test(s))
-    .pop()
-    ?.replace(/^BRIEF:\s*/i, '')
-    .trim();
-  const direction = rows
-    .filter((s) => /^DIRECTION:/i.test(s))
-    .pop()
-    ?.replace(/^DIRECTION:\s*/i, '')
-    .trim();
-  return lines.length
-    ? { bodies: lines.map(stripDollar), brief: revised || undefined, direction: direction || undefined }
-    : null;
-}
-
-/**
- * Edit ONE layer with the WHOLE loop in view: the model sees every layer (numbered, labelled) so the
- * rewritten line stays locked to its siblings — but outputs ONLY the target line (small, fast). Returns
- * the edited body, or null when nothing usable came back. HIGH effort (it's real music work).
- */
-export async function editStrudelLayer(
-  layers: { label: string; notation: string }[],
-  targetIndex: number,
-  brief: string,
-  change: string,
-  cfg?: LlmConfig,
-): Promise<string | null> {
-  const target = layers[targetIndex];
-  if (!target) return null;
-  const loop = layers
-    .map((l, i) => `${i + 1}. ${l.label || `layer ${i + 1}`}: $: ${l.notation}`)
-    .join('\n');
-  const user =
-    `Brief: ${brief}\n\nThe loop (numbered layers):\n${loop}\n\n` +
-    `CHANGE LAYER ${targetIndex + 1} (${target.label || `layer ${targetIndex + 1}`}): ${change}`;
-  const reply = (await complete(EDIT_STRUDEL_LAYER_SYSTEM, user, cfg, { ...ROUTE.compose, trace: { kind: 'edit' } })).trim();
-  if (!hasStrudelLine(reply)) return null;
-  const body = extractStrudelLine(reply);
-  return body || null;
+    .map((s) => s.trim())
+    .filter((s) => /^\$:/.test(s));
+  return lines.length ? { bodies: lines.map(stripDollar) } : null;
 }
 
 /**
@@ -312,7 +271,7 @@ export async function convertStrudelMeter(
   const labels = layers.map((l, i) => `line ${i + 1}=${l.label || `layer ${i + 1}`}`).join(', ');
   const loop = layers.map((l) => `$: ${l.notation}`).join('\n');
   const user = `The loop in Strudel (${labels}):\n${loop}\n\nRE-BAR from ${fromTs} to ${toTs} — every cycle is now ${toBeats} beats (one bar of ${toTs}).`;
-  const reply = (await complete(METER_STRUDEL_SYSTEM, user, cfg, { ...ROUTE.compose, trace: { kind: 'meter' } })).trim();
+  const reply = (await complete(METER_STRUDEL_SYSTEM, user, cfg, { ...ROUTE.meter, trace: { kind: 'meter' } })).trim();
   const lines = reply
     .replace(/```[a-z]*\n?/gi, '')
     .split('\n')
@@ -326,7 +285,7 @@ export async function convertStrudelMeter(
 
 /**
  * Repair a loop that errored at playback in the browser: given the loop's Strudel + the exact console
- * error, fix ONLY what's broken (EDIT_STRUDEL_REPAIR_SYSTEM, HIGH effort) and return the corrected `$:`
+ * error, fix ONLY what's broken (EDIT_STRUDEL_REPAIR_SYSTEM, ROUTE.repair) and return the corrected `$:`
  * line bodies (the caller re-validates + swaps them in). null when the model returns nothing usable.
  * `frame` is just the key/tempo/meter for musical context.
  */
@@ -344,7 +303,7 @@ export async function repairStrudelLoop(
     `THE LOOP (Strudel) that errored at playback:\n${music}\n\n` +
     `THE BROWSER CONSOLE ERROR:\n${consoleError.slice(0, 800)}\n\n` +
     `Return the corrected loop — one $: line per layer, fixing ONLY what the error is about.`;
-  const reply = (await complete(system, user, cfg, { ...ROUTE.compose, effort: 'high', trace: { kind: 'repair' } })).trim();
+  const reply = (await complete(system, user, cfg, { ...ROUTE.repair, trace: { kind: 'repair' } })).trim();
   const lines = reply
     .replace(/```[a-z]*\n?/gi, '')
     .split('\n')

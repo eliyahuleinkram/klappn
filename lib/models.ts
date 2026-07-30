@@ -1,25 +1,33 @@
 /**
- * The composition model. There is exactly one: Claude Opus 5, routed natively
- * in lib/llm.ts. Klappn's first month ran a live multi-model bake-off (Sonnet,
- * Opus, GLM, Kimi, Gemini, Grok, an OpenRouter roster) — Fable won on the ear,
- * and the roster was removed 2026-07-20 when the product narrowed to one voice.
- * Opus 5 (launched 2026-07-24) took over on 2026-07-25: near-Fable quality at
- * half the price.
+ * THE QUALITY DIAL — how hard the house writes this song's music.
  *
- * `songs.model` persists the id per song. Legacy rows read "fable" (and older
- * bake-off ids before that); lib/llm.ts routes every legacy id to Opus 5 too,
- * so stored values and routing agree without a data migration. With a single
- * option the UI never shows a picker (HomeClient gates on
- * MODEL_OPTIONS.length > 1).
+ * Not a model picker (that died with the bake-off on 2026-07-20, and naming
+ * engines at people was never the product). It is ONE choice with ONE
+ * consequence: on Studio the calls that INVENT music — the per-layer composer
+ * and the break writer — run on the costlier tier, and the maker is told, before
+ * they tap, roughly what that spends. Everything else in the song (edits,
+ * planners, panels, visuals, the room) is identical either way; those calls were
+ * never the ones a stronger model changed.
+ *
+ * `songs.model` persists the choice per song, so a song keeps composing the way
+ * it was born. Standard is the default and every legacy value ("fable",
+ * "anthropic", stale bake-off ids) resolves to it — see resolveTier in
+ * lib/llm.ts, which is the ONLY place the dial turns into a model id.
  */
 export const MODEL_OPTIONS = [
-  { id: "opus", label: "Claude Opus 5", blurb: "Anthropic (native) · most capable" },
+  { id: "opus", label: "Standard", blurb: "The composer we ship." },
+  {
+    id: "studio",
+    label: "Studio",
+    blurb: "A stronger hand writes the loops — about twice the tokens.",
+  },
 ] as const;
 
 /** A persisted/routable model id. */
 export type ModelId = (typeof MODEL_OPTIONS)[number]["id"];
 
-/** Default when the user doesn't choose. */
+/** Default when the user doesn't choose. STANDARD — the dial only ever costs
+ *  more, so it is opt-in; nobody's spend doubles because we shipped a toggle. */
 export const DEFAULT_MODEL: ModelId = "opus";
 
 /** True only for models the UI currently offers. */

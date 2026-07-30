@@ -292,14 +292,6 @@ interface WorkerFile {
 
 let active: ActiveTake | null = null;
 const sessionDirs: string[] = []; // this session's takes — spared by the sweep
-
-/** Whether a take is rolling, and since when (ms epoch) — poll for the mm:ss. */
-export function takeRecordingState(): { recording: boolean; startedAt: number | null } {
-  return active
-    ? { recording: true, startedAt: active.startedAt }
-    : { recording: false, startedAt: null };
-}
-
 function withTimeout(p: Promise<void>, ms: number): Promise<void> {
   return Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]);
 }
@@ -580,12 +572,4 @@ export async function stopTake(): Promise<TakeResult | null> {
   } finally {
     a.worker.terminate();
   }
-}
-
-/** Drop a finished take's disk footprint (the ✕ on the take card). Downloads
- *  already saved are files on the user's machine — untouched. */
-export async function discardTake(): Promise<void> {
-  // The OPFS sweep at the next arm clears old dirs; this just forgets the
-  // session guard so the sweep is allowed to take them.
-  sessionDirs.length = 0;
 }

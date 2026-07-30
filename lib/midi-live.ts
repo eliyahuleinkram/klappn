@@ -97,12 +97,6 @@ export function midiState(): MidiSnapshot {
     instrument,
   };
 }
-
-/** The currently known inputs (empty until the device watch has opened). */
-export function listMidiInputs(): MidiInputInfo[] {
-  return inputList();
-}
-
 function notify(): void {
   const snap = midiState();
   for (const cb of subs) {

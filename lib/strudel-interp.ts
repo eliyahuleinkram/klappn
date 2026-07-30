@@ -17,9 +17,6 @@
  * generation. All entry points are async for that reason.
  */
 import { parse } from "acorn";
-import { intrinsicLoudness, filterWeight } from "./loudness";
-import { keyPitchClasses, noteToPc, pcName } from "./harmony-key";
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
@@ -391,39 +388,6 @@ function scanMethodCalls(code: string): string[] {
   }
   return out;
 }
-
-/** Chained methods that AREN'T real Strudel functions — the cause of a runtime
- *  "X is not a function" crash at play time (e.g. a hallucinated `.duckrelease()`).
- *  Validated against the real engine's full method set, so it can't drift and has
- *  no false positives. Returns [] if the engine can't load (gate degrades safely).
- *  This is the Strudel twin of hydra-check's unknownHydraFns. */
-/** The time-ordered (cycle-time, note) events a SINGLE-LAYER program actually
- *  plays across `cycles` cycles — the deterministic ground truth for verifying
- *  a rendered LEAD against its lead sheet. Null when the program can't be
- *  evaluated here or isn't exactly one layer. */
-export async function leadEvents(
-  code: string,
-  cycles: number,
-): Promise<{ t: number; note: string }[] | null> {
-  const { layers } = await evalStrudelLayers(code);
-  if (layers.length !== 1) return null;
-  const out: { t: number; note: string }[] = [];
-  for (let c = 0; c < cycles; c++) {
-    for (const h of layers[0].queryArc(c, c + 1)) {
-      if (!h.whole || h.whole.begin < c || h.whole.begin >= c + 1) continue;
-      const v = h.value;
-      const raw =
-        v != null && typeof v === "object"
-          ? ((v as Record<string, unknown>).note ?? (v as Record<string, unknown>).n)
-          : v;
-      if (raw == null) continue;
-      out.push({ t: h.whole.begin, note: String(raw) });
-    }
-  }
-  out.sort((a, b) => a.t - b.t);
-  return out;
-}
-
 export async function unknownStrudelMethods(code: string): Promise<string[]> {
   const eng = await getEngine();
   if (!eng || eng.methods.size === 0) return [];
@@ -471,17 +435,6 @@ export async function strudelServerErrors(
   const build = await strudelBuildErrors(code);
   return [...new Set([...v.errors, ...build])];
 }
-
-/** The whole loop as one stacked Pattern (or null if nothing interpreted). */
-export async function evalStrudel(code: string): Promise<Pattern | null> {
-  const eng = await getEngine();
-  if (!eng) return null;
-  const { layers } = await evalStrudelLayers(code);
-  if (!layers.length) return null;
-  if (layers.length === 1) return layers[0];
-  return eng.stack(...layers) as Pattern;
-}
-
 export interface LayerTiming {
   sound: string; // the instrument/drum this layer plays
   hitsPerBar: number; // onset density
@@ -491,118 +444,6 @@ export interface LayerTiming {
   loudnessPct: number; // ESTIMATED share of the mix's loudness (0-100)
   peak: number; // estimated peak amplitude (for clip-headroom)
 }
-
-const NUM = (v: Any): v is number => typeof v === "number" && Number.isFinite(v);
-const numOr = (v: Any, d: number): number => (NUM(v) ? v : d);
-
-/** A symbolic, eval-free "how it actually plays + how it sits in the mix" picture
- *  — resolved from the real events, not guessed from the code. Per layer: what it
- *  plays, how OFTEN, its pitch content, and an ESTIMATED loudness share (intrinsic
- *  sound level × gain × duration × filter). Catches sparse/silent layers, lopsided
- *  balance, and clip risk. Empty (graceful) if the engine is unavailable. */
-export async function analyzeTiming(
-  code: string,
-  opts: { cycles?: number; key?: string } = {},
-): Promise<{ layers: LayerTiming[]; summary: string }> {
-  const cycles = opts.cycles ?? 8;
-  const keyInfo = opts.key ? keyPitchClasses(opts.key) : null;
-  const outOfKey = new Set<number>();
-  const { layers } = await evalStrudelLayers(code);
-  const out: LayerTiming[] = [];
-  const energy: number[] = []; // per-layer summed energy (∝ loudness²)
-  for (const layer of layers) {
-    let haps: Hap[] = [];
-    try {
-      haps = layer.queryArc(0, cycles);
-    } catch {
-      continue;
-    }
-    const onsets = haps.filter(
-      (h) => h.whole && Number(h.part.begin) === Number(h.whole.begin),
-    );
-    const val0 = (onsets[0]?.value ?? {}) as Record<string, unknown>;
-    const sound = String(
-      val0.s ?? val0.sound ?? (val0.note != null ? "synth" : "?"),
-    );
-    const base = intrinsicLoudness(sound);
-    let gainSum = 0;
-    let e = 0;
-    let peak = 0;
-    for (const h of onsets) {
-      const v = h.value as Record<string, unknown>;
-      const g = numOr(v?.gain, 1) * numOr(v?.postgain, 1);
-      gainSum += g;
-      const amp = base * g * numOr(v?.velocity, 1) * filterWeight(v?.cutoff);
-      const dur = h.whole
-        ? Math.max(0, Number(h.whole.end) - Number(h.whole.begin))
-        : 0;
-      e += amp * amp * dur;
-      if (amp > peak) peak = amp;
-      // resolved-harmony: flag any actual pitch outside the stated key
-      if (keyInfo && v?.note != null) {
-        const pc = noteToPc(v.note as string | number);
-        if (pc != null && !keyInfo.pcs.has(pc)) outOfKey.add(pc);
-      }
-    }
-    const notes = [
-      ...new Set(
-        onsets
-          .map((h) => (h.value as Record<string, unknown>)?.note)
-          .filter((n) => n != null)
-          .map(String),
-      ),
-    ].slice(0, 10);
-    energy.push(e / cycles);
-    out.push({
-      sound,
-      hitsPerBar: Math.round((onsets.length / cycles) * 10) / 10,
-      gain: onsets.length
-        ? Math.round((gainSum / onsets.length) * 100) / 100
-        : 1,
-      notes,
-      silent: onsets.length === 0,
-      loudnessPct: 0,
-      peak: Math.round(peak * 100) / 100,
-    });
-  }
-  // Normalise loudness to a share of the whole mix (rms ∝ sqrt(energy)).
-  const rms = energy.map((x) => Math.sqrt(x));
-  const total = rms.reduce((a, b) => a + b, 0) || 1;
-  out.forEach((l, i) => (l.loudnessPct = Math.round((rms[i] / total) * 100)));
-  const peakSum = out.reduce((a, l) => a + l.peak, 0);
-
-  const lines = out.map((l, i) => {
-    if (l.silent)
-      return `- layer ${i + 1} (${l.sound}): SILENT — produces no events`;
-    const dens =
-      l.hitsPerBar < 0.5 ? " (very sparse)" : l.hitsPerBar >= 8 ? " (busy)" : "";
-    const notes = l.notes.length ? ` · notes ${l.notes.join(" ")}` : "";
-    const bal =
-      l.loudnessPct < 5
-        ? " ⚠ may be buried"
-        : l.loudnessPct >= 45
-          ? " ⚠ dominates the mix"
-          : "";
-    return `- layer ${i + 1}: ${l.sound} · ${l.hitsPerBar} hits/bar${dens} · gain ${l.gain} · ~${l.loudnessPct}% of mix${bal}${notes}`;
-  });
-  // The master limiter handles real clipping, so only flag a mix that's so hot
-  // it'll audibly squash/pump — not a normal mix that merely sums past 1.0.
-  const clip =
-    peakSum > 3.2
-      ? `\nmix is VERY hot (peak≈${peakSum.toFixed(1)}) — gains are likely too high and the limiter will squash; lower some.`
-      : "";
-  const harmony =
-    keyInfo && outOfKey.size
-      ? `\nout-of-key pitches vs ${keyInfo.name}: ${[...outOfKey]
-          .sort((a, b) => a - b)
-          .map(pcName)
-          .join(", ")} — verify intentional (a passing/chromatic note can be fine; a wrong root is not).`
-      : "";
-  const summary =
-    (lines.join("\n") || "(no layers resolved)") + clip + harmony;
-  return { layers: out, summary };
-}
-
 /** Note/n values that resolve to an OBJECT instead of a number/string — they crash
  *  superdough at play time with `getTrigger error: unexpected "note" type "object"`.
  *  The cause is wrapping an ALREADY-noted pattern in note()/.note() again — e.g.

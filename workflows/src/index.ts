@@ -46,7 +46,6 @@ interface Env {
   HYPERDRIVE: { connectionString: string };
   // One model: Opus 5 via the native Anthropic API (lib/llm.ts).
   ANTHROPIC_API_KEY: string;
-  CLAUDE_MODEL?: string;
   // Anthropic fast mode opt-in (set "1" once the org has a non-zero fast-mode rate limit).
   FAST_MODE?: string;
   KLAPPN_MOCK_LLM?: string;
@@ -56,7 +55,6 @@ function cfgOf(env: Env): ClaudeConfig {
   // process.env is empty on this worker — every key threads through cfg.
   return {
     anthropicApiKey: env.ANTHROPIC_API_KEY,
-    anthropicModel: env.CLAUDE_MODEL,
     fastMode: env.FAST_MODE === "1" || env.FAST_MODE === "true",
     mock: env.KLAPPN_MOCK_LLM === "1" || env.KLAPPN_MOCK_LLM === "true",
   };

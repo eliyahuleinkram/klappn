@@ -1,8 +1,14 @@
 import { complete, ROUTE, type LlmConfig, type CompleteOpts } from "./llm";
 import { hydraServerErrors } from "./hydra-eval";
-import type { SongVisual } from "./hydra-embed";
+import { stripHydraBlock, type SongVisual } from "./hydra-embed";
 import type { SongArrangement, SongFx } from "./arrange";
-import { parseControls, soundInLayer, strudelControlName, type LoopControl } from "./controls";
+import {
+  parseControls,
+  soundInLayer,
+  stripMetaBlocks,
+  strudelControlName,
+  type LoopControl,
+} from "./controls";
 import { cleanLabel, sentenceLabel } from "./labels";
 import { beatsPerBar, paramRange } from "./playback";
 import {
@@ -17,7 +23,6 @@ import {
   mockEnabled,
 } from "./mock-llm";
 import {
-  SCORE_SYSTEM,
   EDIT_SCORE_SYSTEM,
   PICK_SOUND_SYSTEM,
   TRANSLATE_SYSTEM,
@@ -194,18 +199,94 @@ function parseEnrichArray(out: string): Record<string, unknown>[] | null {
 // the AI names is canonicalised to its real Strudel method and KEPT only if that method
 // is actually on the line — so a slider can never drive a missing method. A short retry
 // cures a stray fence; only then does that one layer fall back to an empty panel.
+//
+// TWO CALLS, IN PARALLEL (2026-07-30 split): reading a line's knobs and naming presets
+// for them is one job; proposing ALTERNATIVE INSTRUMENTS is a different one — it answers
+// from a catalog, needs that catalog in the prompt, and is where the hallucinated sound
+// names always came from ("gm_pad_polysynth", silent on tap). Separated, the panel call
+// never sees the sound list and the swap call never sees the knob contract; either can
+// come back empty without costing the other. Both ROUTE.panel/ROUTE.swap — Sonnet, no
+// thinking, so the pair still costs less than the single Opus call this replaced.
 async function enrichOneLayer(notation: string, strudel: string, cfg?: LlmConfig): Promise<EnrichPanel> {
-  for (let i = 0; i < 2; i++) {
-    let out = "";
-    try {
-      out = await complete(ENRICH_SYSTEM, `Layer 1: ${notation}`, { ...cfg, model: "sonnet" }, { effort: "low", thinking: false, trace: { kind: "enrich" } });
-    } catch {
-      continue;
-    }
-    const arr = parseEnrichArray(out);
-    if (arr && arr[0]) return compileEnrichPanel(parsePanel(arr[0]), strudel);
+  const [panel, swap] = await Promise.all([
+    (async () => {
+      for (let i = 0; i < 2; i++) {
+        let out = "";
+        try {
+          out = await complete(ENRICH_SYSTEM, `Layer 1: ${notation}`, cfg, {
+            ...ROUTE.panel,
+            trace: { kind: "enrich" },
+          });
+        } catch {
+          continue;
+        }
+        const arr = parseEnrichArray(out);
+        if (arr && arr[0]) return compileEnrichPanel(parsePanel(arr[0]), strudel);
+      }
+      return { ...EMPTY_PANEL };
+    })(),
+    suggestLayerSwap(notation, cfg),
+  ]);
+  return swap ? { ...panel, swap } : panel;
+}
+
+/**
+ * THE LOADABLE SOUND NAMES, as ONE module-level string shared by both swap prompts.
+ *
+ * WHY IT LIVES IN THE *SYSTEM* BLOCK (2026-07-30, the user: "why are we packaging
+ * all the sounds into the AI calls?"): the list is ~600 tokens and byte-identical
+ * on every call forever, so as USER text — where it used to sit — it was paid at
+ * full rate every single time. The system block carries a 1h cache breakpoint
+ * (see completeAnthropic), so the second and every later call inside an hour reads
+ * it at ~0.1×. Same names, same answers, a tenth of the input bill.
+ *
+ * It is deliberately NOT in the composer's prompt: STRUDEL_TRACK_SYSTEM names no
+ * sounds at all (the model knows Strudel's registry, and the build gate catches a
+ * bad name). These two calls need it because they must offer names to a TAP — an
+ * invented one is silent the moment a user touches it, with nothing to catch it.
+ */
+const LOADABLE_SOUNDS = [...GM_SOUNDS, ...WT_SOUNDS, "sawtooth", "square", "triangle", "sine", "supersaw", "pulse"].join(", ");
+
+const LAYER_SWAP_SYSTEM = `You're given ONE layer of a music loop as a single Strudel line, and the list of sounds this engine can actually load. If the layer is MELODIC and its sound could plausibly be traded, offer 3-5 alternative sounds that fit the same role and the loop's mood. Offer nothing for a drum layer (one using \`.bank(…)\`) or for any layer with no genuine alternative.
+Every "s" must be copied EXACTLY from the list given — an invented name plays silence — and must differ from the layer's current sound and from each other. Every "name" is a plain instrument word a non-musician recognises.
+Respond with ONLY JSON, no prose, no fences — either:
+{"options":[{"name":"…","s":"…"}]}
+or, when there is nothing worth offering: {"options":[]}
+
+SOUNDS THIS ENGINE CAN LOAD (the ONLY valid names):
+${LOADABLE_SOUNDS}`;
+
+/** ONE layer's alternative instruments (the card's swap row). null when the layer
+ *  has none, is percussion, or the call came back unusable — the card simply
+ *  shows no swap row. Every option is checked against the real loadable catalog. */
+async function suggestLayerSwap(
+  notation: string,
+  cfg?: LlmConfig,
+): Promise<EnrichPanel["swap"]> {
+  // Drum layers ride `.bank(…)` and swap kits, not sounds — never spend a call.
+  if (/\.bank\(/.test(notation)) return undefined;
+  const user = `THE LAYER:\n${notation}`;
+  let raw: string;
+  try {
+    raw = await complete(LAYER_SWAP_SYSTEM, user, cfg, { ...ROUTE.swap, trace: { kind: "layer-swap" } });
+  } catch {
+    return undefined;
   }
-  return { ...EMPTY_PANEL };
+  const j = parseJson<{ options?: { name?: unknown; s?: unknown }[] }>(raw);
+  // Seed the dedupe with the layer's CURRENT sound: an option identical to what
+  // already plays is a dead tap, and the prompt asking for "different" is not a
+  // guarantee. (Same read as instrumentOf — the name on `s(…)`/`sound(…)`.)
+  const current = notation.match(/\bs(?:ound)?\(\s*["'`]\s*([A-Za-z_][\w:]*)/)?.[1] ?? "";
+  const seen = new Set<string>(current ? [current] : []);
+  const options = (Array.isArray(j?.options) ? j!.options : [])
+    .map((o) => ({ name: String(o?.name ?? "").trim(), s: String(o?.s ?? "").trim() }))
+    .filter((o) => {
+      if (!o.name || !o.s || !isKnownSound(o.s) || seen.has(o.s)) return false;
+      seen.add(o.s);
+      return true;
+    })
+    .slice(0, 5);
+  return options.length ? { via: "sound" as const, options } : undefined;
 }
 
 /**
@@ -407,11 +488,11 @@ export async function convertPartMeter(
       feedback,
     );
   }
-  // HIGH effort — this is the same class of work as an edit pill (a full
-  // rewrite of real music), and the user explicitly wants pill-grade quality.
-  // 14k budget so each conversion finishes inside its ~5-min step wall.
+  // ROUTE.meter — the same class of work as an edit pill (a full rewrite of
+  // real music) at pill-grade quality, on a 14k budget so each conversion
+  // finishes inside its ~5-min step wall.
   const out = stripFences(
-    await complete(CONVERT_METER_SYSTEM, lines.join("\n"), cfg, { provider: "anthropic", effort: "high", maxTokens: 14000, trace: { kind: "convert-meter" } }),
+    await complete(CONVERT_METER_SYSTEM, lines.join("\n"), cfg, { ...ROUTE.meter, trace: { kind: "convert-meter" } }),
   );
   if (!out) throw new Error("convert-meter: empty response");
   return out;
@@ -532,11 +613,97 @@ Respond with ONLY JSON, no prose, no fences:
   "kind": "loop" for a full section; "break" when the user's direction asks for a
     short transitional hand-off between its neighbours (a breather, a suspension,
     a riser seam) rather than a section of its own,
-  "bars": the loop length in bars — match the song's existing sections (a break is 1-4),
-  "direction": ONLY when the user's direction steers the WHOLE track (its genre, era,
-    style or energy as a whole, not just this slot): the track's direction note
-    rewritten to absorb that steer — at most 160 characters of purely musical terms,
-    no quoted request, no artist names. Omit otherwise — when unsure, omit }`;
+  "bars": the loop length in bars — match the song's existing sections (a break is 1-4) }`;
+
+// ── THE WRITTEN DESCRIPTIONS — two small calls that keep the words true ───────
+// (2026-07-30, the user: "each AI call to focus on one task".) A section's brief
+// and the track's direction note used to be trailing lines tacked onto the loop
+// EDIT call and onto the adjacent-section PLANNER — prose jobs hitching a ride on
+// music calls, which spent composing-tier output tokens on sentences and made a
+// mangled last line cost us the whole answer. Each is now its own ROUTE.steer
+// call: Sonnet 5, thinking off, ≤600 tokens. Both are best-effort by contract —
+// they return "" on any failure and the caller simply keeps what it had.
+
+const RESTATE_BRIEF_SYSTEM = `A section of an instrumental track has just been edited. You're given its loop before and after the edit, the change that was asked for, and the section's current written brief. Return the brief that describes what NOW plays: word-for-word if it still fits, minimally revised where it no longer does. It stays a musical description of the section — never a mention of the edit, the change or the code. One or two sentences.
+Respond with ONLY the brief text — no quotes, no label, no fences, nothing else.`;
+
+const RESTATE_DIRECTION_SYSTEM = `A track carries a DIRECTION NOTE — the maker's accumulated steer for the whole piece, its README in purely musical terms. You're given that note and the maker's newest request.
+Decide whether the request steers the WHOLE track — its genre, era, style or energy as a whole — or only the one loop/section it names. Only a whole-track steer changes the note.
+Respond with ONLY the note, rewritten WHOLE to absorb the steer: at most 160 characters, purely musical terms, no quoted request, no artist/band/song names; where the new steer conflicts with the old note, the newest wins.
+If the request is local to one section, respond with exactly: KEEP
+When unsure, respond KEEP.`;
+
+/** The section's brief follows its music. "" = keep the current one.
+ *
+ *  SENDS ONE LOOP, NOT TWO (2026-07-30): the brief describes what NOW plays, so
+ *  the AFTER loop has to be whole — but the BEFORE loop only ever answered "what
+ *  moved?", and on an untouched 10-layer loop that was ~90% duplicate tokens of
+ *  the after. So the before is reduced to the lines that actually went away. */
+export async function restateSectionBrief(
+  args: { before: string; after: string; change: string; brief: string },
+  cfg?: ClaudeConfig,
+): Promise<string> {
+  const { before, after, change, brief } = args;
+  if (!brief.trim() || before.trim() === after.trim() || mockEnabled(cfg?.mock)) return "";
+  const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
+  const kept = new Set(lines(after));
+  const gone = lines(before).filter((l) => !kept.has(l));
+  const user = [
+    `THE SECTION'S CURRENT BRIEF: ${brief}`,
+    ``,
+    `THE LOOP AS IT NOW PLAYS:`,
+    after,
+    ``,
+    gone.length
+      ? `LINES THE EDIT REMOVED OR REWROTE (they are gone — do not describe them):\n${gone.join("\n")}`
+      : `(No lines were removed — the edit only added.)`,
+    ``,
+    `THE CHANGE THAT WAS ASKED FOR: ${change}`,
+  ].join("\n");
+  try {
+    const out = stripFences(
+      await complete(RESTATE_BRIEF_SYSTEM, user, cfg, { ...ROUTE.steer, trace: { kind: "restate-brief" } }),
+    )
+      .trim()
+      .replace(/^["'“”]+|["'“”]+$/g, "");
+    return out.slice(0, 600);
+  } catch (e) {
+    console.error("[klappn] restate-brief failed:", e);
+    return "";
+  }
+}
+
+/** The track's direction note absorbs a WHOLE-TRACK steer. "" = keep the current
+ *  note (the model answered KEEP, or the call failed). Shared by every path that
+ *  takes the maker's words: the loop edit and the extend planner. */
+export async function restateTrackDirection(
+  args: { note?: string | null; request: string; context?: string },
+  cfg?: ClaudeConfig,
+): Promise<string> {
+  const request = (args.request ?? "").trim();
+  if (!request || mockEnabled(cfg?.mock)) return "";
+  const user = [
+    args.context ? `THE TRACK: ${args.context}` : "",
+    `THE CURRENT DIRECTION NOTE: ${(args.note ?? "").trim() || "(none yet)"}`,
+    ``,
+    `THE MAKER'S NEWEST REQUEST: ${request}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  try {
+    const out = stripFences(
+      await complete(RESTATE_DIRECTION_SYSTEM, user, cfg, { ...ROUTE.steer, trace: { kind: "restate-direction" } }),
+    )
+      .trim()
+      .replace(/^["'“”]+|["'“”]+$/g, "");
+    // KEEP (in any casing, alone on the line) is the "this was loop-local" answer.
+    if (!out || /^keep\b/i.test(out)) return "";
+    return out.slice(0, 160);
+  } catch (e) {
+    console.error("[klappn] restate-direction failed:", e);
+    return "";
+  }
+}
 
 // The one-tap extend has no words — so the model writes the words FIRST, in the
 // maker's own voice, and that text then rides the exact same path as a typed
@@ -569,9 +736,11 @@ export async function deriveAdjacentPart(
   intent: string;
   bars: number;
   kind: "loop" | "break";
-  /** plan.direction rewritten by the SAME call when the user's words steered
-   *  the whole track (absent when the ask was slot-local). */
-  direction?: string;
+  /** The words this section was actually planned from — the user's own direction
+   *  when they typed one, else the one the model authored for the bare tap. The
+   *  caller feeds it to restateTrackDirection (2026-07-30 split: designing a
+   *  section and rewriting the track's README are two jobs, two calls). */
+  steer?: string;
 }> {
   const { plan, parts, side, at, prompt } = args;
   // An explicit "break" from the caller still forces it (API compat); the UI
@@ -688,21 +857,25 @@ export async function deriveAdjacentPart(
     (x) => !!str(x.intent),
   );
   const intent = j ? str(j.intent) : "";
-  if (!intent) return fallback;
+  if (!intent) return { ...fallback, ...(want ? { steer: want } : {}) };
   const kind: "loop" | "break" =
     forced || str(j!.kind) === "break" ? "break" : "loop";
-  const direction = str(j!.direction).trim().slice(0, 160);
   return {
     label: cleanLabel(str(j!.label, fallback.label)),
     intent,
     bars: clampBars(j!.bars, kind === "break") ?? (kind === "break" ? Math.min(2, medianBars) : medianBars),
     kind,
-    ...(direction ? { direction } : {}),
+    ...(want ? { steer: want } : {}),
   };
 }
 
 // --- vocal coach -------------------------------------------------------------
 
+// TWO CALLS (2026-07-30 split): reading a take and setting THE chart is a
+// judgement about this one performance; inventing three alternative looks that
+// span a range is a different, generative job — and jammed together the pills
+// used to come back as timid neighbours of the chart. Now the looks call sees the
+// chart as its anchor and is asked only to depart from it. Both ROUTE.coach.
 const VOCAL_COACH_SYSTEM = `You are the vocal producer for a finished AI-composed track. Given the track's
 identity and measurements of a sung take, decide how the studio should treat the
 voice — how hard to correct it and where it sits in this production.
@@ -717,10 +890,14 @@ Respond with ONLY JSON, no prose, no fences:
   "fx": { "level": 0-1.5 (1 sits IN the mix), "air": 0-1, "glow": 0-1 (stereo
     double), "drive": 0-1 (saturation), "echo": 0-1 (synced delay), "space": 0-1
     (reverb) } — the voice's place in THIS track,
-  "pills": exactly 3 complete alternative looks, each { "label": ≤14 chars — a
-    seductive NAME in the product's voice, never an explanation, "tune", "timing",
-    "clean", "fx" } spanning a real range: one nearly-raw, one produced, one extreme,
   "note": ONE short line to the singer about the call you made. No hedging. }`;
+
+const VOCAL_LOOKS_SYSTEM = `You offer a singer three ALTERNATIVES to the vocal treatment the studio chose. You're given the track's identity and that chosen treatment. Write exactly 3 complete looks that SPAN A REAL RANGE around it — one nearly raw, one fully produced, one extreme — each far enough from the chosen one to be worth a tap.
+Respond with ONLY JSON, no prose, no fences:
+{ "pills": [ { "label": ≤14 chars — a seductive NAME in the product's voice, never
+    an explanation, "tune": 0-1, "timing": 0-1, "clean": 0-1,
+    "fx": { "level": 0-1.5, "air": 0-1, "glow": 0-1, "drive": 0-1, "echo": 0-1,
+      "space": 0-1 } } ] }`;
 
 export interface VocalCoachLook {
   tune: number;
@@ -787,41 +964,68 @@ export async function coachVocalTake(
       space: clamp01(o.space, 0.25),
     };
   };
+  // CALL 1 — THE CHART for this take. If it doesn't land there is nothing to
+  // offer alternatives to, so the looks call never fires.
   const j = await completeJson<Record<string, unknown>>(
     VOCAL_COACH_SYSTEM,
     user,
     cfg,
-    { ...ROUTE.create, trace: { kind: "vocal-coach" } },
-    (x) => Array.isArray(x.scalePcs) && Array.isArray(x.pills),
+    { ...ROUTE.coach, trace: { kind: "vocal-coach" } },
+    (x) => Array.isArray(x.scalePcs),
   );
   if (!j) return null;
   const scalePcs = (j.scalePcs as unknown[])
     .map((v) => Number(v))
     .filter((v) => Number.isInteger(v) && v >= 0 && v <= 11);
-  const pills = (j.pills as unknown[]).slice(0, 3).flatMap((p) => {
+  const chart: VocalCoachLook = {
+    tune: clamp01(j.tune, 0.8),
+    timing: clamp01(j.timing, 0.55),
+    clean: clamp01(j.clean, 0.7),
+    fx: clampFx(j.fx),
+  };
+  // CALL 2 — THREE ALTERNATIVES to that chart. Best-effort: no pills just means
+  // the studio shows its one chosen look, which is a complete experience.
+  const pills = await coachVocalLooks(user, chart, clamp01, clampFx, cfg);
+  return {
+    scalePcs: scalePcs.length ? scalePcs : [0, 2, 4, 5, 7, 9, 11],
+    subdivision: j.subdivision === 3 || j.subdivision === 4 ? (j.subdivision as number) : 2,
+    ...chart,
+    pills,
+    note: typeof j.note === "string" ? j.note.trim().slice(0, 200) : "",
+  };
+}
+
+/** The three alternative looks that flank the chosen chart. [] on any failure. */
+async function coachVocalLooks(
+  trackUser: string,
+  chart: VocalCoachLook,
+  clamp01: (v: unknown, d: number) => number,
+  clampFx: (f: unknown) => VocalCoachLook["fx"],
+  cfg?: ClaudeConfig,
+): Promise<VocalCoachPlan["pills"]> {
+  const user = [trackUser, ``, `THE TREATMENT THE STUDIO CHOSE: ${JSON.stringify(chart)}`].join("\n");
+  const j = await completeJson<Record<string, unknown>>(
+    VOCAL_LOOKS_SYSTEM,
+    user,
+    cfg,
+    { ...ROUTE.coach, trace: { kind: "vocal-looks" } },
+    (x) => Array.isArray(x.pills) && x.pills.length > 0,
+  );
+  if (!j) return [];
+  return (j.pills as unknown[]).slice(0, 3).flatMap((p) => {
     const o = (p ?? {}) as Record<string, unknown>;
     const label = typeof o.label === "string" ? o.label.trim().slice(0, 18) : "";
     if (!label) return [];
     return [
       {
         label,
-        tune: clamp01(o.tune, 0.8),
-        timing: clamp01(o.timing, 0.55),
-        clean: clamp01(o.clean, 0.7),
+        tune: clamp01(o.tune, chart.tune),
+        timing: clamp01(o.timing, chart.timing),
+        clean: clamp01(o.clean, chart.clean),
         fx: clampFx(o.fx),
       },
     ];
   });
-  return {
-    scalePcs: scalePcs.length ? scalePcs : [0, 2, 4, 5, 7, 9, 11],
-    subdivision: j.subdivision === 3 || j.subdivision === 4 ? (j.subdivision as number) : 2,
-    tune: clamp01(j.tune, 0.8),
-    timing: clamp01(j.timing, 0.55),
-    clean: clamp01(j.clean, 0.7),
-    fx: clampFx(j.fx),
-    pills,
-    note: typeof j.note === "string" ? j.note.trim().slice(0, 200) : "",
-  };
 }
 
 export interface ArrangementItem {
@@ -858,7 +1062,7 @@ Then, as the very first thing in the file, emit the control spec as a block
 comment in EXACTLY this shape (valid JSON array between the markers):
 
 /* @controls
-[{"name":"<const name>","label":"…","desc":"…","min":<number>,"max":<number>,"step":<number>}]
+[{"name":"<const name>","label":"<the name, title-cased>","desc":"","min":<number>,"max":<number>,"step":<number>}]
 */
 
 Rules:
@@ -867,9 +1071,10 @@ Rules:
   name — kick, snare, hats, bass, lead, chords, pads, brightness, space, echo,
   drive (same-named knobs unify into one song-wide control). Invent a name only
   for a concept not on the list.
-- "label" is 1-3 friendly words; "desc" is one plain-English sentence, no jargon.
-  Name and describe by ROLE, never by position or instrument — knobs are shared
-  across the song's loops and instruments can be swapped.
+- Name by ROLE, never by position or instrument — knobs are shared across the
+  song's loops and instruments can be swapped.
+- Don't write the friendly wording: "label" is just the name title-cased and
+  "desc" is the empty string. A separate pass writes both.
 - LEVEL knobs for voices have min 0.
 - "min"/"max" bracket the default so the whole range stays musical; "step" is a
   sane increment. All plain numbers.
@@ -879,11 +1084,17 @@ Output ONLY the complete Strudel program: the /* @controls */ comment, the
 consts, then the code with its literals swapped. No fences, no commentary.`;
 
 /**
- * Second pass (runs after compose): rewrite a finished loop to expose labeled,
- * ranged sliders via a /* @controls *\/ header + top-level consts. Uses default
- * "high" thinking (lighter than composition). SAFE: if the model's output isn't
- * a usable parameterization, we return the ORIGINAL code unchanged (the loop
- * just won't have sliders) — never ship a broken rewrite.
+ * Second pass (runs after compose): rewrite a finished loop to expose ranged
+ * sliders via a /* @controls *\/ header + top-level consts. ROUTE.knobs — Opus 5
+ * at medium: this is a mechanical CODE rewrite (hoist literals to consts) with a
+ * musical judgement about which literals matter, and its correctness is checked
+ * by a build, not by ear. SAFE: if the model's output isn't a usable
+ * parameterization, we return the ORIGINAL code unchanged (the loop just won't
+ * have sliders) — never ship a broken rewrite.
+ *
+ * It does NOT write the friendly label/desc (2026-07-30 split): naming a knob for
+ * a non-coder is prose, and labelControls() — Sonnet, thinking off — does it in a
+ * second call. This one only hoists numbers.
  */
 export async function parameterizePart(
   code: string,
@@ -893,7 +1104,7 @@ export async function parameterizePart(
   let out: string;
   try {
     out = stripFences(
-      await complete(PARAMETERIZE_SYSTEM, code, cfg, { ...ROUTE.transform, trace: { kind: "parameterize" } }),
+      await complete(PARAMETERIZE_SYSTEM, code, cfg, { ...ROUTE.knobs, trace: { kind: "parameterize" } }),
     );
   } catch {
     return code;
@@ -917,7 +1128,10 @@ other options. Skip layers with no genuine alternatives. 4 entries max.
 Respond with ONLY valid JSON, no prose, no fences:
 {"swaps":[{"layer":<number>,"find":"<exact sound in that layer>","findLabel":"…","label":"…","options":[{"s":"<sound from the list>","label":"…"}]}]}
 Every label is a plain instrument name a non-musician recognises; "findLabel"
-names the original sound, each option's "label" names the sound chosen.`;
+names the original sound, each option's "label" names the sound chosen.
+
+AVAILABLE SOUNDS (the ONLY valid option names):
+${LOADABLE_SOUNDS}`;
 
 /**
  * One LOW-thinking pass that proposes per-layer instrument ALTERNATIVES for a
@@ -932,21 +1146,18 @@ export async function suggestSounds(
   cfg?: ClaudeConfig,
 ): Promise<string> {
   if (mockEnabled(cfg?.mock)) return "";
+  // The prompt's list (LOADABLE_SOUNDS, in the cached SYSTEM block) carries only the MELODIC
+  // palette — swaps exclude drums, so the drum/texture categories were dead tokens on every
+  // call. This validation set still accepts anything real.
   const real = new Set<string>([...GM_SOUNDS, ...PALETTE_SOUNDS, ...WT_SOUNDS]);
-  // The prompt's list carries only the MELODIC palette (gm_ + wavetables + oscillators) — swaps
-  // exclude drums, so the drum/texture categories were dead tokens on every call. The validation
-  // set above still accepts anything real.
-  const offer = [...GM_SOUNDS, ...WT_SOUNDS, "sawtooth", "square", "triangle", "sine", "supersaw", "pulse"];
-  const user = [
-    `AVAILABLE SOUNDS (the ONLY valid option names):`,
-    offer.join(", "),
-    ``,
-    `THE LOOP:`,
-    code,
-  ].join("\n");
+  // MUSIC ONLY. This call answers JSON, and every claim it makes is re-checked
+  // against the FULL `code` below — so the @hydra visual and the @controls/
+  // @swaps/@edits UI metadata are pure input cost here. On a loop with visuals
+  // that is most of the file.
+  const user = `THE LOOP:\n${stripMetaBlocks(stripHydraBlock(code))}`;
   let raw: string;
   try {
-    raw = await complete(SWAPS_SYSTEM, user, cfg, { ...ROUTE.transform, trace: { kind: "swaps" } });
+    raw = await complete(SWAPS_SYSTEM, user, cfg, { ...ROUTE.swap, trace: { kind: "swaps" } });
   } catch {
     return "";
   }
@@ -1058,8 +1269,9 @@ export async function generateBreaks(
     .filter(Boolean)
     .join("\n");
   const raw = await complete(BREAKS_SYSTEM, user, cfg, {
-    provider: "anthropic",
-    effort: "high", // breaks must nail the hand-off between two loops — worth full thinking
+    // ROUTE.breaks — Fable 5: a break is INVENTED music that must nail the
+    // hand-off between two finished loops, and it is judged purely by ear.
+    ...ROUTE.breaks,
     trace: { kind: "breaks" },
   });
   const j = parseJson<{ breaks?: { label?: unknown; strudel?: unknown }[] }>(raw);
@@ -1109,8 +1321,7 @@ export async function arrangeSet(
     )
     .join("\n");
   const raw = await complete(ARRANGE_SET_SYSTEM, user, cfg, {
-    provider: "anthropic",
-    effort: "medium",
+    ...ROUTE.setOrder,
     trace: { kind: "arrange" },
   });
   const j = parseJson<{ order?: unknown[] }>(raw);
@@ -1162,7 +1373,15 @@ export async function labelControls(
   if (mockEnabled(cfg?.mock)) return code;
 
   const names = spec.map((s) => s.name).join(", ");
-  const user = [`CONTROL NAMES: ${names}`, ``, `LOOP CODE:`, code].join("\n");
+  // The consts + the music are what a knob has to be named FROM. The @controls
+  // comment is redundant (its names ride the line above) and @hydra/@swaps/@edits
+  // are irrelevant to naming a knob — all of it stripped before it costs input.
+  const user = [
+    `CONTROL NAMES: ${names}`,
+    ``,
+    `LOOP CODE:`,
+    stripMetaBlocks(stripHydraBlock(code)),
+  ].join("\n");
   let raw: string;
   try {
     raw = await complete(LABEL_SYSTEM, user, cfg, { ...ROUTE.copy, trace: { kind: "label" } });
@@ -1231,8 +1450,7 @@ export async function editSong(
     EDIT_SYSTEM,
     userText,
     cfg,
-    // high (not max): an edit's output can be a whole song, and Opus "max" can overthink.
-    { provider: "anthropic", effort: "high", trace: { kind: "edit" } },
+    { ...ROUTE.edit, trace: { kind: "edit" } },
   );
   const parsed = parseJson<{ parts: EditedPart[] }>(raw);
   if (!parsed || !Array.isArray(parsed.parts)) {
@@ -1294,8 +1512,7 @@ export async function editPart(
     EDIT_PART_SYSTEM,
     user,
     cfg,
-    // high effort — an edit emits Strudel; Opus "max" can overthink.
-    { provider: "anthropic", effort: "high", trace: { kind: "edit-pill" } },
+    { ...ROUTE.edit, trace: { kind: "edit-pill" } },
   );
   const parsed = parseJson<{ strudel?: string }>(raw);
   const code = typeof parsed?.strudel === "string" ? parsed.strudel.trim() : "";
@@ -1370,7 +1587,7 @@ export async function repairHydra(
     .filter(Boolean)
     .join("\n");
   try {
-    return sanitizeHydra(await complete(HYDRA_REPAIR_SYSTEM, user, cfg, { ...ROUTE.compose, effort: "high", trace: { kind: "hydra-repair" } }));
+    return sanitizeHydra(await complete(HYDRA_REPAIR_SYSTEM, user, cfg, { ...ROUTE.hydraRepair, trace: { kind: "hydra-repair" } }));
   } catch {
     return "";
   }
@@ -1408,7 +1625,7 @@ export async function suggestLooks(
   ].join("\n");
   let raw: string;
   try {
-    raw = await complete(VISUAL_LOOKS_SYSTEM, user, cfg, { ...ROUTE.transform, trace: { kind: "vlooks" } });
+    raw = await complete(VISUAL_LOOKS_SYSTEM, user, cfg, { ...ROUTE.copy, trace: { kind: "vlooks" } });
   } catch {
     return "";
   }
@@ -1505,7 +1722,7 @@ export async function generateHydra(
           cfg,
           // one-shot: HIGH — visuals are OPT-IN now (a user explicitly asked for
           // them), so spend proper thinking on the one call they requested.
-          { ...ROUTE.compose, trace: { kind: "hydra" } }, // hydra visual — Opus, high
+          { ...ROUTE.hydra, trace: { kind: "hydra" } }, // hydra visual — Opus 5, high
         ),
       );
       return sanitizeHydra(raw);
@@ -1623,59 +1840,6 @@ function normalizeScore(raw: LoopScore, plan: SongPlan, beats: number): LoopScor
   };
 }
 
-/** STAGE 1 — construct the loop's music-theory score (per-layer event lists + one
- *  shared progression), WITHIN the track's fixed key/tempo/meter. */
-export async function scoreLoop(
-  args: {
-    plan: SongPlan;
-    target: PlanPart;
-    /** Finished neighbours, so this loop's score can flow at the seams. */
-    neighbours?: { label: string; side: "before" | "after" }[];
-  },
-  cfg?: ClaudeConfig,
-): Promise<LoopScore> {
-  const { plan, target, neighbours } = args;
-  const beats = beatsPerBar(plan.timeSignature);
-  if (mockEnabled(cfg?.mock)) return mockScore(plan, beats);
-  const seams = (neighbours ?? [])
-    .map((n) =>
-      n.side === "after"
-        ? `This loop FOLLOWS "${n.label}" — open by continuing its energy, then become its own thing.`
-        : `This loop PRECEDES "${n.label}" — hold a comparable energy where they meet. The hand-off itself is composed separately: every bar here (the last included) plays on every repeat, so no one-way build into the next section.`,
-    )
-    .join("\n");
-  const lines = [
-    `genre: ${plan.genre || "(unspecified — infer a fitting one and stay consistent)"}`,
-    `key: ${plan.key}`,
-    `tempo: ${plan.bpm} BPM`,
-    `meter: ${plan.timeSignature || "4/4"} (${beats} beats per bar)`,
-    `this loop's role: ${target.label}`,
-    `this loop's brief: ${target.intent}`,
-    seams ? `\nSEAMS:\n${seams}` : "",
-    `\nTarget loop length: about 20 seconds — choose loopBars (a power of 2) so loopBars * ${beats} * (60 / ${plan.bpm}) ≈ 20.`,
-    `Echo the given key, tempo and meter in your output and compose the score within them.`,
-  ].filter(Boolean);
-  // The model can occasionally return an unparseable or empty score (a transient hiccup,
-  // or an answer that ran long). One such failure must NOT sink the whole
-  // generation, so RETRY the score once before giving up (each attempt is ~70-85s
-  // at minimal reasoning — well within the step wall even doubled).
-  let raw: LoopScore | null = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    raw = parseJson<LoopScore>(
-      await complete(SCORE_SYSTEM, lines.join("\n"), cfg, ROUTE.score),
-    );
-    if (raw && Array.isArray(raw.parts) && raw.parts.length) break;
-    console.error(
-      `[klappn] score-loop attempt ${attempt + 1} produced no usable score${
-        attempt === 0 ? " — retrying" : ""
-      }`,
-    );
-  }
-  if (!raw || !Array.isArray(raw.parts) || !raw.parts.length)
-    throw new Error("score-loop: model returned no usable score");
-  return normalizeScore(raw, plan, beats);
-}
-
 /** STAGE 1b — REVISE an existing score per a change request (the idea tier).
  *  Every edit path edits the music HERE, at the score level; the translator call
  *  then re-renders only the affected tracks. SAFE: returns the ORIGINAL score on
@@ -1717,7 +1881,7 @@ export async function editLoopScore(
     EDIT_SCORE_SYSTEM,
     lines.join("\n"),
     cfg,
-    ROUTE.score,
+    { ...ROUTE.score, trace: { kind: "edit-score" } },
     (j) => Array.isArray(j.parts) && j.parts.length > 0,
   );
   if (!raw || !Array.isArray(raw.parts) || !raw.parts.length) return score;
@@ -1750,7 +1914,7 @@ export async function pickSounds(
     PICK_SOUND_SYSTEM,
     lines.join("\n"),
     cfg,
-    ROUTE.pick,
+    { ...ROUTE.pick, trace: { kind: "pick" } },
     (j) => Array.isArray(j.parts) && j.parts.length > 0,
   );
   const picks = Array.isArray(parsed?.parts) ? parsed!.parts : [];
@@ -1877,7 +2041,7 @@ export async function translateLoop(
       ? `\n\nYOUR PREVIOUS RENDER (broken):\n${previous}\n\nFIX ALL OF THIS, then output the corrected full set of "$:" lines:\n${feedback}`
       : "";
   const user = `${frame}\n\nRENDER ALL ${score.parts.length} PARTS — one "$:" line each, in order:\n\n${partBlocks}${repair}\n\nOutput the ${score.parts.length} "$:" lines now — nothing else.`;
-  const out = stripFences(await complete(TRANSLATE_SYSTEM, user, cfg, ROUTE.translate));
+  const out = stripFences(await complete(TRANSLATE_SYSTEM, user, cfg, { ...ROUTE.translate, trace: { kind: "translate" } }));
   if (!out) throw new Error("translate-loop: empty response");
   // Keep only the "$:" lines (the model may add stray prose around them).
   const lines = out
@@ -1889,46 +2053,6 @@ export async function translateLoop(
 }
 
 // --- mocks for the new core (used when KLAPPN_MOCK_LLM is on) ----------------
-
-function mockScore(plan: SongPlan, beats: number): LoopScore {
-  const root = plan.key.split(/\s+/)[0];
-  const bars = targetLoopBars(plan.bpm, beats);
-  return {
-    key: plan.key,
-    tonic: root,
-    mode: "",
-    tempoBpm: plan.bpm,
-    meter: plan.timeSignature || "4/4",
-    beatsPerBar: beats,
-    loopBars: bars,
-    form: "mock loop",
-    dynamicArc: "steady",
-    harmony: {
-      harmonicRhythm: "one chord for the whole loop",
-      progression: [{ bars: `0-${bars - 1}`, roman: "i", chord: `${root}m`, tones: [root] }],
-    },
-    lowRegisterOwner: "bass",
-    parts: [
-      {
-        name: "kick",
-        role: "rhythm",
-        instrumentCharacter: "tight kick",
-        space: "close and dry",
-        register: "low",
-        events: [{ bar: 0, t: 0, dur: 0.25, pitch: "kick", vel: 1, art: "accent" }],
-        repeat: `bars 1-${bars - 1} are identical to bar 0`,
-      },
-      {
-        name: "bass",
-        role: "bass",
-        instrumentCharacter: "sine sub",
-        space: "close and dry",
-        register: "low",
-        events: [{ bar: 0, t: 0, dur: 1, pitch: `${root}2`, vel: 0.8, art: "tenuto" }],
-      },
-    ],
-  };
-}
 
 function mockLoop(score: LoopScore, picks: SoundPick[]): string {
   return score.parts

@@ -1,4 +1,4 @@
-import { deriveAdjacentPart, type SongPlan } from "@/lib/anthropic";
+import { deriveAdjacentPart, restateTrackDirection, type SongPlan } from "@/lib/anthropic";
 import { getUserId, unauthorized } from "@/lib/session";
 import {
   getSongWithParts,
@@ -108,13 +108,29 @@ export async function POST(
       model: song.model ?? "anthropic",
     },
   );
+  // THE SONG'S DIRECTION NOTE follows the words — its OWN call (2026-07-30):
+  // designing a section and rewriting the track's README are two jobs, so the
+  // planner above no longer carries a `direction` field. restateTrackDirection
+  // reads the same words (typed, or the ones the one-tap extend authored) and
+  // answers "" when the steer was local to this slot. Best-effort throughout.
+  const steer = (d.steer ?? "").trim();
+  if (steer) {
+    const note = await restateTrackDirection(
+      {
+        note: plan.direction,
+        request: steer,
+        context: [plan.genre, plan.summary].filter(Boolean).join(" — "),
+      },
+      {
+        onUsage: (t) => void addTokenUsage(userId, t),
+        onCall: sink.onCall,
+        model: song.model ?? "anthropic",
+      },
+    );
+    if (note && note !== (plan.direction ?? "").trim())
+      await saveSongDirection(id, note).catch(() => {});
+  }
   await sink.flush();
-
-  // THE SONG'S DIRECTION NOTE follows the words: when the derive judged the
-  // user's direction a whole-track steer, its rewritten note lands on
-  // plan.direction — every later compose/extend/edit reads it. Best-effort.
-  if (d.direction && d.direction !== (plan.direction ?? "").trim())
-    await saveSongDirection(id, d.direction).catch(() => {});
 
   // Append lands via the "end" sentinel — the index is computed inside the
   // insert transaction, so a concurrent extend-before can't stale our tail.

@@ -1,7 +1,7 @@
 import { getUserId } from "@/lib/session";
 import { addTokenUsage, assertQuota } from "@/lib/billing";
 import { makeCallSink } from "@/lib/call-trace";
-import { complete } from "@/lib/llm";
+import { complete, ROUTE } from "@/lib/llm";
 import { clientIp, rateLimit, tooMany } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -51,11 +51,11 @@ export async function POST(req: Request) {
         SYSTEM,
         numbered,
         {
-          model: "sonnet", // the cheap-call pin — naming needs no composing tier
           onUsage: (t: number) => void addTokenUsage(userId, t),
           onCall: sink.onCall,
         },
-        { thinking: false, maxTokens: 300, trace: { kind: "take-names" } },
+        // ROUTE.copy — Sonnet 5, thinking off: naming needs no composing tier.
+        { ...ROUTE.copy, trace: { kind: "take-names" } },
       );
       try {
         const parsed: unknown = JSON.parse(

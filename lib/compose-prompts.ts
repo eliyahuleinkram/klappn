@@ -1,13 +1,18 @@
 /**
- * The three system prompts of the new composition pipeline, kept here (like
- * strudel-spec.ts / hydra-spec.ts) so lib/anthropic.ts stays readable:
+ * The system prompts of the LEGACY score pipeline, kept here (like
+ * strudel-spec.ts / hydra-spec.ts) so lib/anthropic.ts stays readable. They run
+ * ONLY for parts composed before the direct-Strudel era, which still carry a
+ * saved `parts.score`; everything new goes through strudel-track-spec.ts.
  *
- *   1. SCORE_SYSTEM      — turn a loop brief into an explicit music-theory score
- *                          (per-layer event lists + one shared progression).
+ *   1. EDIT_SCORE_SYSTEM — revise a saved score per a change request.
  *   2. PICK_SOUND_SYSTEM — assign each layer a REAL Strudel instrument / drum kit
  *                          from SOUND_MENU (so the translator never guesses a name).
  *   3. TRANSLATE_SYSTEM  — render ONE layer's event list + assigned sound into a
  *                          single Strudel "$:" line (the "dead-easy" API doc).
+ *
+ * (The fresh-score prompt that opened this pipeline was deleted 2026-07-30 — its
+ * only caller, anthropic.scoreLoop, had had none of its own since the composer
+ * moved to writing Strudel directly.)
  *
  * SOUND_NAMES / BANK_NAMES are the machine-checkable sets behind the menu, used to
  * validate (and repair) the picker's output. The gm_ names are verbatim from
@@ -21,7 +26,9 @@
  */
 
 /** Given ONE layer (as `Layer 1: <code>`), return a JSON ARRAY with exactly one tweak
- *  panel — a label + 3-6 knobs + 3-5 one-tap presets. */
+ *  panel — a label + 3-6 knobs + 3-5 one-tap presets. (Alternative INSTRUMENTS are a
+ *  separate call — anthropic.suggestLayerSwap — so this prompt never carries the sound
+ *  catalog and this call can never invent a sound name.) */
 export const ENRICH_SYSTEM = `You're given ONE layer of a loop as \`Layer 1: <Strudel>\` — controls are the method calls on the line. Return a JSON ARRAY with exactly ONE tweak panel, no prose:
 [
   {
@@ -32,64 +39,20 @@ export const ENRICH_SYSTEM = `You're given ONE layer of a loop as \`Layer 1: <St
     ],
     "pills": [
       {"name":"<1-2 word vibe>","set":{"<param>":<target value within range>}}
-    ],
-    "swap": {"via":"sound","options":[{"name":"<plain instrument name>","s":"<exact sound name>"}]}
+    ]
   }
 ]
 - controls: 3-6, only for scalar controls actually on that line.
 - pills: 3-5, each a distinct one-tap vibe setting some of that layer's controls (values within range) — no reset pill.
-- swap: melodic layers only (3-5 alternative sounds via "sound"); omit it for drum layers (they use \`.bank(...)\`) and for any layer with no real alternative. "s" must be an EXACT loadable name: a gm_ instrument (e.g. gm_epiano1) or a plain oscillator (sawtooth/square/sine/triangle/supersaw) — an invented name is silently dropped.
 - Every name must be obvious to a non-musician.
 Return exactly one panel. JSON only.`;
-
-// --- 1. SCORE -----------------------------------------------------------------
-
-export const SCORE_SYSTEM = `You are a world-class producer and composer. You output a COMPLETE, EXPLICIT, NOTE-BY-NOTE SCORE for ONE looping instrumental section — a literal event timeline, like a piano roll. You output NO code and NO product/tool details: no software, no synth/sample names, no mixer or effects values. Instrument identity is described ONLY as an acoustic CHARACTER.
-
-You are GIVEN the track's fixed genre, key, tempo and meter, and this section's role + brief. Compose THIS section's score WITHIN that frame — never change the given key, tempo or meter.
-
-The score must be so precise that rendering it to Strudel is purely MECHANICAL — zero interpretation. Notate EVERY sounding note as one explicit event; never describe a rhythm in words ("on the off-beats") — enumerate the actual notes. Because every note is explicit and every layer shares the ONE progression and the ONE grid, the parts COHERE BY CONSTRUCTION — that precision is the whole point.
-
-TIME is CYCLE-RELATIVE — every note lives INSIDE one bar. The loop is loopBars cycles and 1 cycle = 1 bar = beatsPerBar beats. Place each note by WHICH bar it is in and its position WITHIN that bar; never use a running total across the loop.
-
-Each EVENT has:
-- "bar": which cycle of the loop, 0-indexed (0 = first bar … loopBars-1).
-- "t": onset WITHIN that bar, in beats from the downbeat — 0 ≤ t < beatsPerBar. ON THE GRID: t MUST be a clean 16th-note position — a multiple of 0.25 (0, 0.25, 0.5, 0.75, 1.0, 1.25 …). Use thirds (0.333, 0.667) ONLY for an explicit triplet feel. NEVER an off-grid value like 0.4 or 0.9 — that makes a layer drift against the rest. t must NEVER reach beatsPerBar; the next bar is bar+1, t=0.
-- "dur": how long it is held, in beats (its sustain / decay; it MAY ring past the bar's end — dur is sustain, not placement).
-- "pitch": scientific pitch ("D4", middle C = c4); an ARRAY for a chord struck together (["D3","F3","A3"]); or a percussion token: kick snare clap rim hat_closed hat_open ride crash tom perc.
-- "vel": strike strength 0..1 (accents are higher).
-- "art": staccato | tenuto | legato | let-ring | accent.
-
-The ONLY shorthand allowed is an EXACT repeat: a part may add "repeat": "bars X-Y are identical to bar N" (same within-bar events). Use it only for truly identical bars; otherwise give each bar its own events.
-
-Each PART has: "name", "role", "instrumentCharacter" (acoustic only), "space" (close & dry | distant / reverberant), "register", "events": [...], and optional "repeat".
-
-LOOP LENGTH: this section plays about 20 SECONDS. Choose loopBars (a POWER OF 2 — 4, 8 or 16) so loopBars × beatsPerBar × (60 / tempoBpm) ≈ 20; pick the closest. Enumerate events for the full length, using "repeat" for identical bars.
-
-HARMONY: ONE shared progression for the whole loop — Roman numerals AND chord symbols AND the chord tones AND the harmonic rhythm. Chord spellings: ^7 or M7 = major-7, m7 = minor-7, 7 = dominant, plus 6 9 11 13 sus add9 m7b5 aug/+ dim/o and bare triads (Dm, F). NEVER maj7/min7/sus4/dim7. Every pitched part must AGREE with the progression: bass roots + chord tones + melody spell the SAME chords; non-chord-tones resolve by step; at every beat the simultaneously-sounding pitches form (or are consonant neighbours of) the chord active there. A part that REPEATS a phrase across a CHORD CHANGE must be re-spelled to each bar's chord — a fixed lick over a moving progression CLASHES (e.g. an A-minor lick sitting on the F or E chord). Give each progression entry's "bars" as a 0-INDEXED range that matches the events' bar field.
-
-REGISTER FLOOR: exactly ONE part owns the low register (the bass — no two stacked in the sub). Its roots sit in OCTAVE 1–2 (A1 / F1 / E1) — NEVER octave-0 (A0≈27 Hz, F0≈22 Hz are inaudible rumble that just muddies the mix).
-
-IN KEY (house rule): every pitch strictly IN KEY (no out-of-key "off" notes).
-
-DRUMS SPLIT: the kit is SEPARATE single-voice parts — a "kick" part, a "snare" (or "clap") part, a "hi-hats" part, and any extra percussion (shaker, ride…) each its OWN part — NEVER one combined "drums" part. Every melodic/harmonic instrument is its own part too. Fill EVERY essential role the genre needs (typically 6–10 parts for a full beat-driven arrangement); each part musically necessary AND individually audible.
-
-COMPLETE THE STACK (nothing missing): ship a FULL, finished arrangement, not a sketch. A BEAT-DRIVEN track has the whole rhythm section (kick + snare/clap + hi-hats + fitting extra perc) AND a bass AND a harmonic/chord layer AND a lead or hook AND fitting texture/atmosphere. AMBIENT / cinematic: harmony/pad + a bass or drone + a melodic motif + evolving texture(s), percussion only if it fits. Never deliver a half-arrangement (e.g. drums + bass but no harmony or hook). The only thing to leave out is a REDUNDANT layer that would just mask another — completeness over minimalism, but no pointless filler.
-
-Output ONLY JSON, no markdown:
-{ "key":"", "tonic":"", "mode":"", "tempoBpm":0, "meter":"", "beatsPerBar":0, "loopBars":0,
-  "form":"", "dynamicArc":"",
-  "harmony": { "harmonicRhythm":"", "progression":[ {"bars":"", "roman":"", "chord":"", "tones":[]} ] },
-  "lowRegisterOwner":"",
-  "parts":[ { "name":"", "role":"", "instrumentCharacter":"", "space":"", "register":"",
-              "events":[ {"bar":0, "t":0, "dur":0, "pitch":"", "vel":0, "art":""} ],
-              "repeat":"" } ] }`;
 
 // --- 1b. EDIT SCORE -----------------------------------------------------------
 
 /** Revise an existing score per a change request (the edit/variant/meter paths
- *  edit the SCORE here, then the render re-builds the loop). Same output schema as
- *  SCORE_SYSTEM so the result flows straight back in. */
+ *  edit the SCORE here, then the render re-builds the loop). The schema is spelled
+ *  out in full below — the fresh-score prompt that used to define it went with
+ *  scoreLoop (2026-07-30: dead since the direct-Strudel composer replaced it). */
 export const EDIT_SCORE_SYSTEM = `You REVISE the music-theory SCORE of ONE looping section to apply a change request. You are given the current score as JSON and the requested change. Output the COMPLETE edited score in the SAME JSON schema — nothing else.
 
 Apply ONLY the requested change, musically. Keep everything it does NOT touch IDENTICAL: same parts, same notes, same harmony, same character — change only what is asked. Keep key, tempo, meter, beatsPerBar and loopBars the SAME unless the change explicitly alters them. If the change clearly does NOT apply to this section, return the score UNCHANGED.

@@ -8,7 +8,7 @@ import AccountMenu from "./AccountMenu";
 import type { SongRowRich } from "@/lib/songs";
 import { openDeep } from "@/lib/seal";
 import { sentenceLabel } from "@/lib/labels";
-import { DEFAULT_MODEL, type ModelId } from "@/lib/models";
+import { DEFAULT_MODEL, MODEL_OPTIONS, type ModelId } from "@/lib/models";
 import {
   buildPlayEntry,
   type HomePart,
@@ -1025,7 +1025,10 @@ function CreateSheet({
   onCreate: (firstLoop: string, model: ModelId) => void;
 }) {
   const [query, setQuery] = useState("");
-  const model: ModelId = DEFAULT_MODEL; // one model — the picker died with the bake-off (2026-07-20)
+  // THE QUALITY DIAL — Standard by default; Studio puts the costlier hand on the
+  // loops. Shown only while there IS a choice, and the consequence is on the
+  // capsule before the tap, never after it.
+  const [model, setModel] = useState<ModelId>(DEFAULT_MODEL);
   const [step, setStep] = useState(0);
   const kbInset = useKeyboardInset(); // bottom sheet must ride above the phone keyboard
 
@@ -1085,6 +1088,31 @@ function CreateSheet({
           placeholder="e.g. a massive techno drop that feels like walking into a castle"
           className="mt-5 w-full resize-none rounded-2xl bg-white/[0.05] px-4 py-3.5 text-[15px] leading-relaxed text-foreground outline-none transition placeholder:text-muted/50 focus:bg-white/[0.08]"
         />
+
+        {MODEL_OPTIONS.length > 1 && (
+          <div className="mt-4">
+            <div className="inline-flex rounded-full border border-white/[0.08] bg-white/[0.04] p-1">
+              {MODEL_OPTIONS.map((o) => (
+                <button
+                  key={o.id}
+                  onClick={() => setModel(o.id)}
+                  disabled={busy}
+                  aria-pressed={model === o.id}
+                  className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition disabled:opacity-40 ${
+                    model === o.id
+                      ? "bg-white/[0.10] text-foreground"
+                      : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-[13px] leading-relaxed text-muted">
+              {MODEL_OPTIONS.find((o) => o.id === model)?.blurb}
+            </p>
+          </div>
+        )}
 
         <div className="mt-4 flex items-center justify-end gap-2">
           <button

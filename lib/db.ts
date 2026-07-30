@@ -93,11 +93,6 @@ interface DbScope {
   clients: Map<string, Sql>;
 }
 const als = new AsyncLocalStorage<DbScope>();
-
-export function inDbScope(): boolean {
-  return als.getStore() !== undefined;
-}
-
 /** True when a bare `db()`/`getSql()` call right now would mint a TRANSIENT client the
  *  caller owns (workerd with no request scope — e.g. inside a Workflow step). Such a
  *  client is NOT closed by any scope teardown, so the caller must `.end()` it itself;

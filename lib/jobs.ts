@@ -18,13 +18,14 @@ import {
   labelControls,
   parameterizePart,
   pickSounds,
+  restateSectionBrief,
+  restateTrackDirection,
   suggestLooks,
   suggestSounds,
   translateLoop,
 } from "./anthropic";
 import type { LoopScore, LoopTrack, SoundPick, TrackControl } from "./score";
 import { editStrudelLoop, editStrudelWholeLoop, convertStrudelMeter, repairStrudelLoop } from "./compose-strudel";
-import type { StagedLayer } from "./compose-strudel";
 import { parameterize } from "./parameterize";
 import { assignReverbOrbits, wireSidechain } from "./reverb-orbits";
 import {
@@ -56,9 +57,7 @@ import {
   stripVisualGrade,
 } from "./controls";
 import {
-  appendSongEffects,
   getPartsOrdered,
-  injectPart,
   replaceSongEffects,
   replaceSongOverlays,
   saveSongArrangement,
@@ -88,13 +87,10 @@ import type { SongPlan } from "./anthropic";
 import { DEFAULT_MODEL } from "./models";
 import type { ModelId } from "./models";
 import {
-  composeNextChapter,
   composeSongArrangement,
-  composeNextUnfoldFx,
   composePageShape,
   enrichSweepControls,
 } from "./arrange-plan";
-import { sentenceLabel } from "./labels";
 import type { SectionArrange, SectionSweep, SectionTake, SongArrangement, SongFx } from "./arrange";
 import { computeLoopBars } from "./loop-length";
 import { breakMoveOf, type BreakOverlay } from "./breaks-catalog";
@@ -1040,6 +1036,8 @@ export async function editLoopDirect(
     const ts = plan.timeSignature ?? "4/4";
     const bodyOf = (t: LoopTrack) => t.code.replace(/^\$:\s*/, "").trim();
     const layers = tracks0.map((t) => ({ label: t.label ?? "", body: bodyOf(t) }));
+    // The loop as it stood — the "before" the prose calls below compare against.
+    const beforeLoop = tracks0.map((t) => t.code).join("\n");
     // SONG-AWARE brief: this loop's own intent + the neighbouring loops' actual music.
     const target: PlanPart = {
       label: part.label ?? "",
@@ -1084,22 +1082,13 @@ export async function editLoopDirect(
       tracks: LoopTrack[];
       failures: string[];
       changed: number;
-      intent?: string;
-      /** The track's direction note, rewritten by the SAME call when the
-       *  request steered the whole track (absent for loop-local changes). */
-      direction?: string;
       /** origin[newIndex] = old 0-based track index (null = brand-new layer) —
        *  the exact mapping the unfold re-points itself with after the write. */
       origin: (number | null)[];
     } | null> => {
-      const reply = await editStrudelWholeLoop(
-        layers,
-        brief,
-        change,
-        cfg,
-        intent0 || undefined,
-        plan.direction,
-      ).catch(() => null);
+      const reply = await editStrudelWholeLoop(layers, brief, change, cfg).catch(
+        () => null,
+      );
       const bodies = reply?.bodies;
       if (!bodies?.length) return null;
       // Match each returned line to a surviving track: byte-identical first (that track carries
@@ -1187,8 +1176,6 @@ export async function editLoopDirect(
         tracks: out.map(ensureVolumeKnob),
         failures,
         changed,
-        intent: reply?.brief,
-        direction: reply?.direction,
         origin,
       };
     };
@@ -1217,16 +1204,33 @@ export async function editLoopDirect(
       res.origin.length === tracks0.length && res.origin.every((o, i) => o === i);
     if (!identity)
       await syncSectionSpecLayers(songId, partId, res.origin, sql).catch(() => {});
-    // The section's brief follows the music: the edit call returns it word-for-word when it
-    // still fits (no write), revised when the change invalidated it — so the card description,
-    // future edit briefs and the regenerate seed all describe what actually plays now.
-    const intent1 = (res.intent ?? "").trim();
+    // THE WORDS FOLLOW THE MUSIC — two small calls of their own (2026-07-30,
+    // the user: one task per call). The edit call above now returns code and
+    // nothing else; these read the before/after loops and answer in prose:
+    //   · the SECTION'S BRIEF — so the card description, future edit briefs and
+    //     the regenerate seed all describe what actually plays now;
+    //   · the TRACK'S DIRECTION NOTE — rewritten only when the request steered
+    //     the whole track, so every later compose/extend/edit inherits the steer.
+    // Both run in parallel, both best-effort: "" means keep what we had.
+    const afterLoop = res.tracks.map((t) => t.code).join("\n");
+    const [intent1, direction1] = await Promise.all([
+      intent0
+        ? restateSectionBrief(
+            { before: beforeLoop, after: afterLoop, change: request, brief: intent0 },
+            cfg,
+          ).catch(() => "")
+        : Promise.resolve(""),
+      restateTrackDirection(
+        {
+          note: plan.direction,
+          request,
+          context: [plan.genre, plan.summary].filter(Boolean).join(" — "),
+        },
+        cfg,
+      ).catch(() => ""),
+    ]);
     if (intent0 && intent1 && intent1 !== intent0)
       await sql`update parts set intent = ${intent1.slice(0, 600)} where id = ${partId}`;
-    // THE SONG'S DIRECTION NOTE follows the edit: when the same call judged the
-    // request a whole-track steer, its rewritten note lands on plan.direction —
-    // every later compose/extend/edit reads it from the brief. Best-effort.
-    const direction1 = (res.direction ?? "").trim();
     if (direction1 && direction1 !== (plan.direction ?? "").trim())
       await saveSongDirection(songId, direction1, sql).catch(() => {});
     await setPartMessage(partId, "", sql);
@@ -2015,347 +2019,7 @@ export async function dressSectionSweeps(
 // effect glides in with it, anchored to real part ids in plan.effects.
 // Lineage lives in plan.chapters ({chapterPartId: rootPartId}) so later taps
 // under a chapter continue the SAME loop's story.
-
-/**
- * Compose + materialize the next chapter of `sourceId`'s loop, inserting the
- * new part at `position`. Returns the new part id (+ its effect, if one was
- * authored), or null when nothing usable came back.
- */
-export async function composeNextChapterFor(
-  songId: string,
-  sourceId: string,
-  /** Where the new pass lands; omitted = right after the lineage's last pass. */
-  position: number | undefined,
-  cfg: ClaudeConfig | undefined,
-  sql: Sql = db(),
-): Promise<{ partId: string } | "done" | null> {
-  const [song] = await sql<SongRow[]>`select * from songs where id = ${songId}`;
-  const plan = song?.plan as SongPlan | undefined;
-  if (!plan) return null;
-  const lineage = (plan as { chapters?: Record<string, string> }).chapters ?? {};
-  const rootId = lineage[sourceId] ?? sourceId;
-  const parts = await getPartsOrdered(songId, sql);
-  const root = parts.find((p) => p.id === rootId);
-  if (!root?.strudel?.trim() || root.status !== "ready") return null;
-  if (root.kind === "bridge" || root.kind === "break") return null;
-  const tracks = root.tracks;
-  if (!tracks || tracks.length < 2) return null;
-  // The chapters already made from this loop, in play order — the model sees
-  // each pass's name + layer subset matched back to the root's numbering.
-  // Match by CODE first (chapter tracks are byte-copies of the root's, so this
-  // is exact even when two layers share a label like "Synth"); label is the
-  // edited-track fallback.
-  const rootLabels = tracks.map((t) => (t.label || "").toLowerCase());
-  const rootIndexOf = (t: LoopTrack): number => {
-    const byCode = tracks.findIndex((rt) => rt.code === t.code);
-    if (byCode >= 0) return byCode + 1;
-    return rootLabels.indexOf((t.label || "").toLowerCase()) + 1;
-  };
-  const made = parts
-    .filter((p) => lineage[p.id] === rootId && p.strudel?.trim())
-    .map((p) => ({
-      name: sentenceLabel(p.label || "Chapter"),
-      layers: [
-        ...new Set((p.tracks ?? []).map(rootIndexOf).filter((i) => i >= 1)),
-      ].sort((a, b) => a - b),
-    }));
-
-  // ACT TRANSITIONS (2026-07-14, the user: "between blueprints it does not
-  // seem like we have the most natural transition"): the FIRST loop of a
-  // mid-song blueprint enters straight after another act's loop — give that
-  // seam to the model so the entrance answers what's already playing. Later
-  // passes follow their own siblings; only the first needs the outside world.
-  const rootsSet = new Set(Object.values(lineage));
-  const rootAt = parts.findIndex((p) => p.id === rootId);
-  let before: { label: string; strudel: string } | null = null;
-  if (!made.length && rootAt > 0) {
-    for (let i = rootAt - 1; i >= 0; i--) {
-      const p = parts[i];
-      if (p.strudel?.trim() && p.status === "ready" && !rootsSet.has(p.id)) {
-        before = { label: sentenceLabel(p.label || "Loop"), strudel: p.strudel };
-        break;
-      }
-    }
-  }
-
-  const composed = await composeNextChapter(
-    {
-      genre: plan.genre,
-      key: plan.key,
-      bpm: plan.bpm,
-      timeSignature: plan.timeSignature || "4/4",
-      summary: plan.summary,
-      section: {
-        id: root.id,
-        label: root.label ?? "",
-        intent: root.intent ?? "",
-        bars: Math.max(1, computeLoopBars(root.strudel) || root.bars || 4),
-        strudel: root.strudel,
-        instruments: tracks.map((t) => t.label ?? null),
-        kind: root.kind,
-      },
-      made,
-      before,
-    },
-    cfg,
-  ).catch(() => null);
-  if (!composed) return null;
-  if (composed === "done") return "done";
-
-  const beats = beatsPerBar(plan.timeSignature || "4/4");
-  const ts = plan.timeSignature || "4/4";
-  const subset: LoopTrack[] = [];
-  for (const i of composed.layers) {
-    const t = JSON.parse(JSON.stringify(tracks[i - 1])) as LoopTrack;
-    // VARIATION — the same voice saying something new in this loop. Every
-    // varied line passes the composed-layer gate; a failure keeps the
-    // original line (the loop never breaks for a bad variation).
-    const v = composed.vary?.[i];
-    if (v) {
-      const line = v.trim().startsWith("$") ? v.trim() : `$: ${v.trim()}`;
-      const errs = await layerGateErrors(line, plan.bpm, beats, ts).catch(() => ["gate failed"]);
-      if (errs.length === 0) {
-        t.code = line;
-        t.notation = line.replace(/^\$\s*:\s*/, "");
-      }
-    }
-    subset.push(t);
-  }
-  const code = mergeTracksKeepVisual(subset, plan.bpm, beats, root.strudel);
-  const label =
-    composed.name || `${sentenceLabel(root.label || "Pass")} ${made.length + 2}`;
-  // Land right after the lineage's LAST pass (or the root itself) unless the
-  // caller pinned a spot — the unfolding reads top-to-bottom, in order.
-  const lineageParts = parts.filter((p) => lineage[p.id] === rootId);
-  const lastOfLineage = lineageParts.length
-    ? lineageParts[lineageParts.length - 1]
-    : root;
-  const at = position ?? lastOfLineage.position + 1;
-  const row = await injectPart(
-    songId,
-    at,
-    label,
-    root.intent ?? "",
-    root.bars ?? 8,
-    "loop",
-    sql,
-  );
-  await sql`
-    update parts
-    set strudel = ${code},
-        tracks = ${sql.json(subset as unknown as Parameters<typeof sql.json>[0])},
-        sounds = ${root.sounds ? sql.json(root.sounds as unknown as Parameters<typeof sql.json>[0]) : null},
-        status = 'ready'
-    where id = ${row.id}`;
-  await recordChapterOrigin(songId, row.id, rootId, sql);
-  return { partId: row.id };
-}
-
-/**
- * THE UNFOLDING (2026-07-14, the user): a finished loop spreads its wings on
- * its own — pass after pass materializing as real loops, watchable in real
- * time (each lands before the next is asked for; the client's generating poll
- * draws them in as they appear). One HIGH call per pass; the model says done
- * (or the cap ends it); a loop that already has passes never re-unfolds.
- */
-export async function unfoldLoopParts(
-  songId: string,
-  rootId: string,
-  cfg: ClaudeConfig | undefined,
-  runStep: StepRunner,
-  /** DB access per unit of work — a durable step can re-run in a different
-   *  invocation, so each one must open a FRESH client (the workflow passes
-   *  its withSql; dev passes a closure over its local client). */
-  withDb: <T>(fn: (sql: Sql) => Promise<T>) => Promise<T>,
-): Promise<void> {
-  const MAX_PASSES = 8; // safety net only — the model's {"done": true} is the real end
-  // Idempotence: a regenerated/retried loop that already unfolded stays as
-  // the user left it.
-  const lineage = await withDb(async (sql) => {
-    const [song] = await sql<SongRow[]>`select plan from songs where id = ${songId}`;
-    return (
-      ((song?.plan as SongPlan | undefined) as
-        | { chapters?: Record<string, string> }
-        | undefined)?.chapters ?? {}
-    );
-  });
-  if (Object.values(lineage).includes(rootId)) return;
-  // Mark the blueprint mid-unfold — the client shows it as raw material, not
-  // a loop, from this moment on.
-  await withDb((sql) => setSongUnfolding(songId, rootId, true, sql)).catch(() => {});
-  const childIds: string[] = [];
-  try {
-    for (let k = 0; k < MAX_PASSES; k++) {
-      const made = await runStep(`unfold-${rootId}-${k + 1}`, () =>
-        withDb((sql) => composeNextChapterFor(songId, rootId, undefined, cfg, sql)),
-      ).catch(() => null);
-      if (!made || made === "done") break;
-      childIds.push(made.partId);
-    }
-    // THE EFFECTS WALK — motion authored over the FINISHED sequence (an
-    // effect is a cross-loop object; from inside one loop's call it always
-    // came back one loop wide), ONE GLIDE PER PASS like the unfold itself:
-    // each pass sees everything already riding and answers with the next
-    // glide or {"done": true}. Each lands (knobs dressed) as it's authored —
-    // an already-playing song hears it seconds later. Best-effort.
-    if (childIds.length > 0) {
-      // say so — the page's strip flips to "writing the effects…" live
-      await withDb((sql) => setSongUnfolding(songId, rootId, "fx", sql)).catch(() => {});
-      for (let k = 0; k < MAX_FX_PASSES; k++) {
-        const added = await runStep(`unfold-fx-${rootId}-${k + 1}`, () =>
-          withDb((sql) => authorNextUnfoldFx(songId, rootId, childIds, cfg, sql)),
-        ).catch(() => null);
-        if (added !== "added") break;
-      }
-    }
-  } finally {
-    // The blueprint STAYS (2026-07-14, the user): it's the song's raw
-    // material, kept visible and inspectable forever — playback simply
-    // excludes it once children exist (plan.chapters lineage marks it).
-    await withDb((sql) => setSongUnfolding(songId, rootId, false, sql)).catch(
-      () => {},
-    );
-  }
-}
-
-/** One pass of the effects walk: read the piece and every glide already
- *  riding it fresh from the DB, ask for the NEXT glide, dress its knobs, land
- *  it. "added" keeps the walk going; "done" ends it (the model's call). */
-const MAX_FX_PASSES = 8; // safety net only — the model's {"done": true} is the real end
-async function authorNextUnfoldFx(
-  songId: string,
-  rootId: string,
-  childIds: string[],
-  cfg: ClaudeConfig | undefined,
-  sql: Sql,
-): Promise<"added" | "done"> {
-  const [song] = await sql<SongRow[]>`select * from songs where id = ${songId}`;
-  const plan = song?.plan as SongPlan | undefined;
-  if (!plan) return "done";
-  const parts = await getPartsOrdered(songId, sql);
-  const root = parts.find((p) => p.id === rootId);
-  const tracks = root?.tracks;
-  if (!root?.strudel?.trim() || !tracks) return "done";
-  const rootLabels = tracks.map((t) => (t.label || "").toLowerCase());
-  const rootIndexOf = (t: LoopTrack): number => {
-    const byCode = tracks.findIndex((rt) => rt.code === t.code);
-    if (byCode >= 0) return byCode + 1;
-    return rootLabels.indexOf((t.label || "").toLowerCase()) + 1;
-  };
-  const children = childIds
-    .map((id) => parts.find((p) => p.id === id))
-    .filter((p): p is PartRow => !!p?.strudel?.trim());
-  if (!children.length) return "done";
-  const loops = children.map((p) => ({
-    name: sentenceLabel(p.label || "Loop"),
-    layers: [
-      ...new Set((p.tracks ?? []).map(rootIndexOf).filter((i) => i >= 1)),
-    ].sort((x, y) => x - y),
-  }));
-  // Everything already riding these loops — this walk's earlier passes AND
-  // any glide the user has born by hand — in the loop numbers the model sees.
-  const loopNo = (id: string): number =>
-    children.findIndex((c) => c.id === id) + 1;
-  const riding = ((plan.effects ?? []) as SongFx[])
-    .filter((e) => loopNo(e.fromId) >= 1 && loopNo(e.toId) >= 1)
-    .map((e) => ({
-      name: e.name,
-      param: e.param,
-      fromLoop: loopNo(e.fromId),
-      toLoop: loopNo(e.toId),
-    }));
-  const rootBars = Math.max(1, computeLoopBars(root.strudel) || root.bars || 4);
-  const next = await composeNextUnfoldFx(
-    {
-      genre: plan.genre,
-      key: plan.key,
-      bpm: plan.bpm,
-      timeSignature: plan.timeSignature || "4/4",
-      summary: plan.summary,
-      section: {
-        id: root.id,
-        label: root.label ?? "",
-        intent: root.intent ?? "",
-        bars: rootBars,
-        strudel: root.strudel,
-        instruments: tracks.map((t) => t.label ?? null),
-        kind: root.kind,
-      },
-      loops,
-      riding,
-    },
-    cfg,
-  ).catch(() => null);
-  if (!next || next === "done") return "done";
-  let fx: SongFx = {
-    id: crypto.randomUUID(),
-    param: next.param,
-    from: next.from,
-    to: next.to,
-    curve: next.curve,
-    ...(next.name ? { name: next.name } : {}),
-    home: { from: next.from, to: next.to },
-    fromId: children[next.fromLoop - 1].id,
-    toId: children[next.toLoop - 1].id,
-  };
-  // KNOBS AHEAD OF TIME — the glide lands already dressed (best-effort).
-  const dressed = await enrichSweepControls(
-    {
-      genre: plan.genre,
-      section: [root.label, root.intent].filter(Boolean).join(" — "),
-      sweeps: [
-        {
-          param: next.param,
-          from: next.from,
-          to: next.to,
-          bar: 0,
-          bars: rootBars * (next.toLoop - next.fromLoop + 1),
-          curve: next.curve,
-          name: next.name,
-        },
-      ],
-    },
-    cfg,
-  ).catch(() => null);
-  if (dressed?.[0]?.controls?.length) fx = { ...fx, controls: dressed[0].controls };
-  await appendSongEffects(songId, [fx], sql);
-  return "added";
-}
-
-/** Flip a blueprint's mid-unfold flag (plan.unfolding[rootId]). */
-async function setSongUnfolding(
-  songId: string,
-  rootId: string,
-  on: boolean | "fx", // "fx" = the loops are done, the effects walk is writing
-  sql: Sql,
-): Promise<void> {
-  await sql`
-    update songs
-    set plan = jsonb_set(
-      plan,
-      '{unfolding}',
-      coalesce(plan->'unfolding', '{}'::jsonb) || ${sql.json({ [rootId]: on } as Parameters<typeof sql.json>[0])}
-    )
-    where id = ${songId}`;
-}
-
-/** Record a chapter's lineage (plan.chapters[chapterId] = rootId). */
-async function recordChapterOrigin(
-  songId: string,
-  chapterId: string,
-  rootId: string,
-  sql: Sql,
-): Promise<void> {
-  await sql`
-    update songs
-    set plan = jsonb_set(
-      plan,
-      '{chapters}',
-      coalesce(plan->'chapters', '{}'::jsonb) || ${sql.json({ [chapterId]: rootId } as Parameters<typeof sql.json>[0])}
-    )
-    where id = ${songId}`;
-}
-
+ // safety net only — the model's {"done": true} is the real end
 /**
  * Framework-neutral job core. No Cloudflare imports — these plain async
  * functions do the AI + DB work. The Workflows worker wraps each unit in a
@@ -2369,54 +2033,6 @@ function planOf(song: SongRow): SongPlan {
   }
   return p;
 }
-
-/**
- * Generate a single part: set it generating, call Claude with the plan + all
- * already-ready parts (in order) + this part's intent, write the result ready.
- * Idempotent enough to retry as its own durable step.
- */
-/**
- * Write a derived workspace identity onto an ALREADY-CREATED song (the async
- * voice flow: the row exists and the user is already on its page while the
- * AI transcribes + plans). Direct writes — saveOverview would DELETE the
- * placeholder part and flip the status mid-flight.
- */
-export async function applyDerivedWorkspace(
-  songId: string,
-  partId: string,
-  d: {
-    title: string;
-    genre: string;
-    bpm: number;
-    key: string;
-    timeSignature: string;
-    label: string;
-    intent: string;
-    bars: number;
-  },
-  firstLoop: string,
-  sql: Sql = db(),
-): Promise<void> {
-  const plan: SongPlan = {
-    summary: "",
-    bpm: d.bpm,
-    key: d.key,
-    genre: d.genre || undefined,
-    timeSignature: d.timeSignature,
-    parts: [],
-  };
-  await sql`
-    update songs
-    set plan = ${sql.json(plan as unknown as Parameters<typeof sql.json>[0])},
-        title = ${d.title},
-        global_prompt = ${(firstLoop || d.intent).slice(0, 2000)}
-    where id = ${songId}`;
-  await sql`
-    update parts
-    set label = ${d.label}, intent = ${d.intent}, bars = ${d.bars}
-    where id = ${partId}`;
-}
-
 /** RETRY THE IDEA TOO (2026-07-13, the user): when the creation-time derive call failed, the
  *  song was saved with the safe defaults ("Untitled" / 120 / A minor, intent = the raw request)
  *  and flagged plan.underived — and "Try again" only ever re-ran composition against those
@@ -2781,16 +2397,17 @@ export async function applyPartEdit(
     }
     await setPartMessage(partId, "Wiring up the new tweaks…", sql);
 
-    // Fresh sliders + instrument options for the NEW code (LOW thinking,
-    // concurrent) — so Tweak always describes the variant you're hearing.
+    // Fresh sliders + instrument options for the NEW code (concurrent) — so
+    // Tweak always describes the variant you're hearing. TWO PASSES, always:
+    // parameterizePart HOISTS the numbers (Opus, a code rewrite), labelControls
+    // NAMES them for a non-coder (Sonnet, prose) — 2026-07-30, one task per call.
     const [tweaked, swaps] = await Promise.all([
       (async () => {
         const ai = await parameterizePart(deconflicted, cfg).catch(
           () => deconflicted,
         );
-        if (ai !== deconflicted) {
-          if ((await strudelBuildErrors(ai)).length === 0) return ai;
-        }
+        if (ai !== deconflicted && (await strudelBuildErrors(ai)).length === 0)
+          return await labelControls(ai, cfg).catch(() => ai);
         // AI pass failed → deterministic mixer so the variant NEVER arrives
         // slider-less; the label pass (best-effort) names the knobs.
         const det = parameterize(deconflicted);
@@ -3169,8 +2786,11 @@ async function finalizeSongEditPart(
 ): Promise<string> {
   const [tweaked, swaps] = await Promise.all([
     (async () => {
+      // Hoist the numbers, then NAME them — two focused calls (see the variant
+      // path above): parameterizePart writes consts, labelControls writes words.
       const ai = await parameterizePart(deconflicted, cfg).catch(() => deconflicted);
-      if (ai !== deconflicted && (await strudelBuildErrors(ai)).length === 0) return ai;
+      if (ai !== deconflicted && (await strudelBuildErrors(ai)).length === 0)
+        return await labelControls(ai, cfg).catch(() => ai);
       const det = parameterize(deconflicted);
       if (!/@controls/.test(det)) return deconflicted;
       return await labelControls(det, cfg).catch(() => det);

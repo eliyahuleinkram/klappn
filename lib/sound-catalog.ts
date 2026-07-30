@@ -767,10 +767,3 @@ export const BANK_VOICES: Record<string, string[]> = {
   "YamahaRY30": ["bd", "cb", "cp", "cr", "hh", "ht", "lt", "misc", "mt", "oh", "perc", "rd", "rim", "sd", "sh", "tb"],
   "YamahaTG33": ["bd", "cb", "cp", "cr", "fx", "ht", "lt", "misc", "mt", "oh", "perc", "rd", "rim", "sd", "sh", "tb"],
 };
-
-
-
-/** The voices a given drum kit actually has (empty if unknown) — for the composer prompt + validation. */
-export function kitVoices(bank: string): string[] {
-  return BANK_VOICES[bank] ?? [];
-}

@@ -180,11 +180,6 @@ export function pieceFor(song: { id: string; plan?: { genre?: string } }): numbe
   for (let i = 0; i < song.id.length; i++) h = (h * 31 + song.id.charCodeAt(i)) >>> 0;
   return h % PIECES.length;
 }
-
-export function looksFor(piece: number): DoorLook[] {
-  return PIECES[piece]?.looks ?? PIECES[0].looks;
-}
-
 /** A stable 0..1 seed from a section id — each section reshapes the piece. */
 export function seedFrom(id: string): number {
   let h = 0;
@@ -227,10 +222,6 @@ const inkTarget: [number, number, number] = [...inkNow];
 export function setDoorHue(v: number): void {
   hueTarget = ((v % 1) + 1) % 1;
 }
-export function doorHue(): number {
-  return hueTarget;
-}
-
 // BLOOM — the deck's swarm toggle. A physarum colony (zissl's compute layer)
 // senses the piece's own picture and grows living filaments over it, tinted
 // by the same live ink uniforms. Deterministic and hand-authored like every
@@ -242,9 +233,6 @@ let growthOn = false;
 export function setDoorGrowth(on: boolean): void {
   growthOn = on;
   applyGrowth();
-}
-export function doorGrowth(): boolean {
-  return growthOn;
 }
 function applyGrowth(): void {
   const z = hydra?._zissl;

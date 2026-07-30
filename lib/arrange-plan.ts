@@ -169,9 +169,7 @@ export async function composeSongArrangement(
   for (let attempt = 0; attempt < 2; attempt++) {
     const reply = (
       await complete(ARRANGE_SYSTEM, user, cfg, {
-        ...ROUTE.compose,
-        effort: "high",
-        maxTokens: 14000,
+        ...ROUTE.arrange,
         trace: { kind: "arrange", attempt },
       })
     ).trim();
@@ -243,10 +241,8 @@ export async function enrichSweepControls(
     ),
   ].join("\n");
   const reply = (
-    await complete(FX_ENRICH_SYSTEM, user, { ...cfg, model: "sonnet" }, {
-      ...ROUTE.transform,
-      thinking: false,
-      maxTokens: 1500,
+    await complete(FX_ENRICH_SYSTEM, user, cfg, {
+      ...ROUTE.copy,
       trace: { kind: "fx-enrich" },
     })
   ).trim();
@@ -312,133 +308,13 @@ export function sanitizeSweepControls(
 // the palette and the chapters already made, writes the single next pass, and
 // may start ONE effect gliding into it. Materialization is pure code
 // (jobs.composeNextChapterFor duplicates the track subset).
-
-export interface LoopChapter {
-  /** What this pass IS ("First embers") — becomes the chapter's loop label. */
-  name?: string;
-  /** 1-based indices into the palette's layers, in their original order. */
-  layers: number[];
-}
-
-export interface NextChapter extends LoopChapter {
-  /** Revised Strudel per varied layer (1-based root index → line). The same
-   *  voice saying something new; every line is gated before it plays and
-   *  falls back to the original on failure. */
-  vary?: Record<number, string>;
-}
-
-const NEXT_CHAPTER_SYSTEM = `You unfold the RAW LAYERS of an instrumental piece into its sequence of loops. The layers are the material — never heard all-together on their own; each loop is built from a subset of them, and the listener hears the loops in order. You're given the song's identity, the numbered layers, and the loops already made.
-
-Respond with ONLY a JSON object, no markdown — either the next loop:
-{
- "name": "2-4 words for what this loop IS",
- "layers": [1-based layer numbers audible in it],
- "vary": {"<layer number>": "$: <that layer's revised Strudel line>"} — the layers whose statement CHANGES in this loop; omit those playing as written
-}
-or, once the unfolding is complete, exactly: {"done": true}
-
-A varied line is the same voice saying something new — same sound, in key, one line, no setcpm/orbit, the pulse never speeds up. Each loop is DIFFERENT from the ones already made. Layer numbers refer to the numbering given.`;
-
-/** Parse + clamp a next-pass reply. "done" = the unfolding is complete;
- *  null = nothing usable (the caller stops either way). */
-export function sanitizeNextChapter(
-  raw: Record<string, unknown> | null,
-  layerCount: number,
-  chaptersSoFar: number,
-): NextChapter | "done" | null {
-  if (!raw) return null;
-  if (raw.done === true) return "done";
-  const layers = [
-    ...new Set(
-      (Array.isArray(raw.layers) ? raw.layers : [])
-        .map((n) => Number(n))
-        .filter((n) => Number.isInteger(n) && n >= 1 && n <= layerCount),
-    ),
-  ].sort((a, b) => a - b);
-  if (!layers.length) return null;
-  void chaptersSoFar;
-  const out: NextChapter = { name: cleanFeel(raw.name), layers };
-  if (raw.vary && typeof raw.vary === "object" && !Array.isArray(raw.vary)) {
-    const vary: Record<number, string> = {};
-    for (const [k, v] of Object.entries(raw.vary as Record<string, unknown>)) {
-      const idx = Math.floor(Number(k));
-      if (!layers.includes(idx)) continue;
-      if (typeof v !== "string") continue;
-      const line = v.trim();
-      if (!line || /setcpm\s*\(/.test(line)) continue;
-      vary[idx] = line;
-    }
-    if (Object.keys(vary).length) out.vary = vary;
-  }
-  return out;
-}
-
-/** ONE call: the loop + its chapters so far → the single next loop.
- *  One guided retry; null = nothing usable; "done" = the unfolding is over. */
-export async function composeNextChapter(
-  args: {
-    genre?: string;
-    key: string;
-    bpm: number;
-    timeSignature: string;
-    summary?: string;
-    /** The PALETTE loop (its full layers — chapters draw from these). */
-    section: ArrangeInputSection;
-    /** Chapters already made from it, in play order (name + layer subset). */
-    made: { name: string; layers: number[] }[];
-    /** The song loop playing IMMEDIATELY BEFORE this material's first loop —
-     *  the seam the first pass enters from (null when nothing precedes). */
-    before?: { label: string; strudel: string } | null;
-  },
-  cfg?: LlmConfig,
-): Promise<NextChapter | "done" | null> {
-  const beats = Number(args.timeSignature.split("/")[0]) || 4;
-  const parts = sectionParts(`${args.section.strudel}\nsetcpm(120/${beats})`);
-  const layerCount = parts?.layers.length ?? 0;
-  if (layerCount < 2) return null;
-  const madeLines = args.made.length
-    ? [
-        "LOOPS ALREADY MADE (in play order):",
-        ...args.made.map(
-          (c, i) => `${i + 1}. "${c.name}" — layers ${c.layers.join(",")}`,
-        ),
-      ].join("\n")
-    : args.before
-      ? "LOOPS ALREADY MADE: none — the one you write ENTERS the song from the loop below."
-      : "LOOPS ALREADY MADE: none — the one you write is the FIRST thing the listener hears.";
-  let user = [
-    `${args.genre ? `${args.genre} — ` : ""}key of ${args.key}, ${args.bpm} BPM, ${args.timeSignature}.`,
-    args.summary ? `The song: ${args.summary}` : "",
-    sectionBlock(args.section, beats),
-    args.before && !args.made.length
-      ? `THE LOOP PLAYING JUST BEFORE — the seam you take over from:\n${args.before.strudel}`
-      : "",
-    madeLines,
-    `Write the next loop now — JSON only.`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const reply = (
-      await complete(NEXT_CHAPTER_SYSTEM, user, cfg, {
-        ...ROUTE.compose,
-        effort: "high",
-        maxTokens: 2000,
-        trace: { kind: "chapter", attempt },
-      })
-    ).trim();
-    const parsed = sanitizeNextChapter(
-      firstJsonObject(reply),
-      layerCount,
-      args.made.length,
-    );
-    if (parsed) return parsed;
-    user += `\n\nThat reply was not usable. Resend ONLY the JSON object (layer numbers within 1..${layerCount}).`;
-  }
-  return null;
-}
-
-
+// TWO CALLS PER CHAPTER (2026-07-30, the user: "each AI call to focus on one
+// task"). Choosing which of the palette's voices this pass holds is a STRUCTURAL
+// decision over a short numbered list — Opus 5 at medium, cheap and fast. Writing
+// what a voice now SAYS is composition, judged by ear — Fable 5 at high. Fused,
+// the second job was being done inside a JSON string field by whichever model the
+// first job justified, with Strudel's quotes fighting JSON's escaping the whole
+// way. Split, the write call gets plain text and the whole loop in view.
 // ── THE EFFECTS PASS — motion authored over the FINISHED sequence ────────────
 // An effect is a cross-loop object; authored from inside one loop's call it
 // could never see the distance (observed live: every glide came back span 1).
@@ -456,15 +332,6 @@ export interface UnfoldFx {
   fromLoop: number;
   toLoop: number;
 }
-
-const NEXT_FX_SYSTEM = `You write the EFFECTS that ride a finished instrumental piece — parameter glides living OUTSIDE its loops, each spanning a range of them, added ONE AT A TIME. You're given the song's identity, the numbered layers the loops draw from, the loops in play order, and the glides already riding.
-
-Respond with ONLY a JSON object, no markdown — the next glide:
-{"name": "2-4 words for the MOVE a listener feels", "param": "<control, e.g. lpf|hpf|gain>", "from": n, "to": n, "curve": "linear"|"sine", "fromLoop": first loop it rides (1-based), "toLoop": last loop it rides}
-or, when the piece has all the motion it wants: {"done": true}
-
-Each glide runs ONCE across its whole range — from the first bar of fromLoop to the last bar of toLoop. Loop numbers refer to the play order given. Params that rebuild a shared bus (roomsize, delaytime) can't glide — ride lpf/hpf/gain/room/delayfeedback/resonance instead.`;
-
 /** Effect params whose change REGENERATES a shared orbit bus (reverb impulse
  *  rebuild / delay-line length) — gliding them per event is a click factory. */
 export const BUS_REBUILD_PARAMS =
@@ -502,77 +369,6 @@ export function sanitizeUnfoldFx(
     )
     .slice(0, 8); // safety net only — the model decides how much motion the piece wants
 }
-
-/** One reply of the effects walk → the next glide, "done", or null (unusable). */
-export function sanitizeNextFx(
-  raw: Record<string, unknown> | null,
-  loopCount: number,
-): UnfoldFx | "done" | null {
-  if (!raw) return null;
-  if (raw.done === true) return "done";
-  const [fx] = sanitizeUnfoldFx({ effects: [raw] }, loopCount);
-  return fx ?? null;
-}
-
-/** ONE pass of the effects walk over the finished unfold: sees every glide
- *  already riding, answers with the next one — or "done" when the piece has
- *  all the motion it wants. One guided retry; null = treat as done. */
-export async function composeNextUnfoldFx(
-  args: {
-    genre?: string;
-    key: string;
-    bpm: number;
-    timeSignature: string;
-    summary?: string;
-    /** The blueprint's material (its numbered layers). */
-    section: ArrangeInputSection;
-    /** The finished loops, in play order. */
-    loops: { name: string; layers: number[] }[];
-    /** The glides already riding (this walk's earlier passes, or the user's own). */
-    riding: { name?: string; param: string; fromLoop: number; toLoop: number }[];
-  },
-  cfg?: LlmConfig,
-): Promise<UnfoldFx | "done" | null> {
-  if (!args.loops.length) return "done";
-  const beats = Number(args.timeSignature.split("/")[0]) || 4;
-  let user = [
-    `${args.genre ? `${args.genre} — ` : ""}key of ${args.key}, ${args.bpm} BPM, ${args.timeSignature}.`,
-    args.summary ? `The song: ${args.summary}` : "",
-    sectionBlock(args.section, beats),
-    "THE LOOPS (in play order):",
-    ...args.loops.map(
-      (c, i) => `${i + 1}. "${c.name}" — layers ${c.layers.join(",")}`,
-    ),
-    args.riding.length
-      ? [
-          "RIDING ALREADY:",
-          ...args.riding.map(
-            (r) =>
-              `- ${r.name ? `"${r.name}" — ` : ""}${r.param}, loops ${r.fromLoop}–${r.toLoop}`,
-          ),
-        ].join("\n")
-      : "No effects yet.",
-    `The next glide — or done. JSON only.`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const reply = (
-      await complete(NEXT_FX_SYSTEM, user, cfg, {
-        ...ROUTE.compose,
-        effort: "high",
-        maxTokens: 1200,
-        trace: { kind: "unfold-fx", attempt },
-      })
-    ).trim();
-    const parsed = sanitizeNextFx(firstJsonObject(reply), args.loops.length);
-    if (parsed) return parsed;
-    user += `\n\nThat reply was not usable. Resend ONLY the JSON object.`;
-  }
-  return null;
-}
-
-
 // ── PAGE SHAPE — the whole song's motion AND its turns, in ONE call ──────────
 // The Sweep: effect glides and break fills are one gesture — the glide and the
 // fill at the same turn are one decision — so a single call authors BOTH
@@ -669,9 +465,7 @@ export async function composePageShape(
   for (let attempt = 0; attempt < 2; attempt++) {
     const reply = (
       await complete(PAGE_SHAPE_SYSTEM, user, cfg, {
-        ...ROUTE.compose,
-        effort: "high",
-        maxTokens: 4000,
+        ...ROUTE.shape,
         trace: { kind: "page-shape", attempt },
       })
     ).trim();

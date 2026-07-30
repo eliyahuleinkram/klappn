@@ -1,7 +1,7 @@
 import { getUserId } from "@/lib/session";
 import { addTokenUsage, assertQuota } from "@/lib/billing";
 import { makeCallSink } from "@/lib/call-trace";
-import { complete } from "@/lib/llm";
+import { complete, ROUTE } from "@/lib/llm";
 import { sealDeep } from "@/lib/seal";
 import { clientIp, rateLimit, tooMany } from "@/lib/rate-limit";
 import { hydraServerErrors } from "@/lib/hydra-eval";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 /**
  * THE ONE-TAP FIX — the error chip's ✦ (2026-07-26, user: "press it and the
  * AI just fixes it, no thinking"). The broken pane + its error in, the mended
- * whole pane out. Opus 5 thinking-DISABLED (a fix is surgery, not
+ * whole pane out. ROUTE.fix — Opus 5 thinking-DISABLED (a fix is surgery, not
  * composition), gated like the ghost: the mend may not ADD errors the pane
  * didn't have, and an unchanged or empty answer returns "" — the client tells
  * the truth instead of swapping in nothing.
@@ -46,13 +46,12 @@ export async function POST(req: Request) {
       pane === "hydra" ? FIX_HYDRA_SYSTEM : FIX_STRUDEL_SYSTEM,
       fixUserText(code, error),
       {
-        // Opus 5 no-thinking like the ghost (2026-07-27); the differential
-        // gate below still decides whether the mend ships.
-        model: "opus",
         onUsage: (t: number) => void addTokenUsage(userId, t),
         onCall: sink.onCall,
       },
-      { thinking: false, maxTokens: 4000, trace: { kind: "ide-fix" } },
+      // ROUTE.fix — Opus 5 no-thinking like the ghost (2026-07-27); the
+      // differential gate below still decides whether the mend ships.
+      { ...ROUTE.fix, trace: { kind: "ide-fix" } },
     );
     const fixed = raw
       .replace(/^\s*```[a-z]*\r?\n?/i, "")

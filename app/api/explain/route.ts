@@ -1,7 +1,7 @@
 import { getUserId } from "@/lib/session";
 import { addTokenUsage, assertQuota } from "@/lib/billing";
 import { makeCallSink } from "@/lib/call-trace";
-import { complete } from "@/lib/llm";
+import { complete, ROUTE } from "@/lib/llm";
 import { clientIp, rateLimit, tooMany } from "@/lib/rate-limit";
 import {
   EXPLAIN_HYDRA_SYSTEM,
@@ -15,9 +15,9 @@ export const dynamic = "force-dynamic";
  * ✦ EXPLAIN — select a fragment, learn the language (2026-07-28, user:
  * "people who want to understand the actual code itself so they can learn to
  * write it themselves"). Strictly ON-DEMAND — nothing is explained ahead of
- * time (tokens burned on lines nobody asked about), and SONNET 5 no-thinking
- * (user's call: "I do not believe we will need something stronger") — a short
- * teaching answer, not composition.
+ * time (tokens burned on lines nobody asked about), and ROUTE.explain — SONNET 5
+ * no-thinking (user's call: "I do not believe we will need something stronger")
+ * — a short teaching answer, not composition.
  */
 export async function POST(req: Request) {
   const userId = await getUserId(req);
@@ -49,11 +49,10 @@ export async function POST(req: Request) {
         pane === "hydra" ? EXPLAIN_HYDRA_SYSTEM : EXPLAIN_STRUDEL_SYSTEM,
         explainUserText(code, sel),
         {
-          model: "sonnet",
           onUsage: (t: number) => void addTokenUsage(userId, t),
           onCall: sink.onCall,
         },
-        { thinking: false, maxTokens: 350, trace: { kind: "ide-explain" } },
+        { ...ROUTE.explain, trace: { kind: "ide-explain" } },
       )
     )
       .replace(/^\s*```[a-z]*\r?\n?/i, "")

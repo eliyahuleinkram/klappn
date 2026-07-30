@@ -1,23 +1,40 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 /**
- * LLM layer — Claude Opus 5, full stop. Every composition, edit, label and
- * critique call goes through `complete()` to the native Anthropic API; the
- * per-call ROUTE table sets effort, and the deterministic gates run for free
- * with at most ONE repair pass if a loop would crash. Callers (lib/anthropic.ts)
+ * LLM layer — THREE Claude models, chosen PER CALL. Every composition, edit,
+ * label and critique goes through `complete()` to the native Anthropic API; the
+ * ROUTE table below names each agent and pins its model, its effort, its
+ * thinking and its token budget, and the deterministic gates run for free with
+ * at most ONE repair pass if a loop would crash. Callers (lib/anthropic.ts)
  * never see the wire.
  *
+ * THE THREE TIERS (2026-07-30 — the user: "select the best model for it"):
+ *   fable  → claude-fable-5  ($10/$50) — the model that INVENTS music. Reserved
+ *            for the calls whose output the ear judges directly and which have
+ *            no cheap second chance: writing a layer and writing a break. Fable won the original bake-off on the ear; Opus 5 took
+ *            the whole roster on 2026-07-25 for PRICE, not for sound. The
+ *            invention calls go back.
+ *   opus   → claude-opus-5   ($5/$25)  — the model that REWORKS and REASONS:
+ *            edits over given material, re-bars, repairs, planners, structured
+ *            JSON, visuals, and the room's no-thinking surgery.
+ *   sonnet → claude-sonnet-5 ($3/$15)  — the model that NAMES and DECIDES ONE
+ *            BIT: panels, labels, presets, the done-check, the teacher. Every
+ *            one of these runs thinking OFF; a no-thinking call needs no
+ *            composing tier.
+ * The line between fable and opus is INVENT vs TRANSFORM. Move a call across it
+ * by editing its ROUTE entry — never at the call site.
+ *
  * (Klappn spent its first month as a multi-provider bake-off — Kimi, GLM,
- * Gemini, Grok, an OpenRouter roster. Fable won on the ear, repeatedly, and the
- * zoo was removed 2026-07-20. Opus 5 — launched 2026-07-24, near-Fable quality
- * at half the price ($5/$25 vs $10/$50 per MTok) — took over 2026-07-25.
+ * Gemini, Grok, an OpenRouter roster; the zoo was removed 2026-07-20.
  * `songs.model` history is preserved in the training capture; new songs read
- * "opus", legacy rows read "fable".)
+ * "opus", legacy rows read "fable" — both are routing tags, and the per-call
+ * ROUTE entry decides what actually answers.)
  *
  * Hard rules (so they can't drift): adaptive thinking + per-call effort; NEVER
- * temperature/top_p/top_k/budget_tokens (they 400 on this model); the system
- * prompt is cached. A 90s no-event stall watchdog + an 8-min overall wall guard
- * every stream (see completeAnthropic).
+ * temperature/top_p/top_k/budget_tokens (they 400 on these models); Fable 5
+ * cannot disable thinking AT ALL (400 at any effort) and Opus 5 only at effort
+ * ≤ high; the system prompt is cached. A 90s no-event stall watchdog + an 8-min
+ * overall wall guard every stream (see completeAnthropic).
  *
  * On the Workflows worker process.env is empty, so the key is threaded in via
  * LlmConfig; the Next.js app worker falls back to process.env.
@@ -26,8 +43,11 @@ import Anthropic from "@anthropic-ai/sdk";
 export interface LlmConfig {
   anthropicApiKey?: string;
   anthropicModel?: string;
-  /** The song's stored model id. "opus" for new work; legacy values
-   *  ("fable"/"anthropic"/… from earlier eras) route to Opus 5 too. */
+  /** The song's stored routing id ("opus" for new work; "fable"/"anthropic"/…
+   *  from earlier eras). Since the per-call agent table it is a TAG, not a
+   *  route: every call carries its own `opts.model`, which wins. It survives as
+   *  the training-capture label and as the last-resort tier when a call somehow
+   *  reaches complete() without a ROUTE entry ("sonnet" → Sonnet 5, else Opus 5). */
   model?: string;
   /** Opt into Anthropic FAST MODE (`speed:"fast"`, 2.5× output tok/s, premium pricing). Only
    *  works once the org has a non-zero fast-mode rate limit. Threaded from env.FAST_MODE for the
@@ -87,7 +107,15 @@ export interface ModelCallRecord {
   latencyMs?: number;
 }
 
-const ANTHROPIC_DEFAULT_MODEL = "claude-opus-5";
+/** The three tiers a call may run on. `ROUTE` names one per agent. */
+export type ModelTier = "fable" | "opus" | "sonnet";
+
+/** Tier → the live Anthropic model id. The ONLY place ids are written. */
+const TIER_MODEL: Record<ModelTier, string> = {
+  fable: "claude-fable-5",
+  opus: "claude-opus-5",
+  sonnet: "claude-sonnet-5",
+};
 
 /**
  * PER-MODEL COST FACTOR — the model's input rate over the anchor rate the house
@@ -126,10 +154,13 @@ export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
 export interface CompleteOpts {
   /** Which provider runs THIS call (default "anthropic"; ROUTE sets it per call). */
   provider?: Provider;
+  /** WHICH MODEL runs THIS call — the per-call tier, set by the call's ROUTE
+   *  entry. AUTHORITATIVE: it beats cfg.model (the song's stored routing tag),
+   *  because the agent decides what it needs, not the row it was born in.
+   *  Unset → the legacy behaviour (cfg.model "sonnet" → Sonnet 5, else Opus 5). */
+  model?: ModelTier;
   /** Output/reasoning effort for THIS call (low|medium|high|xhigh|max). Default "high". */
   effort?: AnthropicEffort;
-  /** Legacy no-op (was the DeepSeek model tier). Single model now — ignored. */
-  tier?: "pro" | "flash";
   /** Whether the model THINKS at all. false = mechanical copy (labels) → drops
    *  effort to "low". Default true. */
   thinking?: boolean;
@@ -143,6 +174,12 @@ export interface CompleteOpts {
   /** Training-trace labels for THIS call — surfaced to cfg.onCall so the captured row is
    *  labelled (kind/attempt + ids). Purely for data capture; never affects the request. */
   trace?: { kind?: string; songId?: string; partId?: string; attempt?: number };
+  /** TTL for THIS call's `cacheStable` breakpoint. "5m" (default) is right for a
+   *  prefix reused within one burst; "1h" is for a prefix reused across a whole
+   *  song's generation, where the 5-minute window expires mid-loop and every
+   *  layer pays the write again. A 1h write costs 2x input vs 1.25x for 5m, so it
+   *  only pays when the prefix is genuinely re-read many times — see ROUTE. */
+  cacheTtl?: "5m" | "1h";
   /** PROMPT-CACHE SPLIT: a STABLE user-prompt prefix (e.g. the loop brief) that
    *  repeats byte-identically across sibling calls while the rest of the user
    *  text varies (the layer loop's growing prior-tracks list). Rendered as its
@@ -153,20 +190,62 @@ export interface CompleteOpts {
   cacheStable?: string;
 }
 
-/** Per-agent effort presets. The per-song TOGGLE (cfg.model) picks WHO runs each call;
- *  `effort` then bites on every model: high for the creative/critic passes, low for the
- *  cosmetic/mechanical ones. (Opus "max" can overthink, so the legacy score/translate
- *  passes run at "high".) Cosmetic structured-JSON (enrich) runs on the song's OWN
- *  model and RETRIES with an escalating budget + tolerant parse — see enrichLayers. */
+/**
+ * THE AGENT TABLE — one entry per AI call in the product, and the only place a
+ * model, an effort, a thinking mode or a token budget is chosen. Call sites
+ * spread an entry (`{ ...ROUTE.compose, trace: … }`) and add nothing but their
+ * trace label; anything they'd override belongs here instead, or it drifts.
+ *
+ * Reading a row: `model` is the tier (see the file header — invent/transform/
+ * name), `effort` is how hard it thinks, `thinking:false` disables reasoning
+ * outright (latency-critical or answer-only calls; NEVER on a fable row — Fable
+ * 5 400s on disabled thinking), and `maxTokens` is the HARD budget for thinking
+ * + answer together. That budget is the completion lever, not a cost knob:
+ * Cloudflare kills a Workflow step at ~5 min and adaptive thinking PLANS within
+ * max_tokens, so a snug budget makes a call finish its thought instead of being
+ * executed mid-sentence.
+ */
 export const ROUTE = {
-  compose: { provider: "anthropic", effort: "high" } as CompleteOpts, // direct-Strudel compose/edit calls + hydra visuals (code)
-  score: { provider: "anthropic", effort: "high" } as CompleteOpts, // legacy enumerated score
-  pick: { provider: "anthropic", effort: "low" } as CompleteOpts, // instrument/kit per part
-  translate: { provider: "anthropic", effort: "high" } as CompleteOpts, // legacy score → layers
-  create: { provider: "anthropic", effort: "high" } as CompleteOpts, // framing planners (workspace + adjacent section) — HIGH: it sets bpm/key/progression/intent, great cascading effect downstream
-  judge: { provider: "anthropic", effort: "high" } as CompleteOpts, // the hydra critic
-  transform: { provider: "anthropic", effort: "low" } as CompleteOpts, // parameterize / suggest
-  copy: { provider: "anthropic", effort: "low" } as CompleteOpts, // labels / narration
+  // ── INVENT MUSIC — Fable 5. The ear is the acceptance test here and there is
+  //    no cheap second chance: what these write is what a human hears.
+  compose: { provider: "anthropic", model: "fable", effort: "high", maxTokens: 14000, cacheTtl: "1h" } as CompleteOpts, // write the loop's next $: layer (brief cached 1h — a loop outlives 5m)
+  breaks: { provider: "anthropic", model: "fable", effort: "high", maxTokens: 8000 } as CompleteOpts, // the one-bar hand-off between two loops
+
+  // ── REWORK MUSIC — Opus 5. The material is given; the job is disciplined
+  //    rewriting, which is exactly what Opus 5 is strongest at.
+  edit: { provider: "anthropic", model: "opus", effort: "high", maxTokens: 14000 } as CompleteOpts, // rewrite a whole loop
+  meter: { provider: "anthropic", model: "opus", effort: "high", maxTokens: 14000 } as CompleteOpts, // re-bar into a new time signature
+  repair: { provider: "anthropic", model: "opus", effort: "high", maxTokens: 8000 } as CompleteOpts, // fix a loop that threw at playback
+
+  // ── PLAN — Opus 5. Structured JSON, cascading decisions, no ear involved.
+  create: { provider: "anthropic", model: "opus", effort: "high", maxTokens: 12000 } as CompleteOpts, // derive the workspace / the adjacent section
+  arrange: { provider: "anthropic", model: "opus", effort: "high", maxTokens: 14000 } as CompleteOpts, // the song's arrangement (legacy)
+  shape: { provider: "anthropic", model: "opus", effort: "high", maxTokens: 8000 } as CompleteOpts, // the page's effects + breaks
+  coach: { provider: "anthropic", model: "opus", effort: "medium", maxTokens: 4000 } as CompleteOpts, // the vocal chart / its alternative looks
+  score: { provider: "anthropic", model: "opus", effort: "high", maxTokens: 16000 } as CompleteOpts, // legacy enumerated score
+  translate: { provider: "anthropic", model: "opus", effort: "high", maxTokens: 16000 } as CompleteOpts, // legacy score → $: layers
+  knobs: { provider: "anthropic", model: "opus", effort: "medium", maxTokens: 12000 } as CompleteOpts, // legacy parameterize (a CODE rewrite)
+
+  // ── VISUALS — Opus 5. Hydra is code with a taste requirement.
+  hydra: { provider: "anthropic", model: "opus", effort: "high", maxTokens: 8000 } as CompleteOpts,
+  hydraRepair: { provider: "anthropic", model: "opus", effort: "medium", maxTokens: 6000 } as CompleteOpts,
+
+  // ── THE ROOM'S FAST LANE — Opus 5, thinking OFF. A whisper that arrives late
+  //    is a wrong whisper; Opus keeps the dialect straight at no-think latency.
+  ghost: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 640 } as CompleteOpts,
+  assist: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 1200 } as CompleteOpts, // ✎ selection edit
+  fix: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 4000 } as CompleteOpts, // ✦ one-tap fix
+
+  // ── NAME / DECIDE ONE BIT — Sonnet 5, thinking OFF. Answer-only work; a
+  //    no-thinking call needs no composing tier.
+  done: { provider: "anthropic", model: "sonnet", thinking: false, maxTokens: 200, cacheTtl: "1h" } as CompleteOpts, // DONE / MORE (same brief, same 1h window as compose)
+  pick: { provider: "anthropic", model: "sonnet", thinking: false, maxTokens: 2000 } as CompleteOpts, // instrument/kit per part (legacy)
+  panel: { provider: "anthropic", model: "sonnet", thinking: false, maxTokens: 2500 } as CompleteOpts, // a layer's knobs + presets
+  swap: { provider: "anthropic", model: "sonnet", thinking: false, maxTokens: 1200 } as CompleteOpts, // alternative sounds from the catalog
+  copy: { provider: "anthropic", model: "sonnet", thinking: false, maxTokens: 2000 } as CompleteOpts, // labels / look names / stem names
+  steer: { provider: "anthropic", model: "sonnet", thinking: false, maxTokens: 600 } as CompleteOpts, // the section brief + the track's direction note
+  explain: { provider: "anthropic", model: "sonnet", thinking: false, maxTokens: 350 } as CompleteOpts, // ✦ teach the selection
+  setOrder: { provider: "anthropic", model: "sonnet", effort: "medium", maxTokens: 3000 } as CompleteOpts, // order a Set's songs (real key/tempo reasoning, tiny)
 };
 
 export async function complete(
@@ -211,7 +290,10 @@ export async function complete(
         songId: opts?.trace?.songId,
         partId: opts?.trace?.partId,
         attempt: opts?.trace?.attempt,
-        model: cfg.model ?? "anthropic",
+        // What ACTUALLY ran (the call's ROUTE tier), falling back to the song's
+        // stored routing tag. Before the per-call table this was the same value;
+        // now a fable/sonnet row would otherwise be logged as its song's "opus".
+        model: opts?.model ?? cfg.model ?? "anthropic",
         effort: opts?.effort,
         thinking: opts?.thinking,
         system,
@@ -230,28 +312,65 @@ export async function complete(
   }
 }
 
+/**
+ * Which tier answers THIS call. Two inputs, in order:
+ *
+ *  1. The ROUTE entry's `model` — the agent's own need.
+ *  2. THE SONG'S QUALITY DIAL (`cfg.model`, see lib/models.ts) — but ONLY as a
+ *     veto on the fable rows. Fable is the one tier that costs real money to
+ *     reach, so the calls that want it get it only when the maker chose Studio
+ *     for this song; a Standard song composes on Opus. Nothing else moves:
+ *     Sonnet rows stay Sonnet and Opus rows stay Opus on either setting, because
+ *     no amount of paying more makes a knob label better.
+ *
+ * The dial's id is "studio" and NOT "fable" on purpose: songs from the
+ * 2026-07 bake-off era carry a literal "fable" in the column, and they must keep
+ * resolving to Standard rather than silently becoming the expensive tier.
+ *
+ * Exported for lib/llm.test.ts — the veto is the one piece of routing whose
+ * failure mode is a bill, so it is tested rather than trusted.
+ */
+export function resolveTier(cfg?: LlmConfig, opts?: CompleteOpts): ModelTier {
+  const want: ModelTier = opts?.model ?? (cfg?.model === "sonnet" ? "sonnet" : "opus");
+  if (want === "fable" && cfg?.model !== "studio") return "opus";
+  return want;
+}
+
 async function completeRoute(
   system: string,
   userText: string,
   cfg?: LlmConfig,
   opts?: CompleteOpts,
 ): Promise<string> {
-  // Every route lands on Opus 5. "sonnet" → Sonnet 5: legacy songs from the
-  // multi-model era edit on what wrote them, AND the thinking-off cheap calls
-  // (enrich / fx-enrich naming + the done-check) pin it deliberately — a
-  // no-thinking call needs no composing-tier model;
-  // everything else — "opus", legacy "fable"/"anthropic", stale A/B ids, unset —
-  // is Opus 5 (2026-07-25 switch: Fable-adjacent quality at half the price).
   // HARD pin — no `cfg?.anthropicModel ??` fallback: both workers' cfg carries
   // the env default in anthropicModel, and a soft pin silently lost to it
   // (2026-07-02: every "fable" song was actually composed by Opus 4.8).
-  const model = cfg?.model ?? process.env.MODEL_PROVIDER;
-  if (model === "sonnet")
-    return completeAnthropic(system, userText, { ...cfg, anthropicModel: "claude-sonnet-5" }, opts);
-  return completeAnthropic(system, userText, { ...cfg, anthropicModel: "claude-opus-5" }, opts);
+  const tier = resolveTier(cfg, opts);
+  try {
+    return await completeAnthropic(system, userText, { ...cfg, anthropicModel: TIER_MODEL[tier] }, opts);
+  } catch (e) {
+    // FABLE'S ONE PREREQUISITE, made survivable. Claude Fable 5 is not served to
+    // an org whose data-retention configuration is under 30 days: EVERY request
+    // 400s, payload-independent. That would silently take composition down, so a
+    // Fable call REJECTED BY THE API degrades ONCE to Opus 5 (the tier the whole
+    // roster ran on until 2026-07-30) and says so loudly in the log. A genuine
+    // bad-request in our own payload fails there too, so nothing is masked.
+    //
+    // NARROW ON PURPOSE — only a 4xx rejection. A transient 5xx already has its
+    // own retry loop, and our watchdog ABORT (the 8-min wall) must NEVER land
+    // here: re-running an 8-minute call on another model would double the wall
+    // and blow the ~5-min Workflow step it lives in.
+    if (tier !== "fable" || !isModelRejectedError(e)) throw e;
+    console.error(
+      `[klappn] anthropic(claude-fable-5) rejected the call — degrading THIS call to claude-opus-5. ` +
+        `If this repeats, check the org's data retention (Fable 5 requires 30-day; ZDR orgs 400 on every request): ` +
+        `${(e as Error)?.message?.slice(0, 200) ?? e}`,
+    );
+    return completeAnthropic(system, userText, { ...cfg, anthropicModel: TIER_MODEL.opus }, opts);
+  }
 }
 
-// --- Anthropic (Opus 5 / claude-opus-5) --------------------------------------
+// --- Anthropic (Fable 5 / Opus 5 / Sonnet 5) ---------------------------------
 
 function anthropicClient(cfg?: LlmConfig): Anthropic {
   const apiKey = cfg?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
@@ -289,6 +408,17 @@ function isRetryableApiError(e: unknown): boolean {
   );
 }
 
+/** True when the API itself REJECTED the request — a 4xx that is not a rate limit
+ *  (400 bad request / 401 / 403 forbidden / 404 unknown model). This is the shape
+ *  an org-level "this model isn't served to you" refusal takes. Deliberately NOT
+ *  true for 408/409/429/5xx (the transient retry's job) or for an AbortError from
+ *  our own stall/wall watchdog, which carries no HTTP status at all. */
+function isModelRejectedError(e: unknown): boolean {
+  const any = e as { status?: number; error?: { status?: number } };
+  const status = any?.status ?? any?.error?.status;
+  return status === 400 || status === 401 || status === 403 || status === 404;
+}
+
 async function completeAnthropic(
   system: string,
   userText: string,
@@ -296,8 +426,12 @@ async function completeAnthropic(
   opts?: CompleteOpts,
 ): Promise<string> {
   const anthropic = anthropicClient(cfg);
-  const model =
-    cfg?.anthropicModel || process.env.CLAUDE_MODEL || ANTHROPIC_DEFAULT_MODEL;
+  // completeRoute always sets anthropicModel from the tier table (and the refusal
+  // replay sets it explicitly), so this is only ever the tier's own id. The literal
+  // default is unreachable belt-and-braces — there is deliberately NO env override:
+  // one used to live here, and because the tier pin overwrites anthropicModel it
+  // would silently do nothing, which is worse than not existing.
+  const model = cfg?.anthropicModel || TIER_MODEL.opus;
   // Opus 5 request surface (launch day 2026-07-24, verified against the live migration guide):
   //  - thinking is ON BY DEFAULT (adaptive when the param is omitted). Explicit
   //    {type:"adaptive"} and {type:"disabled"} are both accepted — disabled only at
@@ -307,38 +441,28 @@ async function completeAnthropic(
   //    the API re-runs the declined call on its recommended fallback for the refusal category)
   //    instead of shipping an empty layer.
   const isOpus5 = model.startsWith("claude-opus-5");
-  // Default "high" (Opus's default thinking) everywhere now — composition,
-  // critique, edits all run at high; the post-hoc validate + critique + refine
-  // loop is the quality net (not deeper single-shot thinking). High is far
-  // cheaper and far less likely to overthink/overrun the per-step wall than max.
-  // Anthropic is one always-adaptive model, so tier is a no-op; only effort bites.
-  // thinking:false (a pure SELECTION/copy call — e.g. the instrument pick) → thinking DISABLED,
-  // not just low effort ({type:"disabled"} is faster/cheaper — no reasoning tokens). Legal on
-  // Opus 5 only at effort ≤ high; noThink omits output_config, so the default (high) applies.
-  // The prompt must be answer-only — our pick/copy prompts already say "Output ONLY …", and
-  // the callers regex-extract the fields. (effort still maps to "low" below purely to pick
-  // the smallest max_tokens tier for these calls.)
-  // 2026-07-30 (user, fourth revision: high → medium → OFF → ON at MEDIUM):
-  // Opus 5 THINKS AGAIN, at medium effort. Off was the experiment; medium is
-  // the settled answer — reasoning where it earns its keep, without the
-  // overthink/overrun risk of high on a per-step wall clock. One number for
-  // every Opus 5 route, so there is nothing to drift: medium supersedes the
-  // ROUTE table's own effort (which only ever described the pre-OFF world).
+  // Claude Fable 5 (and Mythos 5) — thinking is ALWAYS ON: {type:"disabled"} 400s
+  // at every effort, unlike Opus 5 (legal at effort ≤ high) and Sonnet 5 (legal).
+  // So a fable row silently keeps adaptive thinking even if a caller asks for
+  // none. ROUTE never pairs the two; this is the belt to that braces.
+  const isFable = model.startsWith("claude-fable-5") || model.startsWith("claude-mythos-5");
+  // 2026-07-30 (the user: "select the best model for it… and the thinking mode"):
+  // EFFORT IS PER CALL AGAIN, and it comes from the call's ROUTE entry — see the
+  // agent table above. This replaces the single global number (high → medium →
+  // OFF → ON at medium, four revisions between 2026-07-25 and 2026-07-30) that
+  // superseded every route: one number could not be right for both "write eight
+  // bars of music" and "name this knob", and the table now says both.
   //
-  // A call can still opt OUT explicitly with thinking:false, and several do,
-  // for reasons that have nothing to do with quality — every one of them is
-  // either LATENCY-critical or answer-only:
-  //    the room's fast lane (complete/explain/edit-sel/fix — a whisper that
-  //    arrives late is a wrong whisper), take-names, arrange-plan, the
-  //    notation enrich and the done-check (both Sonnet-pinned anyway).
-  // Those keep {type:"disabled"} and the "low" max_tokens tier. Non-Opus
-  // models keep their requested behavior untouched.
-  const noThink = opts?.thinking === false;
-  const effort = opts?.thinking === false
-    ? "low"
-    : isOpus5
-      ? "medium"
-      : (opts?.effort ?? "high");
+  // thinking:false (a pure SELECTION/copy/latency call — the instrument pick, the
+  // done-check, the room's whisper) → thinking DISABLED outright, not just low
+  // effort: {type:"disabled"} is faster and cheaper (no reasoning tokens at all).
+  // It omits output_config entirely, so the server default (high) applies — which
+  // is what keeps it legal on Opus 5, where disabled + xhigh/max is a 400. The
+  // prompt must then be answer-only: our pick/copy prompts already say "Output
+  // ONLY …" and the callers regex-extract the fields. (effort still maps to "low"
+  // below purely to pick the smallest max_tokens tier for these calls.)
+  const noThink = opts?.thinking === false && !isFable;
+  const effort: AnthropicEffort = noThink ? "low" : (opts?.effort ?? "high");
   // Output budget TIERED BY EFFORT — thinking bills as output ($50/M on the top
   // models), so a flat 64k cap lets one runaway think cost dollars. 64k is only
   // what Anthropic recommends for max/xhigh; lower efforts think far less.
@@ -378,14 +502,24 @@ async function completeAnthropic(
     // proven fallback for generation. NEVER temperature/top_p/top_k/budget_tokens (400s).
     thinking: noThink ? { type: "disabled" } : { type: "adaptive" },
     ...(noThink ? {} : { output_config: { effort } }),
-    // PROMPT CACHING, two breakpoints. Opus 5's cacheable minimum is 512 tokens
-    // (down from Fable's 2048), so the lean system block now caches too — but the
-    // workhorse is still the marker on the USER text: the layer-by-layer composer's
-    // prompt is APPEND-ONLY across a loop's calls (system + brief + layers so
-    // far), so caching system+user gives an incremental hit on every layer,
-    // retry, and gate re-ask (reads ~0.1×, writes 1.25× — sub-minimum spans
-    // silently skip, costing nothing). 1h on system: the same static system
-    // strings recur across every song all day.
+    // PROMPT CACHING, two breakpoints. The cacheable minimum is 512 tokens on
+    // Fable 5 and Opus 5 (1024 on Sonnet 5), so the lean system block caches on
+    // every tier we use, at 1h — the same static system strings recur across
+    // every song all day, and that block is the biggest repeated span we send.
+    //
+    // THE RULE FOR `cacheStable` (2026-07-30 — do NOT "optimise" by marking every
+    // call's prefix): a cache WRITE costs 1.25x input at 5m and 2x at 1h, and a
+    // read costs 0.1x. So marking a prefix that is sent ONCE is a straight LOSS,
+    // and marking one that is usually sent once and occasionally twice (every
+    // parse-failure retry loop in this codebase) is a loss on average too. It
+    // only pays where the SAME prefix is reliably re-sent many times inside the
+    // TTL. Today that is exactly three calls, and they are all already marked:
+    //   · compose  — the brief, re-sent for all 8-16 layers of a loop (1h: a loop
+    //                takes longer than the 5-minute window, so 5m re-wrote it)
+    //   · done     — the same brief, between those same layers (1h, same reason)
+    //   · ghost    — the other pane, re-sent across one typing burst (5m is right)
+    // Before adding a fourth, count the re-sends. If it is not "many, reliably,
+    // inside the TTL", leaving it unmarked is the cheaper answer.
     system: [
       { type: "text", text: system, cache_control: { type: "ephemeral", ttl: "1h" } },
     ],
@@ -394,7 +528,16 @@ async function completeAnthropic(
         role: "user",
         content: [
           ...(opts?.cacheStable
-            ? [{ type: "text" as const, text: opts.cacheStable, cache_control: { type: "ephemeral" as const } }]
+            ? [
+                {
+                  type: "text" as const,
+                  text: opts.cacheStable,
+                  cache_control:
+                    opts.cacheTtl === "1h"
+                      ? ({ type: "ephemeral", ttl: "1h" } as const)
+                      : ({ type: "ephemeral" } as const),
+                },
+              ]
             : []),
           { type: "text", text: userText, cache_control: { type: "ephemeral" } },
         ],
@@ -438,6 +581,10 @@ async function completeAnthropic(
     // (declined-before-output attempts aren't billed; the rescue bills at the fallback model's
     // rates). fallbacks:"default" — Opus 5's launch surface — lets the API pick the fallback
     // per refusal category rather than us pinning one. Everything else uses the plain stream.
+    // FABLE 5 DELIBERATELY STAYS ON THE PLAIN STREAM (2026-07-30): the "default" scalar form is
+    // only verified here against Opus 5, and an unaccepted beta/parameter pair 400s the request
+    // — which on the compose route means every layer of every song. Fable's refusals are covered
+    // client-side instead (the one replay below). Widen this gate only after a live test.
     // The Beta stream class is runtime-identical for everything we touch (.on("streamEvent"),
     // .controller, .finalMessage()) — collapse the union so the handlers below typecheck once.
     const stream: ReturnType<typeof anthropic.messages.stream> = isOpus5
@@ -544,20 +691,36 @@ async function completeAnthropic(
   // Billing meter — COST-WEIGHTED token units, so a metered "token" tracks real
   // dollars ON EVERY MODEL. Two multipliers compose: (1) the kind weights —
   // output bills 5× input (thinking bills as output), cache reads 0.1×, cache
-  // writes 1.25×, uniform ratios across current Anthropic models; (2) the
+  // writes 1.25× at a 5-minute TTL and 2× at an hour, uniform ratios across
+  // current Anthropic models; (2) the
   // per-model factor (MODEL_COST_FACTOR) scaling to the anchor rate the house
   // sells at ($5/1M = Opus 5 input). res.model — not the requested id — decides
   // the factor, because the classifier fallback can have another model serve
   // the call. Fast mode (usage.speed === "fast") bills 2× the standard rate.
+  //
+  // THE WRITE RATE WAS WRONG UNTIL 2026-07-30: every write was billed at 1.25×
+  // while the SYSTEM block — the biggest cached span we send, on every single
+  // call — has always been written at a 1h TTL, which costs 2×. That silently
+  // under-charged the house on every cache miss. Now the per-TTL breakdown is
+  // read when the API reports it, and a flat count falls back to 2× — the
+  // conservative read, because "never silently under-charge" is the standing
+  // rule and the 1h system block dominates the writes either way.
   try {
     const servedBy = (res.model as string) || model;
     const speedFactor =
       (u as { speed?: string }).speed === "fast" ? 2 : 1;
+    const breakdown = (u as {
+      cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number };
+    }).cache_creation;
+    const writeUnits = breakdown
+      ? (breakdown.ephemeral_5m_input_tokens ?? 0) * 1.25 +
+        (breakdown.ephemeral_1h_input_tokens ?? 0) * 2
+      : (u?.cache_creation_input_tokens ?? 0) * 2;
     const used =
       ((u?.input_tokens ?? 0) +
         (u?.output_tokens ?? 0) * 5 +
         (u?.cache_read_input_tokens ?? 0) * 0.1 +
-        (u?.cache_creation_input_tokens ?? 0) * 1.25) *
+        writeUnits) *
       modelCostFactor(servedBy) *
       speedFactor;
     if (used > 0) void cfg?.onUsage?.(Math.round(used));
@@ -577,11 +740,17 @@ async function completeAnthropic(
   // replay on Sonnet 5 as its own fresh call. Sonnet's own refusal (isOpus5 false on the
   // recursive call) still throws, so the caller's error path remains the floor.
   if (res.stop_reason === ("refusal" as typeof res.stop_reason)) {
-    if (isOpus5) {
+    // ONE client-side replay, on the next tier down: Opus 5 → Sonnet 5 (its
+    // server-side chain has already declined by the time we're here), Fable 5 →
+    // Opus 5 (Fable rides the plain stream — see the beta gate above — so this
+    // IS its whole fallback). The rescue model's own refusal falls through to
+    // the throw, so the caller's error path remains the floor.
+    const rescue = isOpus5 ? "claude-sonnet-5" : isFable ? "claude-opus-5" : "";
+    if (rescue) {
       console.error(
-        `[klappn] anthropic(${model}) whole fallback chain declined — replaying once on claude-sonnet-5`,
+        `[klappn] anthropic(${model}) declined the request — replaying once on ${rescue}`,
       );
-      return completeAnthropic(system, userText, { ...cfg, anthropicModel: "claude-sonnet-5" }, opts);
+      return completeAnthropic(system, userText, { ...cfg, anthropicModel: rescue }, opts);
     }
     throw new Error(`claude declined the request (stop_reason=refusal, model=${model})`);
   }

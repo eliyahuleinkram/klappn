@@ -198,11 +198,6 @@ export function stopSolo(): void {
     /* already */
   }
 }
-
-export function soloActive(): boolean {
-  return !!at?.soloSrc;
-}
-
 /** Seconds into the take's own timeline right now (position in the mix,
  *  modulo the loop period — or the exact un-looped position while SOLOING),
  *  or null when the voice isn't playing. Derived from the engine clock, so
@@ -242,18 +237,6 @@ export function updateVocalBuffer(buffer: AudioBuffer): void {
   if (wasSolo) soloVocal(pos);
   else if (loop > 0) startVocal(pos, loop);
 }
-
-/** Mute like an instrument — a fast ramp, chain and knobs untouched. */
-export function setVocalMuted(muted: boolean): void {
-  if (!at) return;
-  at.muted = muted;
-  const now = at.ac.currentTime;
-  const g = at.muteGain.gain;
-  g.cancelScheduledValues(now);
-  g.setValueAtTime(g.value, now);
-  g.linearRampToValueAtTime(muted ? 0 : 1, now + 0.03);
-}
-
 export function setVocalFx(fx: Partial<VocalFxSettings>): void {
   at?.chain.set(fx);
 }

@@ -9,7 +9,6 @@ import {
   useState,
   Fragment,
   type CSSProperties,
-  type ReactNode,
 } from "react";
 import type { PartRow, SongRow, BreakSet } from "@/lib/songs";
 import { openDeep } from "@/lib/seal";
@@ -21,7 +20,6 @@ import {
   DeckChip,
   DeckGroup,
   DeckRowLabel,
-  HOT_GRADIENT,
   LIT_PILL,
   MIC_DEVICE_KEY,
   MIC_HINT_KEY,
@@ -38,7 +36,6 @@ import {
   enableLiveMic,
   ensurePerfFx,
   fadeMaster,
-  getLiveMicLevel,
   isSongPlaying,
   liveMicActive,
   liveUpdate,

@@ -9,9 +9,7 @@ import assert from "node:assert/strict";
 import {
   cleanFeel,
   parseArrangementReply,
-  sanitizeNextChapter,
   sanitizeSweepControls,
-  sanitizeNextFx,
   sanitizeUnfoldFx,
 } from "./arrange-plan";
 import { buildArrangement, remapMoves, sectionParts } from "./arrange";
@@ -152,38 +150,3 @@ test("sanitizeUnfoldFx clamps loop ranges and drops junk", () => {
   assert.deepEqual(sanitizeUnfoldFx(null, 3), []);
 });
 
-test("sanitizeNextFx: one glide, done, or null", () => {
-  const fx = sanitizeNextFx(
-    { name: "opening sky", param: "lpf", from: 300, to: 9000, curve: "linear", fromLoop: 2, toLoop: 9 },
-    4,
-  );
-  assert.ok(fx && fx !== "done");
-  assert.deepEqual(
-    { param: fx.param, fromLoop: fx.fromLoop, toLoop: fx.toLoop },
-    { param: "lpf", fromLoop: 2, toLoop: 4 }, // clamped into range
-  );
-  assert.equal(sanitizeNextFx({ done: true }, 4), "done");
-  assert.equal(sanitizeNextFx({ param: "not a param!", from: 1, to: 2, fromLoop: 1, toLoop: 1 }, 4), null);
-  assert.equal(sanitizeNextFx(null, 4), null);
-});
-
-test("sanitizeNextChapter keeps in-subset variations and drops junk", () => {
-  const out = sanitizeNextChapter(
-    {
-      name: "bass finds its voice",
-      layers: [1, 3],
-      vary: {
-        "3": '$: note("<c2 g1>").s("sawtooth").lpf(400)',
-        "2": '$: s("hh*8")', // not in the subset — dropped
-        "1": "setcpm(200)", // smuggled tempo — dropped
-      },
-    },
-    4,
-    1,
-  );
-  assert.ok(out && out !== "done");
-  const ch = out as Exclude<typeof out, "done" | null>;
-  assert.deepEqual(ch.layers, [1, 3]);
-  assert.deepEqual(Object.keys(ch.vary ?? {}), ["3"]);
-  assert.equal(sanitizeNextChapter({ done: true }, 4, 1), "done");
-});

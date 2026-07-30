@@ -1,7 +1,7 @@
 import { getUserId } from "@/lib/session";
 import { addTokenUsage, assertQuota } from "@/lib/billing";
 import { makeCallSink } from "@/lib/call-trace";
-import { complete } from "@/lib/llm";
+import { complete, ROUTE } from "@/lib/llm";
 import { sealDeep } from "@/lib/seal";
 import { clientIp, rateLimit, tooMany } from "@/lib/rate-limit";
 import { hydraServerErrors } from "@/lib/hydra-eval";
@@ -19,8 +19,8 @@ export const dynamic = "force-dynamic";
  * exactly that span. Same doctrine as the ghost: the model is half the
  * product, the FILTER is the other half — the spliced file may not carry
  * errors the original didn't (differential gate), and a failed edit returns
- * empty rather than shipping a broken splice. Opus (thinking off globally),
- * metered + captured like every call.
+ * empty rather than shipping a broken splice. ROUTE.assist — Opus 5, thinking
+ * off; metered + captured like every call.
  */
 export async function POST(req: Request) {
   const userId = await getUserId(req);
@@ -57,10 +57,9 @@ export async function POST(req: Request) {
   try {
     let out = (
       await complete(system, editSelUserText(code, sel, ask), {
-        model: "opus",
         onUsage: (t: number) => void addTokenUsage(userId, t),
         onCall: sink.onCall,
-      }, { thinking: false, maxTokens: 1200, trace: { kind: "ide-edit" } })
+      }, { ...ROUTE.assist, trace: { kind: "ide-edit" } })
     )
       .replace(/^\s*```[a-z]*\r?\n?/i, "")
       .replace(/\r?\n?```\s*$/i, "")
