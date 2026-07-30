@@ -233,7 +233,8 @@ export const ROUTE = {
   // ── THE ROOM'S FAST LANE — Opus 5, thinking OFF. A whisper that arrives late
   //    is a wrong whisper; Opus keeps the dialect straight at no-think latency.
   ghost: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 640 } as CompleteOpts,
-  assist: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 1200 } as CompleteOpts, // ✎ selection edit
+  assist: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 1200 } as CompleteOpts, // ✎ edit, a selected span
+  rework: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 8000 } as CompleteOpts, // ✎ edit, the WHOLE pane (same agent, a file-sized answer)
   fix: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 4000 } as CompleteOpts, // ✦ one-tap fix
 
   // ── NAME / DECIDE ONE BIT — Sonnet 5, thinking OFF. Answer-only work; a

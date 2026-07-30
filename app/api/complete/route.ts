@@ -118,39 +118,6 @@ export async function POST(req: Request) {
       ...opts,
       trace: { kind: "ide-complete" },
     });
-    // THE TRIM WHISPER (07-28, user: the machine must OFFER subtraction the
-    // way it offers addition) — the same call may answer with a trim: an
-    // existing line + its quieter rewrite (or [gone]). Parsed BEFORE
-    // cleanCompletion (which would mangle the directive), gated on the whole
-    // trimmed file, differentially like every ghost.
-    {
-      const m = raw.match(/^\s*\[trim\]\s*\n([\s\S]+?)\n\[to\]\s*\n?([\s\S]*)$/);
-      if (m) {
-        const find = m[1].trim();
-        let replace = m[2].trim();
-        const gone = replace === "[gone]";
-        if (gone) replace = "";
-        const whole = before + after;
-        // Already-quiet lines are NEVER trim targets (a `_$:` line got offered
-        // a second mute — `__$:` — seen live), and no rewrite may stack mutes.
-        if (/^\s*_/.test(find) || /^\s*__/.test(replace)) {
-          console.log(`[klappn] trim whisper dropped (${pane}): target already quiet`);
-          return Response.json({ ghost: "" });
-        }
-        if (find && whole.includes(find) && find !== replace) {
-          const trimmed = replace
-            ? whole.replace(find, replace)
-            : whole.includes(`${find}\n`)
-              ? whole.replace(`${find}\n`, "")
-              : whole.replace(find, "");
-          const had = await paneIssues(pane, whole);
-          const now = [...(await paneIssues(pane, trimmed))].filter((e) => !had.has(e));
-          if (!now.length) return Response.json(sealDeep({ trim: { find, replace } }));
-          console.log(`[klappn] trim whisper dropped (${pane}): ${now[0]}`);
-        }
-        return Response.json({ ghost: "" }); // a malformed trim dies silently
-      }
-    }
     let ghost = cleanCompletion(raw, before);
     // THE FILTER: a ghost may not introduce errors the pane didn't already
     // have. One fast repair pass, then silence — no ghost beats a wrong ghost.
@@ -203,16 +170,6 @@ ${issues.map((e) => `- ${e}`).join("\n")}`,
   } finally {
     await sink.flush();
   }
-}
-
-/** All current errors of a pane's whole text (the trim gate's raw read). */
-async function paneIssues(
-  pane: "strudel" | "hydra",
-  whole: string,
-): Promise<Set<string>> {
-  if (pane === "hydra") return new Set(hydraServerErrors(whole));
-  const { validateStrudel } = await import("@/lib/strudel-validate");
-  return new Set(validateStrudel(whole).errors);
 }
 
 /** Errors the ghost would ADD to the pane (differential — the coder's own

@@ -320,7 +320,6 @@ export default function ZaltzIDE({
   const [ghost, setGhost] = useState<{
     pane: PaneId;
     text?: string;
-    trim?: { find: string; replace: string };
   } | null>(null);
   const ghostRef = useRef<typeof ghost>(null);
   ghostRef.current = ghost;
@@ -808,12 +807,9 @@ export default function ZaltzIDE({
       // cache for free.
       const cached = ctx.forced ? undefined : ghostLRU.current.get(cacheKey);
       if (cached !== undefined) {
-        const alive =
-          !!cached.g.trim() ||
-          (!!cached.t && (ctx.before + ctx.after).includes(cached.t.find));
+        const alive = !!cached.g.trim();
         lastCue.current = { key: cueKey, empty: !alive, at: Date.now() };
-        if (alive)
-          setGhost(cached.t ? { pane, trim: cached.t } : { pane, text: cached.g });
+        if (alive) setGhost({ pane, text: cached.g });
         return;
       }
       const seq = ++ghostSeq.current;
@@ -853,18 +849,14 @@ export default function ZaltzIDE({
         }
         if (!res.ok) return; // 429 etc → quiet; the meter chip tells the story
         const d = openDeep(
-          (await res.json().catch(() => ({}))) as {
-            ghost?: string;
-            trim?: { find: string; replace: string };
-          },
+          (await res.json().catch(() => ({}))) as { ghost?: string },
         );
         const g = d.ghost ?? "";
-        const t = d.trim && typeof d.trim.find === "string" ? d.trim : undefined;
         // NEVER cache silence (07-28, "the copilot is not doing anything"):
         // a cached empty made that caret position permanently mute — every
         // later park served the old silence, and phones have no ⌥\ to force
         // past it. The 10s lastCue window already stops rapid re-asks.
-        if (g.trim() || t) ghostLRU.current.set(cacheKey, { g, t });
+        if (g.trim()) ghostLRU.current.set(cacheKey, { g });
         if (ghostLRU.current.size > 16) {
           const oldest = ghostLRU.current.keys().next().value;
           if (oldest !== undefined) ghostLRU.current.delete(oldest);
@@ -875,13 +867,12 @@ export default function ZaltzIDE({
         // mid-file ghost pushes the picture down exactly like VS Code, while
         // the caret and every click keep answering to the REAL buffer — and
         // any keystroke or caret move dismisses the ghost and snaps back.
-        lastCue.current = { key: cueKey, empty: !g.trim() && !t, at: Date.now() };
-        if (!g.trim() && !t) return;
+        lastCue.current = { key: cueKey, empty: !g.trim(), at: Date.now() };
+        if (!g.trim()) return;
         if (seq !== ghostSeq.current) return; // superseded by newer typing
         const cur = pane === "strudel" ? stateRef.current.strudel : stateRef.current.hydra;
         if (cur !== ctx.before + ctx.after) return; // the file moved on
-        if (t && !cur.includes(t.find)) return; // the doomed line already moved
-        setGhost(t ? { pane, trim: t } : { pane, text: g });
+        setGhost({ pane, text: g });
       } catch {
         /* aborted or offline — a missing ghost is nothing */
       } finally {
@@ -2256,18 +2247,33 @@ export default function ZaltzIDE({
   // editor's move, not a chat: the reply replaces exactly the selected span,
   // in place, ⌘Z undoes it as ONE step (CodePane's own history), and while
   // the room plays the live-room auto-eval lands it seamlessly.
+  /** THE ASK's target. `whole` = the entire pane (⌘K with nothing selected, or
+   *  the ✎ door) — selecting first is a convenience, never a toll. */
   const [editSel, setEditSel] = useState<{
     pane: PaneId;
     start: number;
     end: number;
     text: string;
+    whole: boolean;
   } | null>(null);
   const [editAsk, setEditAsk] = useState("");
   const [editBusy, setEditBusy] = useState(false);
-  const openEditSel = (pane: PaneId, sel: { text: string; start: number; end: number }) => {
+  /** Open the ask. `sel` null ⇒ the WHOLE pane is the span — same bar, same
+   *  contract ("rewrite exactly this, smallest change, keep the rest"), it just
+   *  happens to be all of it. */
+  const openEditSel = (
+    pane: PaneId,
+    sel: { text: string; start: number; end: number } | null,
+  ) => {
     if (spent) return setSheet("tokens");
+    const code = pane === "hydra" ? stateRef.current.hydra : stateRef.current.strudel;
+    if (!sel && !code.trim()) return; // an empty pane has nothing to rework
     setEditAsk("");
-    setEditSel({ pane, ...sel });
+    setEditSel(
+      sel
+        ? { pane, ...sel, whole: false }
+        : { pane, start: 0, end: code.length, text: code, whole: true },
+    );
   };
   const sendEditSel = async () => {
     const target = editSel;
@@ -2280,7 +2286,13 @@ export default function ZaltzIDE({
         target.pane === "hydra" ? stateRef.current.hydra : stateRef.current.strudel;
       // The pane may have moved under the ask (auto-eval never does, but the
       // hands might) — the span must still read exactly as selected.
-      if (base.slice(target.start, target.end) !== target.text) {
+      // A SPAN must still read exactly as selected. THE WHOLE PANE cannot go
+      // stale in that sense — it is whatever is there now — so it re-targets
+      // instead of refusing (the hands may have typed since the bar opened).
+      const span = target.whole
+        ? { ...target, start: 0, end: base.length, text: base }
+        : target;
+      if (base.slice(span.start, span.end) !== span.text) {
         setNotice("The code moved under that selection — select it again.");
         setEditSel(null);
         return;
@@ -2289,10 +2301,10 @@ export default function ZaltzIDE({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          pane: target.pane,
+          pane: span.pane,
           code: base,
-          start: target.start,
-          end: target.end,
+          start: span.start,
+          end: span.end,
           ask,
         }),
       });
@@ -2311,7 +2323,7 @@ export default function ZaltzIDE({
         setNotice("That edit wouldn't build — say it differently.");
         return;
       }
-      const next = base.slice(0, target.start) + out + base.slice(target.end);
+      const next = base.slice(0, span.start) + out + base.slice(span.end);
       if (target.pane === "hydra") setHydra(next);
       else setStrudel(next);
       snapRoom(target.pane, "edit", next, { ask }); // corpus gold — save save save
@@ -2680,6 +2692,19 @@ export default function ZaltzIDE({
         )}
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
+        {/* ✎ THE ASK — the door for "change this", always here, at every width.
+            The whisper OFFERS (you take it with ⇥); the ask INSTRUCTS (you say
+            it in words). Two verbs, two affordances — and this one must never
+            be desktop-only: ⌘K is the chord, this is the same door for a thumb.
+            Opens on the SOUND pane's whole code; a selection still narrows it. */}
+        <button
+          onClick={() => openEditSel("strudel", null)}
+          className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/70 transition hover:text-foreground active:scale-[.97] sm:inline-flex"
+          title="Ask for a change (⌘K) — say it in words and the code is rewritten"
+        >
+          <span aria-hidden className="text-[13px] leading-none">✎</span>
+          edit
+        </button>
         <button
           onClick={toggleCopilot}
           className={`hidden shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] transition active:scale-[.97] sm:inline-flex ${
@@ -2720,6 +2745,17 @@ export default function ZaltzIDE({
           visuals
         </button>
         <span className="flex-1" />
+        {/* ✎ THE ASK, on a thumb. ⌘K is the desktop chord; a phone has no
+            chord at all, so the door must be furniture — and it sits in the
+            gap this row already had, costing no width. */}
+        <button
+          onClick={() => openEditSel(mobilePane === "hydra" ? "hydra" : "strudel", null)}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted/70 transition active:scale-[.97]"
+          aria-label="Ask for a change"
+        >
+          <span aria-hidden className="text-[12px] leading-none">✎</span>
+          edit
+        </button>
         <button
           onClick={toggleCopilot}
           className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] transition active:scale-[.97] ${
@@ -2757,12 +2793,10 @@ export default function ZaltzIDE({
             onRun={() => void runMusic()}
             pondering={pondering === "strudel" && ghost?.pane !== "strudel"}
             ghost={ghost?.pane === "strudel" ? ghost.text ?? null : null}
-            trim={ghost?.pane === "strudel" ? ghost.trim ?? null : null}
             onGhostAccept={() => {
               // an accepted whisper is the corpus's strongest signal
               snapRoom("strudel", "take", stateRef.current.strudel, {
                 ghost: ghost?.text?.slice(0, 2000) ?? "",
-                ...(ghost?.trim ? { trim: ghost.trim } : {}),
               });
               killGhost();
               // THE REAL-TIME LAW: a take made mid-set LANDS mid-set — the new
@@ -2774,6 +2808,7 @@ export default function ZaltzIDE({
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
             onExplain={(sel) => void explainSel("strudel", sel)}
             onEditSel={(sel) => openEditSel("strudel", sel)}
+            onAsk={(sel) => openEditSel("strudel", sel)}
             onMuteToggle={() => {
               landNow.current = true;
             }}
@@ -2802,11 +2837,9 @@ export default function ZaltzIDE({
             onRun={runVisuals}
             pondering={pondering === "hydra" && ghost?.pane !== "hydra"}
             ghost={ghost?.pane === "hydra" ? ghost.text ?? null : null}
-            trim={ghost?.pane === "hydra" ? ghost.trim ?? null : null}
             onGhostAccept={() => {
               snapRoom("hydra", "take", stateRef.current.hydra, {
                 ghost: ghost?.text?.slice(0, 2000) ?? "",
-                ...(ghost?.trim ? { trim: ghost.trim } : {}),
               });
               killGhost();
               // A visual take repaints the room the moment it's taken.
@@ -2817,6 +2850,7 @@ export default function ZaltzIDE({
             onCaretIdle={(ctx) => void requestGhost("hydra", ctx)}
             onExplain={(sel) => void explainSel("hydra", sel)}
             onEditSel={(sel) => openEditSel("hydra", sel)}
+            onAsk={(sel) => openEditSel("hydra", sel)}
             placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them${
               touch
                 ? "\n// tap the grey — it becomes yours"
@@ -2908,11 +2942,22 @@ export default function ZaltzIDE({
             <span aria-hidden className="shrink-0 text-[13px] leading-none text-accent-strong/80">
               ✎
             </span>
+            {/* WHAT IS ABOUT TO CHANGE, before you say a word. A span shows
+                itself in mono; the whole pane says so in plain words — never a
+                truncated wall of the entire file pretending to be a chip. */}
             <span
-              className="max-w-[24%] shrink-0 truncate font-mono text-[11.5px] text-muted/60"
-              title={editSel.text}
+              className={`max-w-[24%] shrink-0 truncate text-[11.5px] ${
+                editSel.whole
+                  ? "text-accent-strong/70"
+                  : "font-mono text-muted/60"
+              }`}
+              title={editSel.whole ? undefined : editSel.text}
             >
-              {editSel.text}
+              {editSel.whole
+                ? editSel.pane === "hydra"
+                  ? "the whole picture"
+                  : "the whole thing"
+                : editSel.text}
             </span>
             <span className="h-4 w-px shrink-0 bg-white/[0.12]" aria-hidden />
             <input
@@ -2923,7 +2968,11 @@ export default function ZaltzIDE({
                 if (e.key === "Enter") void sendEditSel();
                 if (e.key === "Escape") setEditSel(null);
               }}
-              placeholder="say the change — it rewrites just this"
+              placeholder={
+                editSel.whole
+                  ? "say the change — it rewrites everything here"
+                  : "say the change — it rewrites just this"
+              }
               disabled={editBusy}
               /* 16px on touch — under that, iOS zooms the whole page into the
                  input and the room lurches (the classic mobile form bug).

@@ -48,6 +48,12 @@ export async function POST(req: Request) {
     return Response.json({ code: "" });
   }
   const sel = code.slice(start, end);
+  // THE WHOLE PANE is a legitimate span (07-30, the user: "we should be able to
+  // make an edit on the entire code, so we do not need to edit by holding down
+  // certain sections"). Nothing else about the contract changes — "rewrite
+  // exactly this span, smallest change, keep the rest byte-identical" reads the
+  // same whether the span is one method call or the file.
+  const wholePane = start === 0 && end >= code.trim().length;
 
   const gate = await assertQuota(userId);
   if (gate) return gate;
@@ -59,7 +65,14 @@ export async function POST(req: Request) {
       await complete(system, editSelUserText(code, sel, ask), {
         onUsage: (t: number) => void addTokenUsage(userId, t),
         onCall: sink.onCall,
-      }, { ...ROUTE.assist, trace: { kind: "ide-edit" } })
+      }, {
+        // Same agent, two budgets. A span edit answers with a fragment; a WHOLE
+        // PANE edit ("make it quieter") answers with the file, and 1200 tokens
+        // would truncate it mid-line — which the differential gate would then
+        // correctly refuse, so the ask would just silently do nothing.
+        ...(wholePane ? ROUTE.rework : ROUTE.assist),
+        trace: { kind: "ide-edit" },
+      })
     )
       .replace(/^\s*```[a-z]*\r?\n?/i, "")
       .replace(/\r?\n?```\s*$/i, "")
