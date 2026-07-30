@@ -147,6 +147,10 @@ const CodePane = forwardRef<
      *  WHOLE pane when nothing is (null). Selecting first is a convenience,
      *  never a toll. */
     onAsk?: (sel: { text: string; start: number; end: number } | null) => void;
+    /** This pane took the hands. On desktop BOTH panes are on screen at once,
+     *  so any door that says "edit" without naming a pane has to mean the one
+     *  you are working in — this is how it knows. */
+    onFocusPane?: () => void;
   }
 >(function CodePane(
   {
@@ -166,6 +170,7 @@ const CodePane = forwardRef<
     onEditSel,
     onMuteToggle,
     onAsk,
+    onFocusPane,
   },
   handleRef,
 ) {
@@ -842,6 +847,7 @@ const CodePane = forwardRef<
               scheduleCue();
             }}
             onSelect={measureSelection}
+            onFocus={() => onFocusPane?.()}
             onBlur={() => {
               if (ghost) onGhostDismiss?.();
               setSelChip(null);

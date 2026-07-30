@@ -2256,6 +2256,10 @@ export default function ZaltzIDE({
     text: string;
     whole: boolean;
   } | null>(null);
+  /** Which pane has the hands (desktop shows both at once). The ✎ door means
+   *  THIS one — a button that always edited the sound would quietly rewrite the
+   *  wrong half while you were working in the picture. */
+  const [focusedPane, setFocusedPane] = useState<PaneId>("strudel");
   const [editAsk, setEditAsk] = useState("");
   const [editBusy, setEditBusy] = useState(false);
   /** Open the ask. `sel` null ⇒ the WHOLE pane is the span — same bar, same
@@ -2698,7 +2702,7 @@ export default function ZaltzIDE({
             be desktop-only: ⌘K is the chord, this is the same door for a thumb.
             Opens on the SOUND pane's whole code; a selection still narrows it. */}
         <button
-          onClick={() => openEditSel("strudel", null)}
+          onClick={() => openEditSel(focusedPane, null)}
           className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/70 transition hover:text-foreground active:scale-[.97] sm:inline-flex"
           title="Ask for a change (⌘K) — say it in words and the code is rewritten"
         >
@@ -2809,6 +2813,7 @@ export default function ZaltzIDE({
             onExplain={(sel) => void explainSel("strudel", sel)}
             onEditSel={(sel) => openEditSel("strudel", sel)}
             onAsk={(sel) => openEditSel("strudel", sel)}
+            onFocusPane={() => setFocusedPane("strudel")}
             onMuteToggle={() => {
               landNow.current = true;
             }}
@@ -2851,6 +2856,7 @@ export default function ZaltzIDE({
             onExplain={(sel) => void explainSel("hydra", sel)}
             onEditSel={(sel) => openEditSel("hydra", sel)}
             onAsk={(sel) => openEditSel("hydra", sel)}
+            onFocusPane={() => setFocusedPane("hydra")}
             placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them${
               touch
                 ? "\n// tap the grey — it becomes yours"
