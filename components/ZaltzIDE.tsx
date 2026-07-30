@@ -51,7 +51,7 @@ import {
 } from "@/components/DeckKit";
 import { isDead, publishStream, type Broadcast } from "@/lib/rtc";
 import { extractHydra } from "@/lib/hydra-embed";
-import EngineLineup, { type LineupHit } from "@/components/EngineLineup";
+import EngineHits, { type LineupHit } from "@/components/EngineHits";
 import {
   disableLiveMidi,
   enableLiveMidi,
@@ -235,6 +235,24 @@ function humanizeEngineError(raw: string): string {
 
 // (The deck's pads, gradient and dial grid live in components/ZaltzMixer —
 // this file keeps only the wiring they pull on.)
+
+/** YOUR HITS — three stacked bars, the plainest "a list of things" there is.
+ *  Real geometry on one centre (never a text glyph for a stateful mark: the
+ *  advance widths differ and the icon jumps on flip). It warms to the accent
+ *  while one of your hits is in the panes. */
+function HitsMark({ on }: { on: boolean }) {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 7h16M4 12h16M4 17h10"
+        stroke="currentColor"
+        strokeWidth={on ? 2.3 : 2}
+        strokeLinecap="round"
+        opacity={on ? 1 : 0.85}
+      />
+    </svg>
+  );
+}
 
 /** The Copilot's mark — one bold spark, the sign everyone reads as "AI"
  *  (the same ✦ that fronts the fix chip). Gradient id is per-instance
@@ -1464,12 +1482,13 @@ export default function ZaltzIDE({
       }
     })();
   }, [lineupOpen, lineupHits]);
-  /** Pour lineup row i into the panes — the transition IS the master fade +
-   *  the live room's seamless swap. */
-  const pourSong = useCallback(
-    async (i: number) => {
-      const entry = lineup[i];
-      if (!entry) return;
+  /** Pour ONE song into the panes — the transition IS the master fade + the
+   *  live room's seamless swap. `orderIdx` is its seat in the order when the
+   *  pour came from there, and null when it came straight from your hits: a
+   *  direct pour is free play, so nothing pretends a "next" is queued. */
+  const pourById = useCallback(
+    async (id: string, title: string, orderIdx: number | null) => {
+      const entry = { id, title };
       let bundle = pourCache.current.get(entry.id);
       if (!bundle) {
         try {
@@ -1528,9 +1547,25 @@ export default function ZaltzIDE({
       });
       setStrudel(bundle.music);
       setHydra(bundle.visual);
-      setLineupIdx(i);
+      setLineupIdx(orderIdx);
     },
-    [lineup, snapRoom],
+    [snapRoom],
+  );
+  /** THE PRIMARY ACT — tap a hit, it plays. No order to build first. */
+  const pourHit = useCallback(
+    (id: string) => {
+      const h = lineupHits?.find((x) => x.id === id);
+      if (h) void pourById(id, h.title, null);
+    },
+    [lineupHits, pourById],
+  );
+  /** Play the order's row i — keeps its seat, so "next →" knows where it is. */
+  const pourSong = useCallback(
+    (i: number) => {
+      const e = lineup[i];
+      if (e) void pourById(e.id, e.title, i);
+    },
+    [lineup, pourById],
   );
   const addToLineup = useCallback(
     (id: string) => {
@@ -2557,21 +2592,25 @@ export default function ZaltzIDE({
             it either way (anchored right on desktop, a full sheet on phones). */}
         <div className="relative shrink-0">
           <button
-            onClick={() => setLineupOpen((o) => !o)}
+            onClick={() => setLineupOpen((v) => !v)}
+            aria-label="Your hits"
             aria-expanded={lineupOpen}
-            title="The lineup — your hits, ordered for the night; pour one in and play on top"
-            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] transition active:scale-[.97] ${
-              lineupOpen
-                ? "bg-white/[0.1] text-foreground"
-                : "bg-white/[0.05] text-muted/60 hover:text-foreground"
+            title="Your hits — tap one and it pours into the panes"
+            className={`relative grid h-9 w-9 shrink-0 place-items-center rounded-full transition active:scale-[.94] ${
+              lineupOpen || lineupIdx != null
+                ? "text-accent-strong"
+                : "text-muted/60 hover:text-foreground"
             }`}
           >
-            Lineup
+            <HitsMark on={lineupOpen || lineupIdx != null} />
             {lineup.length > 0 && (
-              <span className="tabular-nums text-muted/50">{lineup.length}</span>
+              /* The order's size, whispered — a count, not a badge shouting. */
+              <span className="absolute -right-0.5 -top-0.5 text-[9px] tabular-nums leading-none text-muted/60">
+                {lineup.length}
+              </span>
             )}
           </button>
-          <EngineLineup
+          <EngineHits
             open={lineupOpen}
             onClose={() => setLineupOpen(false)}
             queue={lineup}
@@ -2581,6 +2620,7 @@ export default function ZaltzIDE({
             onRemove={removeFromLineup}
             onMove={moveLineup}
             onPlay={(i) => void pourSong(i)}
+            onPlayHit={pourHit}
             onNext={() => {
               if (lineupIdx != null) void pourSong(lineupIdx + 1);
             }}
