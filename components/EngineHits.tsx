@@ -46,7 +46,7 @@ export default function EngineHits({
 }: {
   open: boolean;
   onClose: () => void;
-  /** The order, when one exists. Empty is the normal, expected state. */
+  /** The SET, when one exists. Empty is the normal, expected state. */
   queue: { id: string; title: string }[];
   /** The row whose song is in the panes right now (null = free play). */
   currentIdx: number | null;
@@ -56,7 +56,7 @@ export default function EngineHits({
   onRemove: (i: number) => void;
   onMove: (i: number, dir: -1 | 1) => void;
   onPlay: (i: number) => void;
-  /** Pour a hit straight in, with no order involved — the primary act. */
+  /** Play a hit straight — the whole song, no set involved. The primary act. */
   onPlayHit: (id: string) => void;
   onNext: () => void;
   onArrange: () => void;
@@ -75,7 +75,7 @@ export default function EngineHits({
           <div className="min-h-0 flex-1 overflow-y-auto">
             {/* ── YOUR HITS — the list, and the whole point. Tap = it plays. */}
             <p className="px-3 pb-1 pt-2 text-[11px] uppercase tracking-[0.18em] text-muted/50">
-              your hits
+              hits
             </p>
             {hits === null ? (
               <p className="px-3 py-1.5 text-[12px] text-muted/50">
@@ -118,8 +118,8 @@ export default function EngineHits({
                       <button
                         onClick={() => onAdd(h.id)}
                         disabled={!h.ready}
-                        aria-label="Add to the order"
-                        title={pos ? "Again — a song can play twice" : "Add to the order"}
+                        aria-label="Add to the set"
+                        title={pos ? "Again — a hit can play twice" : "Add to the set"}
                         className="shrink-0 px-1 text-[13px] leading-none text-muted/45 opacity-0 transition hover:text-accent-strong disabled:opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
                       >
                         ＋
@@ -136,7 +136,7 @@ export default function EngineHits({
               <div className="mt-1 border-t border-white/[0.06] pt-1.5">
                 <div className="flex items-center px-3 pb-1 pt-1">
                   <span className="text-[11px] uppercase tracking-[0.18em] text-muted/50">
-                    the order · {queue.length}
+                    set · {queue.length}
                   </span>
                   <span className="flex-1" />
                   {queue.length > 1 && (
@@ -206,7 +206,7 @@ export default function EngineHits({
                         </button>
                         <button
                           onClick={() => onRemove(i)}
-                          aria-label="Out of the order"
+                          aria-label="Out of the set"
                           className="p-1 text-[11px] text-muted/50 transition hover:text-red-300"
                         >
                           ✕

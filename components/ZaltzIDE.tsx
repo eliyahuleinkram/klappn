@@ -52,6 +52,9 @@ import {
 import { isDead, publishStream, type Broadcast } from "@/lib/rtc";
 import { extractHydra } from "@/lib/hydra-embed";
 import EngineHits, { type LineupHit } from "@/components/EngineHits";
+import { buildPlayEntry, type HomePart, type HomePlan } from "@/lib/home-sections";
+import { buildArrangement } from "@/lib/arrange";
+import { stripHydraBlock } from "@/lib/hydra-embed";
 import {
   disableLiveMidi,
   enableLiveMidi,
@@ -236,7 +239,19 @@ function humanizeEngineError(raw: string): string {
 // (The deck's pads, gradient and dial grid live in components/ZaltzMixer —
 // this file keeps only the wiring they pull on.)
 
-/** YOUR HITS — three stacked bars, the plainest "a list of things" there is.
+/** Drop `setcpm(…)` lines from a bench's code. Used ONLY when a hit is riding
+ *  underneath: the song carries the tempo, and a second setcpm after it would
+ *  win (evaluate runs them in order, the last one means it) and drag the whole
+ *  song to whatever the bench happened to say. */
+function stripSetcpm(code: string): string {
+  return code
+    .split("\n")
+    .filter((l) => !/^\s*setcpm\s*\(/.test(l))
+    .join("\n")
+    .trim();
+}
+
+/** HITS — three stacked bars, the plainest "a list of things" there is.
  *  Real geometry on one centre (never a text glyph for a stateful mark: the
  *  advance widths differ and the icon jumps on flip). It warms to the accent
  *  while one of your hits is in the panes. */
@@ -529,7 +544,13 @@ export default function ZaltzIDE({
 
   // ── play / eval ────────────────────────────────────────────────────────────
   const runMusic = useCallback(async (auto = false) => {
-    const { strudel: code, hydra: sketch } = stateRef.current;
+    const { strudel: pane, hydra: sketch } = stateRef.current;
+    // THE HIT PLAYS UNDER YOU. Its whole-song arrange() program goes first (it
+    // carries the tempo), then your own lines stack on top — one evaluation,
+    // one clock, the song walking its own sections while you write over it.
+    // With a hit riding, an EMPTY bench is not silence: it is the song, alone.
+    const riding = hitRef.current?.program ?? "";
+    const code = riding ? `${riding}\n${stripSetcpm(pane)}`.trim() : pane;
     if (!code.trim()) {
       // No music yet — let the pane speak for itself; run visuals if present.
       if (sketch.trim()) {
@@ -557,9 +578,20 @@ export default function ZaltzIDE({
       // Sets deck strips them; a live coder's sidechain pump must survive).
       await playPart(
         "zaltz-ide",
-        transformForPlayback(assignChannelOrbits(code, undefined, { ducks: "remap", orbits: "per-layer" }), {
-          transpose: keyRef.current,
-        }),
+        transformForPlayback(
+          riding
+            ? // A HIT IS RIDING: it was re-bussed by signature when the
+              // arrangement was built, so re-busing it again here would merge
+              // its layers back onto shared buses (the crackle law). Only YOUR
+              // lines get the deck's channel decades — the kills bite what you
+              // wrote, and the song underneath plays untouched.
+              `${riding}\n${assignChannelOrbits(stripSetcpm(pane), undefined, {
+                ducks: "remap",
+                orbits: "per-layer",
+              })}`.trim()
+            : assignChannelOrbits(code, undefined, { ducks: "remap", orbits: "per-layer" }),
+          { transpose: keyRef.current },
+        ),
         "zaltz-ide",
         // SEAMLESS: a re-eval of the live session hot-swaps in place — no
         // cycle-0 restart, no retire. Takes and ⌘↵ land mid-set without a seam.
@@ -663,9 +695,9 @@ export default function ZaltzIDE({
     const t = setTimeout(async () => {
       const code = stateRef.current.strudel;
       if (code === lastMusicRun.current) return; // a take already landed it
-      if (!code.trim()) {
+      if (!code.trim() && !hitRef.current) {
         lastMusicRun.current = code;
-        halt(); // silence is what the empty pane says
+        halt(); // silence is what the empty pane says — when nothing rides under it
         return;
       }
       try {
@@ -818,7 +850,10 @@ export default function ZaltzIDE({
       // The played-notes ring joins the key — a ghost cached before a phrase
       // must not answer the cue that comes after it.
       const midiRecent = pane === "strudel" ? recentMidiNotes() : "";
-      const cacheKey = `${pane}|${ctx.before.slice(-240)}|${ctx.after.slice(0, 80)}|${midiRecent.slice(-60)}`;
+      // The HIT is in the key for the same reason the keys' recent notes are: a
+      // whisper written against one song must never be served over another (or
+      // over silence). Its id alone — the program is huge and never varies.
+      const cacheKey = `${pane}|${ctx.before.slice(-240)}|${ctx.after.slice(0, 80)}|${midiRecent.slice(-60)}|${hitRef.current?.id ?? ""}`;
       // A DIRECT order (✦/⌥\) never answers from the cache — pressing the
       // button means "another take", never "show me the same one again" (and a
       // cached silence used to mute it entirely). Auto-cues still ride the
@@ -846,8 +881,24 @@ export default function ZaltzIDE({
             after: ctx.after,
             // The other pane rides along — a hydra ghost should know the loop
             // it lights; a strudel ghost, the light it moves under.
+            //
+            // AND, on the sound pane, THE WHOLE HIT PLAYING UNDER YOU. This is
+            // the reason the song is held as a program instead of poured into
+            // the bench (the user: "the AI has the context to all the hit, it
+            // knows the entire hit, so it can select a cool tune that will go
+            // with the hit"). It rides cacheStable server-side, so a whole song
+            // in the prompt is paid for once and read at ~0.1x after that.
             context:
-              pane === "strudel" ? stateRef.current.hydra : stateRef.current.strudel,
+              pane === "strudel"
+                ? [
+                    hitRef.current
+                      ? `THE HIT PLAYING UNDER THE BENCH — "${hitRef.current.title}". You are writing layers to go OVER this; it is not yours to change, and it is not in the editor. Answer in its key, its tempo and its grid, and add what it is missing:\n${hitRef.current.program}`
+                      : "",
+                    stateRef.current.hydra,
+                  ]
+                    .filter(Boolean)
+                    .join("\n\n")
+                : stateRef.current.strudel,
             // What the hands just played on the wire — the whisper can answer
             // the phrase on the keys. Sound pane only; quiet keys send nothing.
             midi: midiRecent,
@@ -1433,6 +1484,11 @@ export default function ZaltzIDE({
     },
     [],
   );
+  /** THE HIT RIDING UNDER THE BENCH — the whole song as one arrange() program.
+   *  Held in a ref (runMusic reads it without re-subscribing) plus a little
+   *  state for the chip that names it. Never, ever in a pane. */
+  const hitRef = useRef<{ id: string; title: string; program: string } | null>(null);
+  const [hit, setHit] = useState<{ id: string; title: string } | null>(null);
   const [lineupIdx, setLineupIdx] = useState<number | null>(null);
   const [lineupOpen, setLineupOpen] = useState(false);
   const [lineupHits, setLineupHits] = useState<LineupHit[] | null>(null);
@@ -1482,10 +1538,29 @@ export default function ZaltzIDE({
       }
     })();
   }, [lineupOpen, lineupHits]);
-  /** Pour ONE song into the panes — the transition IS the master fade + the
-   *  live room's seamless swap. `orderIdx` is its seat in the order when the
-   *  pour came from there, and null when it came straight from your hits: a
-   *  direct pour is free play, so nothing pretends a "next" is queued. */
+  /**
+   * PLAY ONE HIT — the WHOLE song, and never in the panes.
+   *
+   * 2026-07-30 (the user, and this is the point of the room): "it should play
+   * the full song not just the first loop… we do not need to show the code for
+   * the song that is playing… the song plays, we now have an opportunity to
+   * write music on top of that."
+   *
+   * So a hit is no longer poured INTO the bench. It is built into ONE
+   * `arrange()` program — the same whole-song pattern the home gallery and the
+   * song page play, which advances itself through every loop, break and effect
+   * with no re-eval — and held in `hitProgram`, invisible. runMusic then
+   * evaluates that program with YOUR pane's lines stacked on top of it.
+   *
+   * Two things fall out of that, both wanted: the code in front of you stays
+   * YOURS (it used to be overwritten, and then to churn as the song walked its
+   * own sections), and the machine gets the whole hit as context, so what it
+   * whispers is written against the actual song and not against one loop of it.
+   *
+   * `orderIdx` is its seat in the set when the play came from there, and null
+   * when it came straight from hits — a direct play is free play, so nothing
+   * pretends a "next" is queued.
+   */
   const pourById = useCallback(
     async (id: string, title: string, orderIdx: number | null) => {
       const entry = { id, title };
@@ -1506,29 +1581,31 @@ export default function ZaltzIDE({
               parts?: { status?: string; strudel?: string | null }[];
             } | null,
           );
-          const plan = d?.song?.plan ?? {};
-          const part = (d?.parts ?? []).find(
-            (p) => (p.strudel ?? "").trim() && (!p.status || p.status === "ready"),
+          const plan = (d?.song?.plan ?? {}) as HomePlan;
+          const parts = (d?.parts ?? []) as HomePart[];
+          // THE WHOLE SONG, as one pattern. buildPlayEntry + buildArrangement is
+          // the same path the home gallery plays through, so a hit sounds here
+          // exactly as it does everywhere else — every loop, every break, every
+          // effect, walking itself with no further evaluation from us.
+          const entryPlay = buildPlayEntry(parts, plan);
+          const arr = entryPlay && buildArrangement(
+            entryPlay.sections.map((sec) => ({ id: sec.id, code: sec.code, seconds: sec.seconds })),
+            {
+              ending: entryPlay.ending,
+              effects: entryPlay.effects,
+              overlays: entryPlay.overlays,
+              attachVisual: false, // the room owns the picture; the song's rides separately
+            },
           );
-          if (!part?.strudel) {
+          if (!arr?.program?.trim()) {
             setNotice("Nothing playable in that one yet — it joins when a loop lands.");
             return;
           }
-          const code = part.strudel;
-          const metaIdx = code.search(
-            /\/\*\s*@(?:hydra|controls|vcontrols|vlooks|swaps|edits)\b/,
-          );
-          const music = (metaIdx >= 0 ? code.slice(0, metaIdx) : code).trim();
           const visual = (
-            extractHydra(code) ??
-            (typeof plan.visual?.hydra === "string" ? plan.visual.hydra : "")
+            (entryPlay?.sections?.[0]?.code ? extractHydra(entryPlay.sections[0].code) : "") ??
+            ((plan as { visual?: { hydra?: string } }).visual?.hydra ?? "")
           ).trim();
-          const bpm = typeof plan.bpm === "number" && plan.bpm > 0 ? Math.round(plan.bpm) : 120;
-          const bpb = /^\s*(\d+)/.exec(plan.timeSignature ?? "")?.[1] ?? "4";
-          // Some stored loops already open with their own setcpm — never stack
-          // a second one on top (seen live: a doubled setcpm line).
-          const hasCpm = /^\s*setcpm\s*\(/m.test(music);
-          bundle = { music: hasCpm ? music : `setcpm(${bpm}/${bpb})\n${music}`, visual };
+          bundle = { music: stripHydraBlock(arr.program).trim(), visual };
           pourCache.current.set(entry.id, bundle);
         } catch {
           return;
@@ -1540,18 +1617,31 @@ export default function ZaltzIDE({
         fadeMaster(0.06, 0.45);
         setTimeout(() => fadeMaster(masterLevelRef.current, 1.2), 1500);
       }
-      // what was ON the bench leaves with the pour — its final form is corpus
+      // The bench is UNTOUCHED — what you wrote stays yours. Only the record
+      // under it changes; the snap records the moment for the corpus.
       snapRoom("strudel", "pour", stateRef.current.strudel, {
         nextSongId: entry.id,
         nextTitle: entry.title,
       });
-      setStrudel(bundle.music);
-      setHydra(bundle.visual);
+      hitRef.current = { id: entry.id, title: entry.title, program: bundle.music };
+      setHit({ id: entry.id, title: entry.title });
+      // The song brings its own picture when the bench has none of its own.
+      if (bundle.visual && !stateRef.current.hydra.trim()) setHydra(bundle.visual);
       setLineupIdx(orderIdx);
+      void runMusic();
     },
     [snapRoom],
   );
-  /** THE PRIMARY ACT — tap a hit, it plays. No order to build first. */
+  /** Let the hit go — the bench keeps playing whatever you wrote on top of it,
+   *  which is exactly what was yours all along. */
+  const dropHit = useCallback(() => {
+    hitRef.current = null;
+    setHit(null);
+    setLineupIdx(null);
+    if (stateRef.current.strudel.trim()) void runMusic();
+    else halt();
+  }, [runMusic, halt]);
+  /** THE PRIMARY ACT — tap a hit, it plays. No set to build first. */
   const pourHit = useCallback(
     (id: string) => {
       const h = lineupHits?.find((x) => x.id === id);
@@ -2448,47 +2538,7 @@ export default function ZaltzIDE({
             Engine
           </span>
         </span>
-        {/* THE SHOW — the door that used to float over the room as a salt
-            shaker. It belongs beside the room's name: going full-on is a
-            thing you do TO this room, not a thing hovering above it. One
-            glyph, one meaning — the frame opening at its corners. The way
-            back is unchanged: the ✕ on the stage, or Esc. */}
-        <button
-          onClick={() => (show ? exitShow() : enterShow())}
-          aria-expanded={show}
-          title={
-            show
-              ? "Leave the show — back to the bench (Esc)"
-              : "The show — the picture full-on, the desk in hand"
-          }
-          className={`group -ml-0.5 shrink-0 rounded-full p-1.5 transition hover:bg-white/[0.06] hover:text-foreground active:scale-[.94] ${
-            show ? "text-accent-strong" : "text-muted/55"
-          }`}
-        >
-          <svg viewBox="0 0 24 24" className="h-[15px] w-[15px]" fill="none"
-            stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            {show ? (
-              /* the same four corners, turned INWARD — the frame closing.
-                 THE ONLY WAY BACK ON A PHONE: no Esc key, and a touch show
-                 never enters browser fullscreen, so there is no system
-                 chrome to escape from either. The shaker used to carry this
-                 and was deleted; the door has to swing both ways. */
-              <>
-                <path d="M9 4v3.4A1.6 1.6 0 0 1 7.4 9H4" />
-                <path d="M20 9h-3.4A1.6 1.6 0 0 1 15 7.4V4" />
-                <path d="M15 20v-3.4a1.6 1.6 0 0 1 1.6-1.6H20" />
-                <path d="M4 15h3.4A1.6 1.6 0 0 1 9 16.6V20" />
-              </>
-            ) : (
-              <>
-                <path d="M4 9V5.6a1.6 1.6 0 0 1 1.6-1.6H9" />
-                <path d="M15 4h3.4A1.6 1.6 0 0 1 20 5.6V9" />
-                <path d="M20 15v3.4a1.6 1.6 0 0 1-1.6 1.6H15" />
-                <path d="M9 20H5.6A1.6 1.6 0 0 1 4 18.4V15" />
-              </>
-            )}
-          </svg>
-        </button>
+
         {/* the air in the middle belongs to the room */}
         <span className="min-w-0 flex-1" />
         {/* THE TRANSPORT CAPSULE — play and tape are ONE machined object
@@ -2593,9 +2643,9 @@ export default function ZaltzIDE({
         <div className="relative shrink-0">
           <button
             onClick={() => setLineupOpen((v) => !v)}
-            aria-label="Your hits"
+            aria-label="Hits"
             aria-expanded={lineupOpen}
-            title="Your hits — tap one and it pours into the panes"
+            title="Hits — tap one and the whole song plays; write on top of it"
             className={`relative grid h-9 w-9 shrink-0 place-items-center rounded-full transition active:scale-[.94] ${
               lineupOpen || lineupIdx != null
                 ? "text-accent-strong"
@@ -2736,6 +2786,31 @@ export default function ZaltzIDE({
         )}
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
+        {/* WHAT IS PLAYING UNDER YOU. A hit riding the bench is invisible in
+            the code by design, so it has to be visible SOMEWHERE — one quiet
+            capsule naming it, with the one verb it needs. */}
+        {hit && (
+          <span className="hidden min-w-0 shrink items-center gap-1.5 rounded-full bg-accent/[0.1] py-1.5 pl-3 pr-1.5 text-[12.5px] text-accent-strong ring-1 ring-inset ring-accent/25 sm:inline-flex">
+            <span className="flex h-2.5 w-3 shrink-0 items-end justify-center gap-[2px]" aria-hidden>
+              {[0, 1, 2].map((b2) => (
+                <span
+                  key={b2}
+                  className="eq-bar w-[2px] rounded-full bg-accent-strong"
+                  style={{ height: "100%", animationDelay: `${b2 * 0.18}s` }}
+                />
+              ))}
+            </span>
+            <span className="min-w-0 truncate" title={hit.title}>{hit.title}</span>
+            <button
+              onClick={dropHit}
+              aria-label="Let the hit go"
+              title="Let it go — your own code keeps playing"
+              className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] text-accent-strong/60 transition hover:bg-accent/[0.15] hover:text-accent-strong active:scale-[.9]"
+            >
+              ✕
+            </button>
+          </span>
+        )}
         {/* ✎ THE ASK — the door for "change this", always here, at every width.
             The whisper OFFERS (you take it with ⇥); the ask INSTRUCTS (you say
             it in words). Two verbs, two affordances — and this one must never
@@ -2977,6 +3052,52 @@ export default function ZaltzIDE({
           transform channel (its final keyframe stomped a translateX centring,
           seen live: the bar drifted off the right edge); the keyboard lift
           rides `bottom` for the same reason. */}
+      {/* THE SHOW — bottom right (2026-07-30, the user). It sat beside the
+          room's name for a day, which put a thing you do ONCE next to the way
+          home; a fullscreen control belongs where every player in the world
+          keeps it, in the far corner of the picture it opens. One glyph, one
+          meaning — the frame opening at its corners. The way back is
+          unchanged: the ✕ on the stage, or Esc. */}
+        <button
+          onClick={() => (show ? exitShow() : enterShow())}
+          aria-expanded={show}
+          title={
+            show
+              ? "Leave the show — back to the bench (Esc)"
+              : "The show — the picture full-on, the desk in hand"
+          }
+          className={`ide-live group fixed z-[19] rounded-full p-2 transition hover:bg-white/[0.08] hover:text-foreground active:scale-[.94] ${
+            show ? "text-accent-strong" : "text-muted/45"
+          }`}
+          style={{
+            right: "max(0.75rem, env(safe-area-inset-right))",
+            bottom: "max(0.75rem, env(safe-area-inset-bottom))",
+          }}
+        >
+          <svg viewBox="0 0 24 24" className="h-[15px] w-[15px]" fill="none"
+            stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            {show ? (
+              /* the same four corners, turned INWARD — the frame closing.
+                 THE ONLY WAY BACK ON A PHONE: no Esc key, and a touch show
+                 never enters browser fullscreen, so there is no system
+                 chrome to escape from either. The shaker used to carry this
+                 and was deleted; the door has to swing both ways. */
+              <>
+                <path d="M9 4v3.4A1.6 1.6 0 0 1 7.4 9H4" />
+                <path d="M20 9h-3.4A1.6 1.6 0 0 1 15 7.4V4" />
+                <path d="M15 20v-3.4a1.6 1.6 0 0 1 1.6-1.6H20" />
+                <path d="M4 15h3.4A1.6 1.6 0 0 1 9 16.6V20" />
+              </>
+            ) : (
+              <>
+                <path d="M4 9V5.6a1.6 1.6 0 0 1 1.6-1.6H9" />
+                <path d="M15 4h3.4A1.6 1.6 0 0 1 20 5.6V9" />
+                <path d="M20 15v3.4a1.6 1.6 0 0 1-1.6 1.6H15" />
+                <path d="M9 20H5.6A1.6 1.6 0 0 1 4 18.4V15" />
+              </>
+            )}
+          </svg>
+        </button>
       {editSel && (
         <div
           className="pill-pop fixed inset-x-3 z-30 mx-auto max-w-xl transition-[bottom] duration-150"
