@@ -36,6 +36,10 @@ import {
 const TOKEN_RE =
   /(\/\*[\s\S]*?\*\/|\/\/[^\n]*)|("(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?|`(?:[^`\\]|\\.)*`?)|(^[ \t]*_?\$:)|(\.[A-Za-z_$][\w$]*)|(\b\d+(?:\.\d+)?\b)/gm;
 
+/** A SILENCED layer — line-anchored, always (the `$:` grammar's standing law:
+ *  a `$:` inside a comment or a string is not a layer). */
+const MUTED_LINE = /^[ \t]*_\$:/;
+
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -58,6 +62,29 @@ function highlightCore(code: string): string {
   return out;
 }
 
+/**
+ * A SILENT LAYER MUST LOOK SILENT. Highlight line-by-line so a muted layer can
+ * be wrapped whole in `.tok-off` — the eye should find what is sleeping without
+ * reading a single character, the way a muted channel on a desk is dark.
+ *
+ * Wrapping per LINE (not per token) is what makes the whole statement recede:
+ * the accent on its pattern strings, the numbers, all of it goes quiet together.
+ * The `_$:` label keeps its own token colour underneath so the idiom stays
+ * legible to anyone reading the code as code.
+ */
+function highlightLines(code: string): string {
+  // Split-and-rejoin on "\n" only: highlightCore is line-anchored for labels
+  // (^ with /m), so feeding it one line at a time preserves every token class.
+  return code
+    .split("\n")
+    .map((line) =>
+      MUTED_LINE.test(line)
+        ? `<span class="tok-off">${highlightCore(line)}</span>`
+        : highlightCore(line),
+    )
+    .join("\n");
+}
+
 export interface CaretContext {
   before: string;
   after: string;
@@ -74,6 +101,9 @@ export interface CodePaneHandle {
   /** Accept the standing whisper (or, on an empty pane, the hint) — the same
    *  act as ⇥, callable from furniture outside the pane. */
   take: () => void;
+  /** Silence (or wake) every layer the selection touches — the same act as ⌘/
+   *  and as tapping a layer's own `$:`, callable from furniture outside. */
+  toggleMute: () => void;
 }
 
 const CodePane = forwardRef<
@@ -112,6 +142,9 @@ const CodePane = forwardRef<
     /** Selection EDIT — the copilot rewrites exactly the selected span
      *  (07-28): the chip's second segment hands the span up. */
     onEditSel?: (sel: { text: string; start: number; end: number }) => void;
+    /** A layer was just silenced or woken. The edit is COMPLETE by definition,
+     *  so the room lands it without the composing debounce (see landNow). */
+    onMuteToggle?: () => void;
   }
 >(function CodePane(
   {
@@ -130,12 +163,66 @@ const CodePane = forwardRef<
     onCaretIdle,
     onExplain,
     onEditSel,
+    onMuteToggle,
   },
   handleRef,
 ) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * THE LABEL IS THE SWITCH. Every `$:` in the picture gets an invisible hit
+   * rect, so tapping a layer's own label silences it (and tapping the dimmed
+   * `_$:` wakes it). No chord to know, no furniture to find, and the thing you
+   * touch is the thing that means "this one sounds" — one glyph, one meaning.
+   *
+   * Measured off the twin's `.tok-l` spans exactly like the whisper's hit rects
+   * (the proven pattern), re-measured whenever the picture or the box changes.
+   * A whisper is up ⇒ no switches: the twin holds extra text then and the rects
+   * would point at the wrong lines.
+   */
+  const [labelHits, setLabelHits] = useState<
+    { top: number; left: number; width: number; height: number; at: number }[]
+  >([]);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content || ghost || trim || !value) {
+      setLabelHits([]);
+      return;
+    }
+    const measure = () => {
+      const box = content.getBoundingClientRect();
+      // Walk the labels in document order and pair each with its buffer offset
+      // — the Nth `.tok-l` in the twin is the Nth line-anchored label in the
+      // text, because highlightLines emits them in order and nothing else
+      // wears that class.
+      const offsets: number[] = [];
+      const RE = /^[ \t]*_?\$:/gm;
+      for (const m of value.matchAll(RE)) offsets.push(m.index ?? 0);
+      const els = [...content.querySelectorAll("pre .tok-l")];
+      const out: typeof labelHits = [];
+      els.forEach((el, i) => {
+        if (offsets[i] == null) return;
+        const r = el.getBoundingClientRect();
+        if (!(r.width > 0 && r.height > 0)) return;
+        out.push({
+          // A comfortable target on a finger without covering the code: the
+          // label's own box, padded a few px, never wider than the label.
+          top: r.top - box.top - 3,
+          left: r.left - box.left - 4,
+          width: r.width + 8,
+          height: r.height + 6,
+          at: offsets[i],
+        });
+      });
+      setLabelHits(out);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [value, ghost, trim]);
   const ghostCaretRef = useRef<number>(-1);
   // SCROLL FADES — each edge melts only when code continues past it (the
   // CSS masks live in globals; this is just the truth of the scroll).
@@ -318,7 +405,11 @@ const CodePane = forwardRef<
         "\n"
       );
     }
-    return highlightCore(value) + "\n";
+    // The resting picture dims silenced layers. The whisper paths above stay on
+    // highlightCore deliberately: they slice the buffer MID-LINE to seat the
+    // grey, and the take-pill / explain-chip geometry walks those exact text
+    // nodes — the dimming resumes the moment the whisper retires.
+    return highlightLines(value) + "\n";
   }, [value, ghost, trim]);
 
   // Keep the caret's line inside the scroll viewport while typing. Reads the
@@ -509,6 +600,67 @@ const CodePane = forwardRef<
 
   // The one-verb handle — the ✦ complete button (the ONLY path on phones,
   // where no ⌥\ exists) lands here. Unfocused pane → caret to the end first.
+  /**
+   * THE MUTE — flip every layer the selection touches on or off.
+   *
+   * The idiom was always `_$:` (the transpiler skips it, the deck's re-busing
+   * segments it like any other line). What was missing was a way to reach it
+   * that isn't typing an underscore in exactly the right column, which is not a
+   * thing anyone does mid-set.
+   *
+   * ALL-OR-NOTHING, like every editor's comment toggle: if ANY touched layer is
+   * still sounding, the gesture silences them all; only when they are already
+   * silent does it bring them back. So a multi-line selection is one decision —
+   * which is what makes "write the next part below, then swap" a two-keystroke
+   * move instead of a dozen.
+   *
+   * One history step (the value lands through onChange, and CodePane's own
+   * undo coalescing treats a bulk change as its own entry), so ⌘Z takes the
+   * whole part back at once.
+   */
+  const toggleMute = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const text = ta.value;
+    const selStart = ta.selectionStart ?? 0;
+    const selEnd = ta.selectionEnd ?? selStart;
+    // Grow the selection to whole lines — you mute layers, not characters.
+    const from = text.lastIndexOf("\n", selStart - 1) + 1;
+    const nlAfter = text.indexOf("\n", selEnd);
+    const to = nlAfter === -1 ? text.length : nlAfter;
+    const lines = text.slice(from, to).split("\n");
+    // LINE-ANCHORED, always (the setcpm-swallowing bug's law): only a real
+    // layer label counts, never a `$:` sitting inside a string or a comment.
+    const LAYER = /^([ \t]*)(_?)(\$:)/;
+    const touched = lines.filter((l) => LAYER.test(l));
+    if (!touched.length) return; // nothing here sounds — nothing to silence
+    const anyLive = touched.some((l) => LAYER.exec(l)![2] === "");
+    const next = lines
+      .map((l) => {
+        const m = LAYER.exec(l);
+        if (!m) return l;
+        const rest = l.slice(m[0].length);
+        return `${m[1]}${anyLive ? "_" : ""}$:${rest}`;
+      })
+      .join("\n");
+    if (next === text.slice(from, to)) return;
+    const value2 = text.slice(0, from) + next + text.slice(to);
+    // Keep the selection over the same layers so a second ⌘/ undoes the first
+    // (the underscore shifts every line by one char — count them).
+    const growth = anyLive ? touched.length : -touched.length;
+    onChange(value2);
+    onMuteToggle?.();
+    requestAnimationFrame(() => {
+      const t = taRef.current;
+      if (!t) return;
+      const s = selStart === selEnd ? selStart + (anyLive ? 1 : -1) : from;
+      const e2 = selStart === selEnd ? s : to + growth;
+      t.setSelectionRange(Math.max(from, s), Math.max(from, e2));
+      followCaret();
+    });
+  }, [onChange, followCaret, onMuteToggle]);
+
+
   useImperativeHandle(
     handleRef,
     () => ({
@@ -532,8 +684,9 @@ const CodePane = forwardRef<
           onTakeHint();
         }
       },
+      toggleMute,
     }),
-    [summonGhost, ghost, trim, applyTrim, value, placeholder, onTakeHint, onGhostAccept],
+    [summonGhost, ghost, trim, applyTrim, value, placeholder, onTakeHint, onGhostAccept, toggleMute],
   );
 
   // Any caret drift away from where the ghost was minted kills it.
@@ -570,6 +723,13 @@ const CodePane = forwardRef<
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     const mod = e.metaKey || e.ctrlKey;
+    // ⌘/ — silence (or wake) the layers under the selection. The universal
+    // "switch this line off" chord, doing the one thing it means here.
+    if (mod && e.key === "/") {
+      e.preventDefault();
+      toggleMute();
+      return;
+    }
     // ⌘Z / ⇧⌘Z (and ⌘Y) — the pane's own history; native undo is dead the
     // moment the buffer is rewritten programmatically, so ours answers.
     if (mod && (e.key === "z" || e.key === "Z")) {
@@ -673,6 +833,25 @@ const CodePane = forwardRef<
               className="absolute inset-x-0 top-0 z-[3] cursor-pointer bg-transparent"
             />
           )}
+          {/* THE LAYER'S OWN LABEL, as its switch. Sits under the textarea in
+              stacking terms but wins the pointer (z-[4]) because it is a tiny,
+              deliberate target; everywhere else the caret still lands. */}
+          {labelHits.map((h) => (
+            <button
+              key={h.at}
+              aria-label="Silence or wake this layer"
+              title="Silence this layer (⌘/)"
+              onPointerDown={(e) => {
+                e.preventDefault(); // keep focus + selection; never blur the pane
+                const ta = taRef.current;
+                if (!ta) return;
+                ta.setSelectionRange(h.at, h.at);
+                toggleMute();
+              }}
+              style={{ top: h.top, left: h.left, width: h.width, height: h.height }}
+              className="absolute z-[4] cursor-pointer rounded bg-transparent transition hover:bg-accent/[0.14]"
+            />
+          ))}
           <textarea
             ref={taRef}
             value={value}

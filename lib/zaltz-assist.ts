@@ -30,6 +30,8 @@ export const COMPLETE_STRUDEL_SYSTEM = `${COMPLETE_CONTRACT}
 
 The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer. Stay in the file's key and grid; add layers that serve the loop (never double an existing voice). A running loop nearly always has a next move — an unfilled role, a variation, a quiet layer under what plays; an empty answer is a last resort, never a habit. When the stack is already dense, prefer a VARIATION or a sparse, quiet voice over another loud layer. (If a trim is ever the right call, the kindest is the MUTE — rewrite the line with its \`$:\` prefixed as \`_$:\`, reversible in one keystroke — but growth is the job; the trim is rare.) A HYDRA pane may be given as read-only context — never emit hydra code here.
 
+A layer written \`_$:\` is STAGED: it sits in the file, silent, until the coder wakes it. Write staged lines ONLY when the ask is for something to bring in LATER — a comment asking for the next section, a drop, a part to switch to. Everything else you write sounds.
+
 ${STRUDEL_SPEC}`;
 
 export const COMPLETE_HYDRA_SYSTEM = `${COMPLETE_CONTRACT}

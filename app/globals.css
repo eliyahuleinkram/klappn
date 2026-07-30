@@ -935,6 +935,18 @@ body.ide-stage.ide-solo #k1-canvas {
   text-decoration-thickness: 1.5px;
 }
 
+/* A SILENCED LAYER (`_$:`) — the whole line sleeps. Not struck (nothing is
+   being taken away) and not hidden (it is your next move, sitting ready): just
+   dimmed and drained of its pink, the way a killed channel on a desk goes dark
+   while its fader stays exactly where you left it. Saturation is what carries
+   the state — the pattern strings lose the accent that makes them look alive,
+   so a muted stack reads as OFF from across the room, at a glance, without
+   reading one character. */
+.tok-off {
+  opacity: 0.34;
+  filter: saturate(0.15);
+}
+
 /* The copilot's pulse — while a completion is in flight the NATIVE caret
    itself breathes pink (user 2026-07-26, twice: no glyph inside the text, and
    never a second bar — a marker drawn in the highlight twin put TWO cursors on
