@@ -2941,7 +2941,14 @@ export default function ZaltzIDE({
         <div
           className="pill-pop fixed inset-x-3 z-30 mx-auto max-w-xl transition-[bottom] duration-150"
           style={{
-            bottom: `calc(max(0.75rem, env(safe-area-inset-bottom)) + 4.4rem + ${kbInset}px)`,
+            /* SITS ON THE BOTTOM, like every composer a thumb has ever used.
+               The +4.4rem this used to carry was clearance for the salt-shaker
+               FAB that floated bottom-right — and that FAB was deleted 07-29,
+               so the bar has been hovering 70px above nothing ever since, which
+               is exactly the odd float you feel on a phone. The keyboard lift
+               still rides `bottom` (never transform — pill-pop owns that
+               channel), so with the keyboard up it rests right on top of it. */
+            bottom: `calc(max(0.75rem, env(safe-area-inset-bottom)) + ${kbInset}px)`,
           }}
         >
           {/* GLASS, BUT IT SITS OVER CODE. The panes' own /30 glass reads
