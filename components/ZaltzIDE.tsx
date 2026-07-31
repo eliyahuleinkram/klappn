@@ -1522,6 +1522,11 @@ export default function ZaltzIDE({
     program: string;
   } | null>(null);
   const [hit, setHit] = useState<{ id: string; title: string } | null>(null);
+  /** The visual THIS ROOM poured in with the last hit, byte-for-byte. It is the
+   *  only way to tell "the previous song's picture" (ours to replace) from
+   *  "something you wrote" (never ours to touch). Same shape as the old
+   *  untouched-starter rule: we may overwrite our own gift, never your work. */
+  const pouredVisualRef = useRef<string>("");
   const [lineupIdx, setLineupIdx] = useState<number | null>(null);
   const [lineupOpen, setLineupOpen] = useState(false);
   /** The ⋯ menu — the doors touched once a night (live, share). */
@@ -1679,8 +1684,26 @@ export default function ZaltzIDE({
         program: bundle.music,
       };
       setHit({ id: entry.id, title: entry.title });
-      // The song brings its own picture when the bench has none of its own.
-      if (bundle.visual && !stateRef.current.hydra.trim()) setHydra(bundle.visual);
+      // THE PICTURE HANDS OVER. A hit brings its own light, and it must be
+      // allowed to REPLACE the light the last hit brought — otherwise song B
+      // plays under song A's picture forever, which is what happens the moment
+      // you audition a second thing. What it must never replace is YOURS: if
+      // the pane holds anything other than the exact visual we poured, it is
+      // your work and it stays.
+      {
+        const cur = stateRef.current.hydra;
+        const oursToReplace = !cur.trim() || cur.trim() === pouredVisualRef.current.trim();
+        if (bundle.visual && oursToReplace) {
+          // DISSOLVE, never cut. The canvas dips, the sketch swaps behind the
+          // dip, and it comes back up — so a new song arrives as a fade rather
+          // than a frame that snaps. Pure CSS on the canvas (the video-DJ
+          // pattern), so it costs the render loop nothing.
+          dipCanvas(260);
+          pouredVisualRef.current = bundle.visual;
+          setHydra(bundle.visual);
+          window.setTimeout(() => restoreCanvas(620), 300);
+        }
+      }
       setLineupIdx(orderIdx);
       void runMusic();
     },
@@ -1691,6 +1714,7 @@ export default function ZaltzIDE({
   const dropHit = useCallback(() => {
     hitRef.current = null;
     setHit(null);
+    restoreCanvas(200); // never leave the room dark on the way out
     setLineupIdx(null);
     if (stateRef.current.strudel.trim()) void runMusic();
     else halt();
@@ -1874,6 +1898,29 @@ export default function ZaltzIDE({
       movePerf(padPrev.current);
       padPrev.current = null;
     }
+  };
+
+  /** DIP the picture — the first half of a hand-over. */
+  const dipCanvas = (ms: number) => {
+    const el = document.getElementById("hydra-canvas");
+    if (!el) return;
+    el.style.transition = `opacity ${ms}ms cubic-bezier(.22,1,.36,1)`;
+    el.style.opacity = "0";
+  };
+  /** BRING IT BACK — by REMOVING the inline opacity, never by writing "1".
+   *  The room dims its canvas by stylesheet (0.85 at the bench, 1 in the show),
+   *  and an inline 1 would outrank that forever: every hand-over would leave
+   *  the picture a notch too bright and the panes reading wrong against it.
+   *  Clearing the property animates to whatever the stylesheet currently says,
+   *  which is the right answer in both postures without knowing either. */
+  const restoreCanvas = (ms: number) => {
+    const el = document.getElementById("hydra-canvas");
+    if (!el) return;
+    el.style.transition = `opacity ${ms}ms cubic-bezier(.22,1,.36,1)`;
+    el.style.opacity = "";
+    window.setTimeout(() => {
+      if (el.style.opacity === "") el.style.transition = "";
+    }, ms + 60);
   };
 
   // VIDEO DJ — deterministic, ephemeral, instant: CSS filters on the canvas.
