@@ -24,7 +24,6 @@ import {
   ensurePerfFx,
   fadeMaster,
   getBroadcastStream,
-  currentCycle,
   playPart,
   setLiveCps,
   setLiveMicDevice,
@@ -252,48 +251,6 @@ function stripSetcpm(code: string): string {
     .trim();
 }
 
-
-/**
- * WHAT IS PLAYING, ABOVE WHAT YOU ARE WRITING.
- *
- * 2026-07-30 (the user): the hit's code should be visible, and the room must
- * not feel messy for it. The whole trick is the FIXED HEIGHT — the song walks
- * its own sections, so this block's contents swap every loop, and if it grew
- * and shrank it would shove your code (and your cursor) around the screen
- * mid-phrase. It swaps INSIDE its own frame instead: your lines never move a
- * pixel, and the change cross-fades rather than snapping.
- *
- * Read-only by construction — there is no input here, only text. Selectable,
- * so you can lift a phrase out of the song and answer it. The seam underneath
- * is the whole ownership story in one hairline: above is the song, below is you.
- */
-function NowLoop({ label, code }: { label: string; code: string }) {
-  return (
-    <div className="shrink-0 border-b border-white/[0.09] bg-black/25">
-      <div className="flex items-center gap-1.5 px-3 pt-2 text-[10.5px] uppercase tracking-[0.16em] text-muted/45">
-        <span className="flex h-2 w-2.5 shrink-0 items-end justify-center gap-[1.5px]" aria-hidden>
-          {[0, 1, 2].map((b) => (
-            <span
-              key={b}
-              className="eq-bar w-[1.5px] rounded-full bg-accent-strong/70"
-              style={{ height: "100%", animationDelay: `${b * 0.18}s` }}
-            />
-          ))}
-        </span>
-        <span className="min-w-0 truncate">{label || "playing"}</span>
-      </div>
-      {/* h-[104px]: about five lines. Enough to read a loop, small enough that
-          the bench still owns the pane. NEVER make this height dynamic. */}
-      <pre
-        key={code}
-        className="code-layer animate-fade-in h-[104px] overflow-auto px-3 pb-2 pt-1 text-muted/45 selection:bg-accent/25"
-        style={{ margin: 0 }}
-      >
-        {code || "—"}
-      </pre>
-    </div>
-  );
-}
 
 /** HITS — three stacked bars, the plainest "a list of things" there is.
  *  Real geometry on one centre (never a text glyph for a stateful mark: the
@@ -604,6 +561,7 @@ export default function ZaltzIDE({
       return;
     }
     if (busy) return;
+    wantMusic.current = true;
     const id = ++runId.current;
     setBusy(true);
     setErr(null);
@@ -642,15 +600,28 @@ export default function ZaltzIDE({
         true,
       );
       if (runId.current !== id) {
-        try {
-          stop();
-        } catch {
-          /* superseded */
+        // SUPERSEDED. Two cases, and they are opposites: the transport was
+        // HALTED under us (stop must win), or a NEWER evaluation is already on
+        // its way (stopping would punch a hole in the sound for no reason —
+        // the newer program replaces this one by itself). Cutting in both cases
+        // is what made every burst of typing over a hit drop the music: a
+        // whole-song evaluation is slow enough that the next keystroke's run
+        // regularly overtakes it.
+        if (!wantMusic.current) {
+          try {
+            stop();
+          } catch {
+            /* already stopped */
+          }
         }
         return;
       }
       setPlaying(true);
-      lastMusicRun.current = code;
+      // THE PANE, not the combined program. The live-room effect compares this
+      // against `strudel`, so storing pane+hit here meant it never matched and
+      // every keystroke queued another full-song evaluation — which is what
+      // made typing fight the hit instead of riding it.
+      lastMusicRun.current = pane;
       // The deck's posture survives every re-eval: kills back on their buses,
       // perf dials back on the master chain.
       try {
@@ -705,6 +676,7 @@ export default function ZaltzIDE({
   }, []);
 
   const halt = useCallback(() => {
+    wantMusic.current = false;
     runId.current++;
     try {
       stop();
@@ -723,6 +695,9 @@ export default function ZaltzIDE({
   // swap as ⌘↵, so the set never restarts. An emptied pane is a move too:
   // no music code = silence, no hydra code = dark.
   const lastMusicRun = useRef<string | null>(null);
+  /** Is the room MEANT to be sounding? Set by a send, cleared by a halt — the
+   *  one thing that tells a superseded evaluation whether to cut or stand down. */
+  const wantMusic = useRef(false);
   const lastVisualRun = useRef<string | null>(null);
   useEffect(() => {
     // Gated on the MUSIC playing (07-27: the picture is ambient now, so it
@@ -942,7 +917,17 @@ export default function ZaltzIDE({
                   ]
                     .filter(Boolean)
                     .join("\n\n")
-                : stateRef.current.strudel,
+                : // THE PICTURE ALSO ANSWERS THE SONG. A light written against
+                  // an empty bench, while a whole hit is sounding, is a light
+                  // for nothing — it needs the music it moves to.
+                  [
+                    hitRef.current
+                      ? `THE HIT PLAYING IN THE ROOM — "${hitRef.current.title}". The picture must move to THIS; read its loop length and its energy so every H() period divides the music:\n${hitRef.current.program}`
+                      : "",
+                    stateRef.current.strudel,
+                  ]
+                    .filter(Boolean)
+                    .join("\n\n"),
             // What the hands just played on the wire — the whisper can answer
             // the phrase on the keys. Sound pane only; quiet keys send nothing.
             midi: midiRecent,
@@ -1535,16 +1520,8 @@ export default function ZaltzIDE({
     id: string;
     title: string;
     program: string;
-    /** Where each section sits on the arrangement clock, and what it IS —
-     *  everything the band above the bench needs to name and show the loop
-     *  that is sounding right now. */
-    spans: { id: string; start: number; end: number }[];
-    codeById: Record<string, { label: string; music: string; visual: string }>;
-    totalCycles: number;
   } | null>(null);
   const [hit, setHit] = useState<{ id: string; title: string } | null>(null);
-  /** THE LOOP SOUNDING RIGHT NOW — what the read-only band shows. */
-  const [nowLoop, setNowLoop] = useState<{ label: string; music: string; visual: string } | null>(null);
   const [lineupIdx, setLineupIdx] = useState<number | null>(null);
   const [lineupOpen, setLineupOpen] = useState(false);
   /** The ⋯ menu — the doors touched once a night (live, share). */
@@ -1555,21 +1532,8 @@ export default function ZaltzIDE({
     new Map<string, { bpm?: number; key?: string; genre?: string; summary?: string }>(),
   );
   const pourCache = useRef(
-    new Map<
-      string,
-      {
-        music: string;
-        visual: string;
-        spans: { id: string; start: number; end: number }[];
-        codeById: Record<string, { label: string; music: string; visual: string }>;
-        totalCycles: number;
-      }
-    >(),
+    new Map<string, { music: string; visual: string }>(),
   );
-  /** The scheduler cycle the hit started on — the band's zero. Null until the
-   *  first tick after a pour, so the band anchors to when the song ACTUALLY
-   *  began rather than to whatever the clock read when we fetched it. */
-  const hitStartRef = useRef<number | null>(null);
   const masterLevelRef = useRef(master);
   masterLevelRef.current = master;
   // The crate opens → the library loads once (a session appears if needed).
@@ -1678,27 +1642,7 @@ export default function ZaltzIDE({
             (entryPlay?.sections?.[0]?.code ? extractHydra(entryPlay.sections[0].code) : "") ??
             ((plan as { visual?: { hydra?: string } }).visual?.hydra ?? "")
           ).trim();
-          // THE BAND'S MAP: every section's own code + hydra, keyed by id, plus
-          // where it sits on the arrangement clock. Built once at the pour, so
-          // following the song later is pure arithmetic — no fetching, no state
-          // churn, nothing that could stutter the music.
-          const codeById: Record<string, { label: string; music: string; visual: string }> = {};
-          for (const sec of entryPlay!.sections) {
-            const raw = sec.code ?? "";
-            const metaIdx = raw.search(/\/\*\s*@(?:hydra|controls|vcontrols|vlooks|swaps|edits)\b/);
-            codeById[String(sec.id)] = {
-              label: entryPlay!.labels?.[String(sec.id)] ?? "",
-              music: (metaIdx >= 0 ? raw.slice(0, metaIdx) : raw).trim(),
-              visual: (extractHydra(raw) ?? "").trim(),
-            };
-          }
-          bundle = {
-            music: stripHydraBlock(arr.program).trim(),
-            visual,
-            spans: arr.spans.map((sp) => ({ id: String(sp.id), start: sp.start, end: sp.end })),
-            codeById,
-            totalCycles: arr.totalCycles,
-          };
+          bundle = { music: stripHydraBlock(arr.program).trim(), visual };
           pourCache.current.set(entry.id, bundle);
         } catch {
           return;
@@ -1720,11 +1664,7 @@ export default function ZaltzIDE({
         id: entry.id,
         title: entry.title,
         program: bundle.music,
-        spans: bundle.spans,
-        codeById: bundle.codeById,
-        totalCycles: bundle.totalCycles,
       };
-      hitStartRef.current = null; // the band re-anchors on the next tick
       setHit({ id: entry.id, title: entry.title });
       // The song brings its own picture when the bench has none of its own.
       if (bundle.visual && !stateRef.current.hydra.trim()) setHydra(bundle.visual);
@@ -1733,42 +1673,11 @@ export default function ZaltzIDE({
     },
     [snapRoom],
   );
-  /**
-   * FOLLOW THE SONG. The arrangement walks itself, so nothing here touches the
-   * music — this only reads the clock and answers "which loop is that?" for
-   * the read-only band. 250ms is well under the shortest loop and far too slow
-   * to cost anything; it stops dead when no hit is riding.
-   */
-  useEffect(() => {
-    if (!hit || !playing) return;
-    const tick = () => {
-      const h = hitRef.current;
-      if (!h?.spans.length || !h.totalCycles) return;
-      const now = currentCycle();
-      if (!(now > 0)) return;
-      if (hitStartRef.current == null) hitStartRef.current = now;
-      const from = hitStartRef.current ?? now;
-      // The program loops at totalCycles; the band follows it round.
-      const into = (now - from) % h.totalCycles;
-      const sp = h.spans.find((x) => into >= x.start && into < x.end) ?? h.spans[0];
-      const sec = h.codeById[sp.id];
-      if (!sec) return;
-      setNowLoop((prev) =>
-        prev && prev.music === sec.music && prev.label === sec.label ? prev : sec,
-      );
-    };
-    tick();
-    const id = setInterval(tick, 250);
-    return () => clearInterval(id);
-  }, [hit, playing]);
-
   /** Let the hit go — the bench keeps playing whatever you wrote on top of it,
    *  which is exactly what was yours all along. */
   const dropHit = useCallback(() => {
     hitRef.current = null;
-    hitStartRef.current = null;
     setHit(null);
-    setNowLoop(null);
     setLineupIdx(null);
     if (stateRef.current.strudel.trim()) void runMusic();
     else halt();
@@ -3076,8 +2985,6 @@ export default function ZaltzIDE({
         >
           {ghost?.pane === "strudel" &&
             whisperChip(() => strudelPane.current?.take())}
-          {/* The hit's CURRENT loop — above the seam, and never yours to edit. */}
-          {nowLoop && <NowLoop label={nowLoop.label} code={nowLoop.music} />}
           <CodePane
             ref={strudelPane}
             value={strudel}
@@ -3100,7 +3007,7 @@ export default function ZaltzIDE({
               if (stateRef.current.playing) setTimeout(() => void runMusic(), 60);
             }}
             onGhostDismiss={killGhost}
-            onTakeHint={seedMusic}
+            onTakeHint={hit ? undefined : seedMusic}
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
             onExplain={(sel) => void explainSel("strudel", sel)}
             onEditSel={(sel) => openEditSel("strudel", sel)}
@@ -3109,11 +3016,22 @@ export default function ZaltzIDE({
             onMuteToggle={() => {
               landNow.current = true;
             }}
-            placeholder={`setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then hit ▶ run — the room hears you\n// pause, and the machine whispers the next line${
-              touch
-                ? "\n// tap the grey — it becomes yours"
-                : "\n// on keys: ⌘↵ runs · ⇥ takes what's grey — this starter too"
-            }`}
+            /* WITH A HIT PLAYING THERE IS NO STARTER (2026-07-30, the user):
+               a canned 128bpm 909 pattern is in someone else's key and someone
+               else's tempo, and offering it as free grey text invites a first
+               move that fights the song. The invitation becomes the ASK — the
+               machine has the whole hit and can answer it in key. */
+            placeholder={
+              hit
+                ? `// "${hit.title}" is playing.\n// Write over it — or ${
+                    touch ? "tap ✎ edit" : "press ⌘K"
+                  } and the machine answers in its key.`
+                : `setcpm(128/4)\n$: s("bd*4").bank("RolandTR909")\n\n// type, then hit ▶ run — the room hears you\n// pause, and the machine whispers the next line${
+                    touch
+                      ? "\n// tap the grey — it becomes yours"
+                      : "\n// on keys: ⌘↵ runs · ⇥ takes what's grey — this starter too"
+                  }`
+            }
           />
         </section>
         <section
@@ -3123,10 +3041,6 @@ export default function ZaltzIDE({
         >
           {ghost?.pane === "hydra" &&
             whisperChip(() => hydraPane.current?.take())}
-          {/* The same loop's own picture — only when it brought one. */}
-          {nowLoop && nowLoop.visual.trim() && (
-            <NowLoop label={nowLoop.label} code={nowLoop.visual} />
-          )}
           <CodePane
             ref={hydraPane}
             value={hydra}
@@ -3147,17 +3061,25 @@ export default function ZaltzIDE({
               setTimeout(() => runVisuals(), 60);
             }}
             onGhostDismiss={killGhost}
-            onTakeHint={seedVisuals}
+            onTakeHint={hit ? undefined : seedVisuals}
             onCaretIdle={(ctx) => void requestGhost("hydra", ctx)}
             onExplain={(sel) => void explainSel("hydra", sel)}
             onEditSel={(sel) => openEditSel("hydra", sel)}
             onAsk={(sel) => openEditSel("hydra", sel)}
             onFocusPane={() => setFocusedPane("hydra")}
-            placeholder={`osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them${
-              touch
-                ? "\n// tap the grey — it becomes yours"
-                : "\n// ⇥ takes what's grey — this starter too"
-            }`}
+            /* Same rule as the sound pane: a hit brought its own light, and a
+               canned osc() would only fight it. */
+            placeholder={
+              hit
+                ? `// "${hit.title}" brought its own light.\n// Paint over it — or ${
+                    touch ? "tap ✎ edit" : "press ⌘K"
+                  } and the machine answers what it sees.`
+                : `osc(4, 0, 1).color(1, .3, .7)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .out()\n\n// the walls, in code — ▶ run paints them${
+                    touch
+                      ? "\n// tap the grey — it becomes yours"
+                      : "\n// ⇥ takes what's grey — this starter too"
+                  }`
+            }
           />
         </section>
       </div>
