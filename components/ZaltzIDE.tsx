@@ -1218,9 +1218,12 @@ export default function ZaltzIDE({
   const [liveCopied, setLiveCopied] = useState(false);
   // THE SHARE LINK — mint a frozen copy of both panes. The minted URL STAYS
   // on screen beside the button that made it (user 07-29: "the link should be
-  // shown next to where it is asked for") with a copy glyph you can tap as
-  // often as you like — the first mint copies for you, but a link you can see
-  // is a link you can trust, and a clipboard write can always fail silently.
+  // shown next to where it is asked for") with a copy glyph beside it.
+  // MINTING NEVER COPIES (user 07-31): taking someone's clipboard is a move
+  // they didn't ask for, and a courtesy copy that fails has to explain itself.
+  // The mint shows the link; the HAND decides whether it travels. Every write
+  // to the clipboard is then born inside a tap — which is also the only kind
+  // Safari allows, so the copy that is asked for is the copy that works.
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -1264,13 +1267,12 @@ export default function ZaltzIDE({
       }
       const url = `${location.origin}/engine?s=${d.token}`;
       setShareUrl(url); // it stays on screen — see the capsule in the header
-      void copyShare(url); // and the first mint copies it for you
     } catch {
       setNotice("Couldn't mint a link");
     } finally {
       setShareBusy(false);
     }
-  }, [copyShare]);
+  }, []);
   const liveBroadcast = useRef<Broadcast | null>(null);
   const liveBroadcastBusy = useRef(false);
   const [broadcastEpoch, setBroadcastEpoch] = useState(0);
@@ -2838,7 +2840,42 @@ export default function ZaltzIDE({
                     {liveBusy ? "opening…" : "Go live"}
                   </button>
                 )}
-                {!shareUrl && (
+                {shareUrl ? (
+                  /* THE HAND TAKES IT. Minting never touches the clipboard, so
+                     the menu keeps the only door a phone has — the header
+                     capsule is desktop-only. The tap that copies is a real
+                     gesture, which is the one kind every browser honours. */
+                  <button
+                    onClick={() => void copyShare(shareUrl)}
+                    className="flex w-full items-start gap-2.5 rounded-xl px-3 py-2 text-left transition hover:bg-white/[0.06]"
+                  >
+                    <svg viewBox="0 0 14 14" className="mt-[3px] h-[14px] w-[14px] shrink-0 text-muted/70" aria-hidden>
+                      {shareCopied ? (
+                        <path
+                          d="M2.5 7.5 L5.5 10.5 L11.5 3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      ) : (
+                        <>
+                          <rect x="1.6" y="1.6" width="7.6" height="7.6" rx="1.7" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                          <rect x="4.8" y="4.8" width="7.6" height="7.6" rx="1.7" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                        </>
+                      )}
+                    </svg>
+                    <span className="min-w-0">
+                      <span className={`block text-[13px] ${shareCopied ? "text-accent-strong" : "text-foreground/85"}`}>
+                        {shareCopied ? "Copied" : "Copy the share link"}
+                      </span>
+                      <span className="block truncate text-[11.5px] text-muted/55">
+                        {shareUrl.replace(/^https?:\/\//, "")}
+                      </span>
+                    </span>
+                  </button>
+                ) : (
                   <button
                     onClick={() => {
                       setRoomMenu(false);
@@ -2866,11 +2903,6 @@ export default function ZaltzIDE({
                     </svg>
                     {shareBusy ? "minting…" : "Share this code"}
                   </button>
-                )}
-                {liveLink && shareUrl && (
-                  <p className="px-3 py-2 text-[12px] leading-relaxed text-muted/60">
-                    Both doors are open — their capsules are on the bar.
-                  </p>
                 )}
               </div>
             </>
@@ -2905,9 +2937,8 @@ export default function ZaltzIDE({
         )}
         {/* THE SHARE LINK — the live door's quiet twin. ◉ hands someone the
             SOUND while it lasts; this hands them the CODE, frozen, theirs to
-            play and change. One tap mints the link and copies it; the word
-            tells you what you're holding, so the consequence is legible before
-            the tap. */}
+            play and change. One tap mints the link and it lands here; a second
+            tap — yours, never ours — puts it on the clipboard. */}
         {shareUrl && (
           /* ONE machined capsule (the seam law): the link itself, then the
              copy glyph behind a hairline, then ✕ to put it away. The URL is
