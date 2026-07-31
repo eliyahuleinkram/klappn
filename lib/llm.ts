@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { USD_CENTS_PER_MILLION } from "./pricing";
 
 /**
  * LLM layer — THREE Claude models, chosen PER CALL. Every composition, edit,
@@ -118,30 +119,69 @@ const TIER_MODEL: Record<ModelTier, string> = {
 };
 
 /**
- * PER-MODEL COST FACTOR — the model's input rate over the anchor rate the house
- * bills at (lib/pricing.ts USD_CENTS_PER_MILLION = 500 ⇒ $5/1M, Opus 5's own
- * input price). Anthropic's ratios are uniform across current models (output
- * 5× input, cache read 0.1×, cache write 1.25× — verified against the live
- * price sheet 2026-07-26), so ONE factor per model makes a weighted unit equal
- * real dollars no matter which model served the call: a Sonnet unit costs 3/5
- * of an Opus unit and meters as 0.6. Matched by prefix against the model id
- * that ACTUALLY answered (res.model — the classifier fallback can swap models
- * mid-call). Unknown models bill at the anchor (never silently under-charge).
- * Sonnet 5's $2/1M intro (through 2026-08-31) is deliberately ignored — the
- * sticker rate is the durable one and a promo shouldn't reprice the meter.
+ * WHAT WE ACTUALLY PAY — dollars per 1M INPUT tokens, per model. This table is
+ * the price sheet as billed to US, and it carries the whole promise: a
+ * customer's dollar buys a dollar of our spend, whichever model answered.
+ *
+ * The meter converts a call into weighted units and sells them at one public
+ * anchor rate (lib/pricing.ts USD_CENTS_PER_MILLION ⇒ $5/1M, Opus 5's own input
+ * price), so every model's tokens must be scaled to that anchor first. That
+ * scale is `modelCostFactor`, and it is DERIVED from this table — never
+ * hand-written — so a repricing can't leave the two out of step. Anthropic's
+ * kind ratios are uniform across current models (output 5× input, cache read
+ * 0.1×, cache write 1.25× at 5m and 2× at 1h — re-verified against the live
+ * price sheet 2026-07-31), so one input rate per model is enough to make a
+ * weighted unit equal real dollars everywhere.
+ *
+ * Matched by prefix against the model that ACTUALLY answered (res.model — the
+ * classifier fallback can swap models mid-call). An unknown model bills at the
+ * anchor: we can't know its rate, and over-charging beats silently eating it.
+ *
+ * IF ANTHROPIC REPRICES A MODEL, MOVE ITS NUMBER HERE — and if OPUS 5 moves,
+ * move USD_CENTS_PER_MILLION with it, because that is the rate we sell at.
  */
-const MODEL_COST_FACTOR: ReadonlyArray<readonly [prefix: string, factor: number]> = [
-  ["claude-opus-5", 1], // $5/1M in — the anchor
-  ["claude-opus-4", 1], // $5/1M (Opus 4.6–4.8 — the classifier-fallback route)
-  ["claude-fable-5", 2], // $10/1M
-  ["claude-sonnet", 0.6], // $3/1M (Sonnet 5 + 4.6)
-  ["claude-haiku", 0.2], // $1/1M
+const MODEL_INPUT_USD_PER_MILLION: ReadonlyArray<
+  readonly [prefix: string, usdPerMillion: number]
+> = [
+  ["claude-opus-5", 5], // the anchor
+  ["claude-opus-4", 5], // Opus 4.6–4.8 — the classifier-fallback route
+  ["claude-fable-5", 10],
+  ["claude-sonnet", 3], // sticker rate; Sonnet 5's promo is handled below
+  ["claude-haiku", 1],
 ];
 
-function modelCostFactor(modelId: string): number {
-  for (const [prefix, factor] of MODEL_COST_FACTOR)
-    if (modelId.startsWith(prefix)) return factor;
-  return 1;
+/**
+ * SONNET 5'S INTRO RATE — $2/1M input instead of the $3 sticker, through
+ * 2026-08-31. We used to bill the sticker straight through the promo, on the
+ * theory that a temporary discount shouldn't reprice the meter. That was a 1.5×
+ * over-charge on every Sonnet-served call, and it broke the only rule that
+ * matters here (2026-07-31, the user: "if a customer spends $1 then they get $1
+ * worth of tokens that I have spent, regardless if it's opus sonnet etc.").
+ * We bill what we pay, today.
+ *
+ * The date makes it self-healing: the moment the promo lapses the sticker
+ * applies again with no deploy, so a forgotten TODO can't leave us under water.
+ */
+const SONNET_5_INTRO_USD_PER_MILLION = 2;
+const SONNET_5_INTRO_ENDS_MS = Date.UTC(2026, 8, 1); // 2026-09-01T00:00:00Z
+
+/** What the model that served this call costs us, in $/1M input tokens. */
+function modelInputUsdPerMillion(modelId: string, now: number): number {
+  if (modelId.startsWith("claude-sonnet-5") && now < SONNET_5_INTRO_ENDS_MS)
+    return SONNET_5_INTRO_USD_PER_MILLION;
+  for (const [prefix, usd] of MODEL_INPUT_USD_PER_MILLION)
+    if (modelId.startsWith(prefix)) return usd;
+  return ANCHOR_USD_PER_MILLION; // unknown model → the anchor
+}
+
+/** THE ANCHOR — what one weighted unit sells for, in $/1M. Read from the public
+ *  price sheet itself, so the meter and the shelf price can never disagree. */
+const ANCHOR_USD_PER_MILLION = USD_CENTS_PER_MILLION / 100;
+
+/** This model's rate over the anchor: the multiplier that turns its tokens into
+ *  units the house can bill at ONE public rate and still break even. */
+export function modelCostFactor(modelId: string, now = Date.now()): number {
+  return modelInputUsdPerMillion(modelId, now) / ANCHOR_USD_PER_MILLION;
 }
 
 // ── PROVIDER ─────────────────────────────────────────────────────────────────
@@ -693,9 +733,9 @@ async function completeAnthropic(
   // dollars ON EVERY MODEL. Two multipliers compose: (1) the kind weights —
   // output bills 5× input (thinking bills as output), cache reads 0.1×, cache
   // writes 1.25× at a 5-minute TTL and 2× at an hour, uniform ratios across
-  // current Anthropic models; (2) the
-  // per-model factor (MODEL_COST_FACTOR) scaling to the anchor rate the house
-  // sells at ($5/1M = Opus 5 input). res.model — not the requested id — decides
+  // current Anthropic models; (2) the per-model factor (modelCostFactor, derived
+  // from MODEL_INPUT_USD_PER_MILLION — what we actually pay) scaling to the
+  // anchor rate the house sells at. res.model — not the requested id — decides
   // the factor, because the classifier fallback can have another model serve
   // the call. Fast mode (usage.speed === "fast") bills 2× the standard rate.
   //

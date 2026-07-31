@@ -12,7 +12,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROUTE, resolveTier, type CompleteOpts } from "./llm";
+import { ROUTE, resolveTier, modelCostFactor, type CompleteOpts } from "./llm";
+import { USD_CENTS_PER_MILLION } from "./pricing";
 
 const rows = Object.entries(ROUTE) as [string, CompleteOpts][];
 
@@ -108,4 +109,48 @@ test("a call with no ROUTE entry still resolves sanely", () => {
   assert.equal(resolveTier({ model: "sonnet" }, undefined), "sonnet");
   // …and a Studio song does NOT get fable by accident when no row asked for it
   assert.equal(resolveTier({ model: "studio" }, undefined), "opus");
+});
+
+/**
+ * THE MONEY INVARIANT — a customer's dollar must buy a dollar of OUR spend, on
+ * whichever model answered. The meter multiplies weighted tokens by
+ * modelCostFactor and sells the result at USD_CENTS_PER_MILLION; so for every
+ * model we can serve, factor × anchor must equal that model's real input rate.
+ * An error here is money, in one direction or the other, on every single call.
+ *
+ * Rates are Anthropic's published $/1M input, verified 2026-07-31.
+ */
+const REAL_INPUT_RATE: Record<string, number> = {
+  "claude-opus-5": 5,
+  "claude-opus-4-8": 5,
+  "claude-fable-5": 10,
+  "claude-haiku-4-5": 1,
+};
+
+const ANCHOR = USD_CENTS_PER_MILLION / 100;
+const BEFORE_PROMO_ENDS = Date.UTC(2026, 7, 15); // 2026-08-15
+const AFTER_PROMO_ENDS = Date.UTC(2026, 8, 2); // 2026-09-02
+
+test("a unit costs what the model costs — on every model we serve", () => {
+  for (const [model, rate] of Object.entries(REAL_INPUT_RATE))
+    assert.equal(
+      modelCostFactor(model, BEFORE_PROMO_ENDS) * ANCHOR,
+      rate,
+      `${model} bills at $${modelCostFactor(model, BEFORE_PROMO_ENDS) * ANCHOR}/1M but costs $${rate}/1M`,
+    );
+});
+
+test("Sonnet 5 bills its intro rate during the promo, its sticker after", () => {
+  assert.equal(modelCostFactor("claude-sonnet-5", BEFORE_PROMO_ENDS) * ANCHOR, 2);
+  assert.equal(modelCostFactor("claude-sonnet-5", AFTER_PROMO_ENDS) * ANCHOR, 3);
+  // The promo is Sonnet 5's alone — an older Sonnet never had it.
+  assert.equal(modelCostFactor("claude-sonnet-4-6", BEFORE_PROMO_ENDS) * ANCHOR, 3);
+});
+
+test("an unknown model bills at the anchor", () => {
+  // We can't know a stranger's rate, so we charge what we sell at. That is the
+  // right guess for a peer of Opus 5 and an over-charge for anything cheaper —
+  // deliberate, because the alternative is quietly eating an unknown bill. Any
+  // model we actually route to belongs in the table above, not here.
+  assert.equal(modelCostFactor("claude-something-new-9") * ANCHOR, ANCHOR);
 });

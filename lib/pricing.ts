@@ -8,14 +8,17 @@
  * THE RATE: dollars per 1M weighted units — REPRICED 2026-07-26 to track the
  * composer's own input rate (Opus 5: $5/1M — the ANCHOR). A weighted unit
  * tracks real model spend 1:1 across EVERY model we run: lib/llm.ts normalizes
- * each token kind (output ×5, cache ×0.1/×1.25 — Anthropic's uniform ratios)
- * and then scales by the served model's own rate over the anchor
- * (MODEL_COST_FACTOR: Sonnet 5 at $3/1M meters ×0.6, Opus ×1), so a call that
- * cost less bills less. $1 = 200k units. The card fee is itemized separately
- * at checkout and passed through to the cent, so a top-up nets exactly its
- * token value. If a model or its pricing moves, move THIS constant (anchor) or
- * that model's factor with it — the promise is a price you can READ, right
- * here, that follows what the machine actually costs.
+ * each token kind (output ×5, cache read ×0.1, cache write ×1.25 at 5m and ×2
+ * at 1h — Anthropic's uniform ratios) and then scales by the served model's own
+ * rate over the anchor (MODEL_INPUT_USD_PER_MILLION → modelCostFactor: Opus 5
+ * ×1, Fable 5 ×2, Sonnet 5 ×0.4 while its intro rate runs and ×0.6 after,
+ * Haiku ×0.2), so a call that cost less bills less. THE RULE, plainly: a
+ * customer's dollar buys a dollar of our spend, whichever model answered.
+ * $1 = 200k units. The card fee is itemized separately at checkout and passed
+ * through to the cent, so a top-up nets exactly its token value. If a model or
+ * its pricing moves, move THIS constant (anchor) or that model's rate in
+ * lib/llm.ts with it — the promise is a price you can READ, right here, that
+ * follows what the machine actually costs.
  * (History: launched at $10/1M when Fable 5 — $10/1M input — was the composer;
  * halved when Opus 5 took over rather than pocketing the difference.)
  */
@@ -37,7 +40,7 @@ export function loopsFor(tokens: number): number {
 /**
  * The IDE copilot's friendly estimate — "~2.5k weighted units buys a ghost".
  * Ghosts run OPUS 5 no-thinking (2026-07-27 quality call) and units bill at
- * the served model's own rate (MODEL_COST_FACTOR ×1). MEASURED live
+ * the served model's own rate (Opus 5 = the anchor, ×1). MEASURED live
  * 2026-07-27 on the same prompt shape: a warm multi-line ghost = ~13.8k cache
  * read ×0.1 + ~250 write ×1.25 + ~140 out ×5 ≈ 2.0–2.4k weighted — rounded UP
  * like TOKENS_PER_LOOP so the meter under-promises, never over. The IDE
@@ -45,7 +48,7 @@ export function loopsFor(tokens: number): number {
  */
 export const TOKENS_PER_GHOST = 2_500;
 
-/** Tokens a payment buys — $1 = 100k weighted units, exact. */
+/** Tokens a payment buys — at $5/1M, $1 = 200k weighted units, exact. */
 export function tokensForUsdCents(usdCents: number): number {
   return Math.round((usdCents / USD_CENTS_PER_MILLION) * 1_000_000);
 }

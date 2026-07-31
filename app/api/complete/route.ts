@@ -78,7 +78,7 @@ export async function POST(req: Request) {
   const sink = makeCallSink();
   try {
     // ROUTE.ghost — Opus 5, thinking off (2026-07-27, launch call): ghost
-    // quality over pennies, billed at Opus's own rate via MODEL_COST_FACTOR.
+    // quality over pennies, billed at Opus's own rate via modelCostFactor.
     // Thinking stays off; the tight cap keeps latency in ghost territory. The
     // model and the cap both live in the ROUTE table now, not here.
     const cfg = {

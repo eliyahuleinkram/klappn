@@ -8,6 +8,47 @@ bass — and hands you the code, not a bounced MP3. Play it, rearrange it, exten
 it, sing over it, take the lid off and type into it while it plays, go live and
 let a room hear it. Nothing under your music is sealed.
 
+## How the music gets written
+
+Nothing here asks a model for a song and waits. A loop is built the way a person
+builds one — **one layer at a time**, each layer written by its own call that can
+see everything already playing underneath it.
+
+Your sentence becomes a brief: key, tempo, feel, what this section is for. Then
+the loop grows. Kick. The bass that answers the kick. The voice that answers the
+bass. After each layer the house asks one cheap question — *is this finished, or
+does it want one more?* — and below eight parts it refuses to take yes for an
+answer. Sixteen is the ceiling; most loops stop themselves before it.
+
+Every layer comes back as **Strudel source, never audio**. It's parsed and
+evaluated server-side before you hear a note; if it would throw, the error goes
+back to the model once and the layer is rewritten. Nothing else touches it — no
+cleanup pass, no regex patching the model's output into shape. A prompt that
+produces bad code is a prompt bug, and it gets fixed in the prompt.
+
+Editing is the same machine pointed backwards. "Make the bass drunker" is one
+call that returns the whole revised loop; the lines that come back byte-identical
+keep their layer, their mute, their volume. And the arrangement — drag, delete,
+insert, extend — never calls a model at all. Moving a loop is not a question
+anyone needs answered.
+
+**One file decides who writes what.** [`lib/llm.ts`](lib/llm.ts) holds a table
+with one row per AI call in the whole product — invent a layer, re-bar a loop,
+repair a crash, name a stem — and each row pins its model, how hard that call
+thinks, and its token ceiling. Inventing music gets the strongest hand and the
+longest leash. Naming a preset gets a cheap one with thinking switched off. Call
+sites choose nothing; if a decision isn't in that table, it doesn't exist. The
+one knob you get is per song and reads like what it does — Standard, or Studio
+for a stronger hand on the loops at roughly twice the tokens
+([`lib/models.ts`](lib/models.ts)). It is not a model picker; naming engines at
+people was never the product.
+
+And you can read every word we say to it. The system prompts are strings in this
+repo ([`lib/compose-prompts.ts`](lib/compose-prompts.ts) is where the music
+ones live), short on purpose and free of nannying. Your own words stop at the
+door: a request naming an artist is translated into pure musical terms before
+anything downstream sees it, and never echoed forward.
+
 ## Three names, one machine
 
 Klappn is the studio. Under it are two engines we wrote ourselves, and they are
@@ -68,12 +109,11 @@ app's `/open` page:
 1. **The code is open.** Every prompt that talks to the model, the audio engine
    byte by byte, this file — all AGPL-3.0, Strudel's license. Read what happens
    under your music. Run it, fork it, steer it.
-2. **The price is readable.** Prepaid tokens, one public number: the entire
-   price sheet is one screen of [`lib/pricing.ts`](lib/pricing.ts), the card fee
-   passes through Stripe to the cent, and tokens never expire. A price here is a
-   line of open code — any change is a commit with our name on it, never a
-   surprise on a bill. The instrument itself is free; only the machine's
-   composing is prepaid. Self-hosting? Your key, your bill, our code.
+2. **The price is readable.** The whole price sheet is one screen of
+   [`lib/pricing.ts`](lib/pricing.ts) — a price here is a line of open code, so
+   any change is a commit with our name on it, never a surprise on a bill. The
+   instrument is free; only the machine's composing is prepaid. Self-hosting?
+   Your key, your bill, our code.
 3. **The data deal is in the open.** Hosted generations and edits will raise
    Klappn's own music model — a model that stays inside this project, so the
    tool stops renting anyone else's brain. Consented in plain language, opt-out
@@ -101,8 +141,10 @@ UI lights up the moment it's filled in.
   `?engine=superdough`.
 - **zissl** for visuals, with `hydra-synth` as the fallback for browsers without
   WebGPU, so nobody loses the picture (`?zissl=0` forces it).
-- **Claude Opus 5**, server-side only, for composition — one model, no picker;
-  see [`lib/models.ts`](lib/models.ts). Bring your own API key when self-hosting.
+- **Anthropic's Claude**, server-side only, called per-agent from the table in
+  [`lib/llm.ts`](lib/llm.ts) — a stronger model where music is invented, a
+  cheaper one where a label is named. Bring your own API key when self-hosting:
+  your key, your bill, our code.
 - **Stripe** for token top-ups and event tickets (optional — the app runs
   without it).
 
