@@ -1642,7 +1642,20 @@ export default function ZaltzIDE({
             (entryPlay?.sections?.[0]?.code ? extractHydra(entryPlay.sections[0].code) : "") ??
             ((plan as { visual?: { hydra?: string } }).visual?.hydra ?? "")
           ).trim();
-          bundle = { music: stripHydraBlock(arr.program).trim(), visual };
+          // LABEL THE SONG AS A LAYER. buildArrangement emits its arrange(...)
+          // as a BARE top-level expression, which is right when it is the only
+          // thing playing — but the instant a `$:` line joins it, Strudel plays
+          // the LABELLED patterns and throws the bare one away. That is exactly
+          // "I write over the hit and the hit disappears". Give the song its own
+          // `$:` and the two stack like any other pair of layers.
+          const prog = stripHydraBlock(arr.program).trim();
+          const cpm = prog.split("\n").filter((l) => /^\s*setcpm\s*\(/.test(l));
+          const expr = prog
+            .split("\n")
+            .filter((l) => !/^\s*setcpm\s*\(/.test(l))
+            .join("\n")
+            .trim();
+          bundle = { music: [...cpm, `$: ${expr}`].join("\n"), visual };
           pourCache.current.set(entry.id, bundle);
         } catch {
           return;
