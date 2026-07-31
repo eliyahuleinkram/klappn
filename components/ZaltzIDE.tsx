@@ -1491,6 +1491,8 @@ export default function ZaltzIDE({
   const [hit, setHit] = useState<{ id: string; title: string } | null>(null);
   const [lineupIdx, setLineupIdx] = useState<number | null>(null);
   const [lineupOpen, setLineupOpen] = useState(false);
+  /** The ⋯ menu — the doors touched once a night (live, share). */
+  const [roomMenu, setRoomMenu] = useState(false);
   const [lineupHits, setLineupHits] = useState<LineupHit[] | null>(null);
   const [arranging, setArranging] = useState(false);
   const hitsMetaRef = useRef(
@@ -2680,17 +2682,69 @@ export default function ZaltzIDE({
         </div>
         {/* THE LIVE DOOR — ◉ streams the room to anyone with the link (the
             Sets contract, worn here unchanged: one DJ flow to learn). */}
-        {!liveLink ? (
+        {/* THE ROOM'S OCCASIONAL DOORS — going live and handing someone the
+            code are things you do once in a night, and they were taking a full
+            pill each in a bar you touch every few seconds (primacy follows
+            frequency, the house law). They live behind one ⋯ now.
+            THE RULE: doors hide, STATE never does — the moment you are on air
+            or holding a link, that capsule comes back onto the bar, because
+            "am I broadcasting?" must be answerable without opening anything. */}
+        <div className="relative shrink-0">
           <button
-            onClick={() => void openLive()}
-            disabled={liveBusy}
-            title="Go live — the room streams to anyone with the link"
-            className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/60 transition hover:text-foreground active:scale-[.97] disabled:opacity-60 sm:inline-flex"
+            onClick={() => setRoomMenu((v) => !v)}
+            aria-label="Live and share"
+            aria-expanded={roomMenu}
+            title="Go live · Share"
+            className={`grid h-9 w-9 place-items-center rounded-full transition active:scale-[.94] ${
+              roomMenu ? "text-foreground" : "text-muted/55 hover:text-foreground"
+            }`}
           >
-            <span className="text-accent-strong/80">◉</span>
-            {liveBusy ? "opening…" : "Go live"}
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <circle cx="5" cy="12" r="1.7" />
+              <circle cx="12" cy="12" r="1.7" />
+              <circle cx="19" cy="12" r="1.7" />
+            </svg>
           </button>
-        ) : (
+          {roomMenu && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setRoomMenu(false)} aria-hidden />
+              <div className="absolute right-0 top-full z-20 mt-2 w-52 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+                {!liveLink && (
+                  <button
+                    onClick={() => {
+                      setRoomMenu(false);
+                      void openLive();
+                    }}
+                    disabled={liveBusy}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-foreground/85 transition hover:bg-white/[0.06] disabled:opacity-60"
+                  >
+                    <span className="text-accent-strong/80">◉</span>
+                    {liveBusy ? "opening…" : "Go live"}
+                  </button>
+                )}
+                {!shareUrl && (
+                  <button
+                    onClick={() => {
+                      setRoomMenu(false);
+                      void shareRoom();
+                    }}
+                    disabled={shareBusy}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-foreground/85 transition hover:bg-white/[0.06] disabled:opacity-60"
+                  >
+                    <span className="text-muted/70">▸</span>
+                    {shareBusy ? "minting…" : "Share this code"}
+                  </button>
+                )}
+                {liveLink && shareUrl && (
+                  <p className="px-3 py-2 text-[12px] leading-relaxed text-muted/60">
+                    Both doors are open — their capsules are on the bar.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+        {liveLink && (
           <div className="flex shrink-0 items-center gap-2.5 rounded-full border border-accent/40 bg-accent/[0.08] px-3 py-1.5 text-[12.5px]">
             <span className="relative flex h-2 w-2" aria-hidden>
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
@@ -2722,16 +2776,7 @@ export default function ZaltzIDE({
             play and change. One tap mints the link and copies it; the word
             tells you what you're holding, so the consequence is legible before
             the tap. */}
-        {!shareUrl ? (
-          <button
-            onClick={() => void shareRoom()}
-            disabled={shareBusy}
-            title="Share this code — a link anyone can open, play and edit"
-            className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/60 transition hover:text-foreground active:scale-[.97] disabled:opacity-60 sm:inline-flex"
-          >
-            {shareBusy ? "minting…" : "Share"}
-          </button>
-        ) : (
+        {shareUrl && (
           /* ONE machined capsule (the seam law): the link itself, then the
              copy glyph behind a hairline, then ✕ to put it away. The URL is
              selectable text — if the clipboard is ever blocked, the link is
