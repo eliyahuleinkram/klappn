@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
-  "description": "Describe a sound. Get a song you can open \u2014 Strudel code, not a bounced MP3. Runs on zaltz and zissl, the audio and picture engines we wrote ourselves.",
+  "description": "Describe a sound. Get a song you can open — Strudel code, not a bounced MP3. Runs on zaltz and zissl, the audio and picture engines we wrote ourselves.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/eliyahuleinkram/klappn.git"
@@ -23,7 +23,7 @@
     "test": "tsx --test lib/*.test.ts && npm run test:engine",
     "auth:generate": "better-auth generate --config lib/auth.ts -y",
     "auth:migrate": "better-auth migrate --config lib/auth.ts -y",
-    "db:schema": "psql \"${DATABASE_URL:?export DATABASE_URL first \u2014 npm scripts do not read .env}\" -f lib/schema.sql",
+    "db:schema": "psql \"${DATABASE_URL:?export DATABASE_URL first — npm scripts do not read .env}\" -f lib/schema.sql",
     "test:engine": "node engine/golden/fx.mjs && node engine/golden/vocoder.mjs && node engine/golden/soak.mjs && node engine/golden/rdim.mjs && node engine/golden/roomsize.mjs && node engine/golden/duck.mjs",
     "test:parity": "node scripts/audit-samples.mjs",
     "verify": "npm run lint && tsc --noEmit && npm test && npm run test:parity"
@@ -31,6 +31,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
     "@strudel/hydra": "^1.2.6",
+    "@strudel/mini": "^1.2.6",
     "@strudel/soundfonts": "^1.3.0",
     "@strudel/web": "^1.3.0",
     "acorn": "^8.17.0",

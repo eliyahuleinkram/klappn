@@ -3144,19 +3144,79 @@ let visualEngine: "zissl" | "hydra" | null = null;
 // factory and died with "t.set is not a function". Captured here and
 // re-asserted immediately before every sketch run, the race is gone.
 const HYDRA_GLOBAL_NAMES = [
-  "osc", "noise", "voronoi", "shape", "gradient", "src", "solid", "render", "H",
+  // sources (prev included — hydra's "this output's last frame")
+  "osc", "noise", "voronoi", "shape", "gradient", "src", "solid", "prev",
+  // the page surface a sketch may call
+  "render", "hush", "setResolution", "setFunction", "screencap", "initHydra", "H",
+] as const;
+/** The page objects a sketch reads (o0…s3, the audio bin, the mouse). Re-asserted
+ *  with the functions above: strudel's evalScope stamps its own `a`/`s`/`time`
+ *  names onto globalThis on every eval, and a poisoned `s0` or `a` is the same
+ *  black-canvas class of bug as the poisoned `speed` that started this law. */
+const HYDRA_GLOBAL_OBJECTS = [
+  "o0", "o1", "o2", "o3", "s0", "s1", "s2", "s3", "a", "mouse",
 ] as const;
 let hydraGlobals: Record<string, unknown> | null = null;
 function captureHydraGlobals(): void {
   const g = globalThis as Record<string, unknown>;
   hydraGlobals = {};
+  installPageSurface(g); // initHydra + the update hook, before we snapshot
   for (const k of HYDRA_GLOBAL_NAMES)
     if (typeof g[k] === "function") hydraGlobals[k] = g[k];
+  for (const k of HYDRA_GLOBAL_OBJECTS)
+    if (g[k] && typeof g[k] === "object") hydraGlobals[k] = g[k];
+}
+/** THE PARITY SURFACE (2026-07-31): the two page names hydra gives a sketch that
+ *  our engines don't stamp themselves.
+ *   • `initHydra()` — every strudel+hydra sketch on the web opens with
+ *     `await initHydra()`. The room's hydra is already up, so ours is a no-op
+ *     that resolves; pasted code from strudel.cc runs unedited instead of dying
+ *     on "initHydra is not defined".
+ *   • `update = (dt) => {}` — hydra's per-frame hook is a plain page global that
+ *     the render loop reads back every tick. zissl keeps its hook on the
+ *     instance, so we bridge: the page's `update` is a real accessor that writes
+ *     through to the engine. */
+function installPageSurface(g: Record<string, unknown>): void {
+  if (typeof g.initHydra !== "function") g.initHydra = async () => hydraInstance;
+  // hydra-synth already stamps a working `update` into its own sandbox — only
+  // zissl (whose hook lives on the instance) needs the bridge.
+  if (visualEngine !== "zissl" || !hydraInstance) return;
+  for (const hook of ["update", "afterUpdate"] as const) {
+    const existing = Object.getOwnPropertyDescriptor(g, hook);
+    if (existing?.get) continue; // already bridged
+    const seed = typeof g[hook] === "function" ? g[hook] : undefined;
+    try {
+      Object.defineProperty(g, hook, {
+        configurable: true,
+        get: () => (hydraInstance as Record<string, unknown> | null)?.[hook],
+        set: (v) => {
+          const inst = hydraInstance as Record<string, unknown> | null;
+          if (inst) inst[hook] = typeof v === "function" ? v : null;
+        },
+      });
+      if (seed) g[hook] = seed;
+    } catch {
+      /* a non-configurable slot — the sketch keeps hydra-synth's own behaviour */
+    }
+  }
 }
 function assertHydraGlobals(): void {
   if (!hydraGlobals) return;
   const g = globalThis as Record<string, unknown>;
-  for (const k of Object.keys(hydraGlobals)) g[k] = hydraGlobals[k];
+  for (const k of Object.keys(hydraGlobals)) {
+    // ENGINE-OWNED ACCESSORS ARE NOT OURS TO WRITE: zissl installs `mouse`
+    // (and width/height/stats) as getter-only properties on the page, and a
+    // plain assignment to one THROWS in module scope — which killed the whole
+    // idle-visual path the moment we widened this list. They also can't be
+    // poisoned, having no setter, so skipping them is free.
+    const d = Object.getOwnPropertyDescriptor(g, k);
+    if (d && !d.writable && !d.set) continue;
+    try {
+      g[k] = hydraGlobals[k];
+    } catch {
+      /* a frozen slot — the engine's own value stands */
+    }
+  }
   // hydra reads its user-settable sandbox globals BACK from the page every
   // tick — and strudel's evalScope stamps its `speed` CONTROL FUNCTION over
   // hydra's numeric speed at play-start. hydra then computes
@@ -3166,6 +3226,44 @@ function assertHydraGlobals(): void {
   // already-poisoned session heals instead of sticking black forever.
   if (typeof g.speed !== "number" || !Number.isFinite(g.speed as number)) g.speed = 1;
   if (typeof g.time !== "number" || !Number.isFinite(g.time as number)) g.time = 0;
+}
+/** RUN A SKETCH — the one door every visual goes through (2026-07-31).
+ *  ASYNC by construction: hydra's own dialect is full of awaits (`await
+ *  initHydra()` opens nearly every published sketch, `await s0.initCam()` opens
+ *  a camera), and a plain `new Function` throws SyntaxError on top-level await
+ *  before a single chain is built — the paste dies whole. An AsyncFunction body
+ *  runs the same code either way, so nothing that worked before changes. */
+const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (
+  body: string,
+) => () => Promise<void>;
+async function runHydraSketch(code: string): Promise<void> {
+  armVisualAudio();
+  await new AsyncFunction(code)();
+}
+
+/** `a.fft[0]` MUST MEAN SOMETHING (2026-07-31). Hydra's audio object reads the
+ *  MICROPHONE — a permission prompt, and it hears the room, not the record. We
+ *  point it at our own master instead: the same node the take records, tapped
+ *  passively (an analyser hanging off it reroutes nothing), so a sketch that
+ *  reaches for `a.fft` gets the mix it's painting to, with no prompt at all.
+ *  Idempotent and lazy — the audio graph often doesn't exist at the first
+ *  ambient paint, so it re-arms on the next sketch run. */
+let visualAudioArmed = false;
+function armVisualAudio(): void {
+  if (visualAudioArmed || visualEngine !== "zissl") return;
+  try {
+    const z = hydraInstance as unknown as {
+      a?: { init?: (o: { source: AudioNode }) => Promise<unknown> };
+    } | null;
+    const node = finalTap();
+    if (!z?.a?.init || !node) return;
+    visualAudioArmed = true;
+    void Promise.resolve(z.a.init({ source: node })).catch(() => {
+      visualAudioArmed = false; // try again on the next run
+    });
+  } catch {
+    visualAudioArmed = false;
+  }
 }
 let resizeBound = false;
 let resizeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3218,6 +3316,28 @@ function mobileVisualsAllowed(): boolean {
   }
 }
 
+/** MINI-NOTATION REACHES THE PICTURE (2026-07-31, the user's own black screen):
+ *  `H("<0!4 1!8>")` — the obvious way to gate a section — used to read a flat 0
+ *  FOREVER and paint nothing, silently: zissl's H only accepts objects carrying
+ *  queryArc, and a bare string isn't one (it fell through to `() => 0`), while
+ *  @strudel/hydra's H reifies first. Reify here and BOTH engines speak the whole
+ *  language: strings, numbers, patterns. A zero-width query on a discrete
+ *  pattern is fine — strudel's spanCycles supports it (verified live: "<6 6 8
+ *  12>" → 6). Best-effort: if the parser isn't up yet, hand the value through
+ *  untouched rather than throwing into a render tick. */
+function reifyPattern(p: unknown): unknown {
+  if (typeof p !== "string" && typeof p !== "number") return p;
+  try {
+    const reify = (globalThis as Record<string, unknown>).reify as
+      | ((x: unknown) => unknown)
+      | undefined;
+    const pat = reify?.(p) as { queryArc?: unknown } | undefined;
+    return pat && typeof pat.queryArc === "function" ? pat : p;
+  } catch {
+    return p; // a mini-notation syntax error: let H's own guard hold the frame
+  }
+}
+
 /** SAFE H — the sketch↔transport bridge that can never kill the renderer.
  *  @strudel/hydra's own H is `() => reify(p).queryArc(t, t)[0].value`: one
  *  frame where the query comes back empty (a sick clock instant around a
@@ -3228,7 +3348,7 @@ function mobileVisualsAllowed(): boolean {
 function installSafeH(g: Record<string, unknown>, rawH: unknown): void {
   const make = rawH as (p: unknown) => () => number;
   g.H = (p: unknown) => {
-    const inner = make(p);
+    const inner = make(reifyPattern(p));
     let last = 0;
     return () => {
       try {
@@ -3300,6 +3420,11 @@ async function ensureHydra(): Promise<boolean> {
       // H rides the SAME transport strudel plays from — patterns sample the
       // musical moment, not the wall clock (this is klappn's whole visual law).
       z.setTime(() => (core as unknown as { getTime: () => number }).getTime());
+      // Mini-notation in a param slot: hand the engine strudel's own parser so
+      // H("<0!4 1!8>") is a real pattern, not a string that reads 0 forever.
+      (z as unknown as { setReify?: (fn: unknown) => void }).setReify?.(
+        (core as unknown as { reify: unknown }).reify,
+      );
       installSafeH(globalThis as Record<string, unknown>, z.H);
       // Device loss is WebGPU's context loss: drop the canvas and flag a fresh
       // init on the next play, exactly like the webglcontextlost handler.
@@ -3421,6 +3546,10 @@ let visualsQueued: string | null = null;
 // path re-ran the same sketch went dark; songs that skipped it kept painting).
 // Identical sketch → leave the running one alone.
 let mountedSketch: string | null = null;
+// A sketch may now AWAIT (a camera, an image, initHydra) — so a slow one can
+// still be in flight when the next lands. Only the LAST run started may claim
+// the canvas; an older one that finishes late must not relabel it.
+let sketchRun = 0;
 export async function updateVisuals(code: string): Promise<void> {
   visualsQueued = code;
   if (visualsTimer) return; // an eval is already scheduled — it'll take the latest
@@ -3449,7 +3578,9 @@ export async function updateVisuals(code: string): Promise<void> {
       return;
     }
     try {
-      new Function(hydra)();
+      const run = ++sketchRun;
+      await runHydraSketch(hydra);
+      if (run !== sketchRun) return; // a newer sketch owns the canvas now
       mountedSketch = hydra;
       if (debugConsoleWanted()) console.log("[klappn/vis] sketch ran clean");
     } catch (e) {
@@ -3847,7 +3978,9 @@ export async function startIdleVisual(code: string): Promise<void> {
     if (!transportActive) armVisualClock();
     assertHydraGlobals(); // heal speed/time even when the sketch is already mounted
     if (hydra === mountedSketch) return; // already painting this exact sketch
-    new Function(hydra)();
+    const run = ++sketchRun;
+    await runHydraSketch(hydra);
+    if (run !== sketchRun) return; // superseded mid-await
     mountedSketch = hydra;
     applySwarmOverlay(); // the desk's colony rides the idle picture too
   } catch (e) {
@@ -6118,7 +6251,7 @@ export async function renderMixToVideo(
     const firstHydra = ready.map((s) => extractHydra(s.code)).find(Boolean);
     if (firstHydra) {
       try {
-        new Function(firstHydra)();
+        await runHydraSketch(firstHydra);
       } catch {
         /* the section loop will surface visual problems */
       }

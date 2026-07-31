@@ -72,14 +72,21 @@ export async function initLiveHydra(pixelRatio = 1): Promise<boolean> {
         makeGlobal: true,
       });
       for (const k of SIGNAL_KEYS) if (core[k] !== undefined) g[k] = core[k];
+      await registerMiniNotation(core);
       // BOTH clocks point at the reconstructed transport: zissl's H samples it
       // directly, and @strudel/core's getTime() serves any code reading it raw.
       z.setTime(() => currentCycle());
+      (z as unknown as { setReify?: (fn: unknown) => void }).setReify?.(core.reify);
       (core.setTime as (fn: () => number) => void)(() => currentCycle());
       // Total H — a sick clock instant must hold the last frame, never throw.
+      // Strings reify first: mini-notation ("<0!4 1!8>") is half the vocabulary,
+      // and zissl's own H only accepts pattern objects (a bare string read 0
+      // forever — a silently black picture).
       const rawH = z.H;
+      const reify = core.reify as ((x: unknown) => unknown) | undefined;
       g.H = (p: unknown) => {
-        const inner = rawH(p as never);
+        const arg = typeof p === "string" || typeof p === "number" ? (reify?.(p) ?? p) : p;
+        const inner = rawH(arg as never);
         let last = 0;
         return () => {
           try {
@@ -186,12 +193,41 @@ export function syncFromState(
   }
 }
 
+/** The listener page boots the picture WITHOUT the strudel repl, so nothing has
+ *  taught @strudel/core how to read a string. Teach it here, or every
+ *  `H("<0!4 1!8>")` in the DJ's sketch reads a flat 0 on the listener's screen
+ *  while it gates properly on the DJ's. Best-effort and idempotent. */
+async function registerMiniNotation(core: Record<string, unknown>): Promise<void> {
+  try {
+    const setStringParser = core.setStringParser as ((p: unknown) => void) | undefined;
+    const reify = core.reify as
+      | ((x: unknown) => { queryArc?: (a: number, b: number) => Array<{ value: unknown }> })
+      | undefined;
+    if (!setStringParser || !reify) return;
+    // An untaught core still returns a Pattern for a string — pure("<1 2>") —
+    // so the honest probe is the VALUE: taught, it's the number 1.
+    if (typeof reify("<1 2>")?.queryArc?.(0, 0)?.[0]?.value === "number") return;
+    const mini = (await import("@strudel/mini")) as { mini?: unknown };
+    if (mini.mini) setStringParser(mini.mini);
+  } catch {
+    /* no mini bundle — H(string) falls back to a plain number, never a throw */
+  }
+}
+
 /** Run a Hydra program (one chain ending in .out()). Swallows errors — a bad
  *  visual must never take down the listener's audio. */
 export function runLiveHydra(code: string | null | undefined): void {
   if (!inited || !code) return;
   try {
-    new Function(code)();
+    // AsyncFunction: the dialect's own openers (`await initHydra()`, `await
+    // s0.initCam()`) are top-level awaits — a plain Function throws on them
+    // before the first chain is built. Same code, one more legal shape.
+    const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (
+      body: string,
+    ) => () => Promise<void>;
+    void new AsyncFunction(code)().catch(() => {
+      /* malformed chain — keep the last good picture */
+    });
   } catch {
     /* malformed chain — keep the last good picture */
   }
