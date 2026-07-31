@@ -686,21 +686,30 @@ export async function enrichPartTracks(
   await Promise.allSettled(jobs);
 }
 
+/** What one sweep actually DID — so the pill can speak instead of miming success:
+ *  "empty" = no ready loop to shape (nothing was asked of the model, nothing billed);
+ *  "whiffed" = the reply was unusable and everything riding is untouched;
+ *  "shaped" = both sets were replaced (an empty set is a real answer). */
+export type SweepResult = "empty" | "whiffed" | "shaped";
+
 /** THE WHOLE-SONG SWEEP (2026-07-21, the user — an at-birth auto-run lived for a few
  *  hours and was reversed same day): ONE tap re-hears the entire song — effects first,
  *  so the fills land inside the fresh arcs, then breaks — REPLACING each list wholesale;
  *  whatever rode before (hand-born glides and fills included) is passed as context so
  *  the model keeps what works. Never runs on its own: the song page OFFERS it in a pill
- *  after a new loop lands, and /api/songs/:id/shape runs it only when tapped. Needs two
- *  ready loops (one loop has no turns). Best-effort: an unusable reply leaves that list
- *  exactly as it was. */
+ *  after a new loop lands, and /api/songs/:id/shape runs it only when tapped.
+ *  ONE READY LOOP IS ENOUGH (2026-07-31 — the gate was `< 2`, so a one-loop hit's
+ *  sweep returned ok having never called the model): a loop loops around itself, so
+ *  a glide whose fromId === toId rides once across it and a fill lands on the way
+ *  back — the same law the Shape menu has shown from one loop up since 07-28.
+ *  Best-effort: an unusable reply leaves that list exactly as it was. */
 export async function autoShapeSong(
   songId: string,
   cfg: ClaudeConfig | undefined,
   sql: Sql,
-): Promise<void> {
+): Promise<SweepResult> {
   const [song] = await sql<SongRow[]>`select * from songs where id = ${songId}`;
-  if (!song) return;
+  if (!song) return "empty";
   const plan = song.plan as SongPlan;
   // playable loops in order — blueprints (legacy chapter parents) excluded, like playback
   const bpIds = new Set(
@@ -716,7 +725,7 @@ export async function autoShapeSong(
       bars: computeLoopBars(p.strudel ?? "") || p.bars || 4,
       layers: (p.tracks ?? []).map((t) => t.label ?? "").filter(Boolean),
     }));
-  if (loops.length < 2) return;
+  if (!loops.length) return "empty";
   const identity = {
     genre: plan.genre,
     key: plan.key,
@@ -754,7 +763,7 @@ export async function autoShapeSong(
     },
     cfg,
   ).catch(() => null);
-  if (!shape) return;
+  if (!shape) return "whiffed";
   const effects = shape.effects.map((e) => ({
     id: crypto.randomUUID(),
     param: e.param,
@@ -788,6 +797,7 @@ export async function autoShapeSong(
   // Unconditional — the shape call answered, so an empty list CLEARS old fills
   // (the piece may want its turns bare).
   await replaceSongOverlays(songId, song.user_id, overlays, sql);
+  return "shaped";
 }
 
 // ── NATURAL-LANGUAGE LOOP EDIT: route one request → ordered ops → apply, in memory ──

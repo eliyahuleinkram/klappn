@@ -14,7 +14,8 @@ import type { BreakOverlay } from "@/lib/breaks-catalog";
  * glides AND break fills together, REPLACING both sets (the pill says so
  * before the tap; empty lists clear). Owner-scoped, billed like any
  * generation. Returns the fresh lists so the page can swap them in without a
- * reload.
+ * reload — plus `result`, what the sweep actually DID, so a no-op can say so
+ * instead of miming success (2026-07-31).
  */
 export async function POST(
   req: Request,
@@ -30,7 +31,7 @@ export async function POST(
     const song = await getSong(id, userId, sql);
     if (!song) return Response.json({ error: "not found" }, { status: 404 });
     const sink = makeCallSink({ songId: id });
-    await autoShapeSong(
+    const result = await autoShapeSong(
       id,
       {
         onUsage: (t: number) => void addTokenUsage(userId, t),
@@ -46,6 +47,7 @@ export async function POST(
     const plan = (fresh?.plan ?? {}) as SongPlan & { overlays?: BreakOverlay[] };
     return Response.json({
       ok: true,
+      result,
       effects: plan.effects ?? [],
       overlays: plan.overlays ?? [],
     });

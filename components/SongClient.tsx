@@ -2525,7 +2525,7 @@ export default function SongClient({
    *  arrival watcher makes it SOUND, and its band opens for shaping. */
   // ── THE SWEEP PILL (2026-07-21, the user — replaces the Shape menu's
   // Effects/Breaks rows; an at-birth auto-run was reversed the same day):
-  // the moment a generation run lands a NEW loop on a song with two or more,
+  // the moment a generation run lands a NEW loop (one ready loop is enough),
   // the corner offers ONE tap — "Sweep" — that re-hears the entire song
   // (effects across the loops, breaks at the turns, replacing what rides;
   // the pill's own words carry that consequence). ✕ declines; the next loop
@@ -2539,23 +2539,50 @@ export default function SongClient({
       readyAtRunStart.current = playableCount;
       setSweep((s) => (s === "offer" ? "idle" : s)); // a new run supersedes the offer
     }
-    if (!busy && wasBusy.current && playableCount > readyAtRunStart.current && playableCount >= 2)
+    // ONE ready loop is enough to offer (2026-07-31 — was `>= 2`, which left a
+    // one-loop hit with no way to the sweep but the menu, whose tap the server
+    // then threw away): a loop loops around itself, so glides ride it and a
+    // fill lands on the way back.
+    if (!busy && wasBusy.current && playableCount > readyAtRunStart.current && playableCount >= 1)
       setSweep((s) => (s === "busy" ? s : "offer"));
     wasBusy.current = busy;
   }, [busy, playableCount]);
+  // A sweep that changed nothing used to look exactly like one that worked: the
+  // pill just went away. The route now says what it DID, and a no-op says so in
+  // the corner for a beat before the word comes back (2026-07-31).
+  const [sweepNote, setSweepNote] = useState<string | null>(null);
+  const sweepNoteAt = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (sweepNoteAt.current) clearTimeout(sweepNoteAt.current);
+    },
+    [],
+  );
+  function noteSweep(word: string) {
+    setSweepNote(word);
+    if (sweepNoteAt.current) clearTimeout(sweepNoteAt.current);
+    sweepNoteAt.current = setTimeout(() => setSweepNote(null), 3600);
+  }
   async function runSweep() {
     setSweep("busy");
     try {
       const res = await fetch(`/api/songs/${songId}/shape`, { method: "POST" });
       if (res.ok) {
-        const j = (await res.json()) as { effects?: SongFx[]; overlays?: BreakOverlay[] };
+        const j = (await res.json()) as {
+          result?: "empty" | "whiffed" | "shaped";
+          effects?: SongFx[];
+          overlays?: BreakOverlay[];
+        };
         if (Array.isArray(j.effects)) mutateEffects(() => j.effects as SongFx[]);
         if (Array.isArray(j.overlays)) mutateOverlays(() => j.overlays as BreakOverlay[]);
         refreshArrangement();
         void refresh();
-      }
+        if (j.result === "empty") noteSweep("Nothing to sweep yet");
+        else if (j.result === "whiffed") noteSweep("The sweep missed — nothing moved");
+      } else noteSweep("The sweep missed — nothing moved");
     } catch {
       /* the pill settles back — the loops are untouched */
+      noteSweep("The sweep missed — nothing moved");
     } finally {
       setSweep("idle");
     }
@@ -3227,6 +3254,10 @@ export default function SongClient({
                 <span className="flex h-8 items-center px-3 text-[12.5px] leading-none">
                   <span className="shimmer-text">Sweeping the song…</span>
                 </span>
+              ) : sweepNote ? (
+                <span className="animate-fade-in flex h-8 items-center px-3 text-[12.5px] leading-none text-muted/70">
+                  {sweepNote}
+                </span>
               ) : busy ? (
                 <button
                   onClick={() => setArrange(true)}
@@ -3284,20 +3315,25 @@ export default function SongClient({
                             One living look across the whole piece
                           </span>
                         </button>
-                        <button
-                          onClick={() => {
-                            setShapeOpen(false);
-                            setSweep("offer");
-                          }}
-                          className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-white/[0.06]"
-                        >
-                          <span className="block text-[13px] font-medium text-foreground">
-                            Effects &amp; breaks
-                          </span>
-                          <span className="mt-0.5 block text-[10.5px] leading-snug text-muted/60">
-                            The AI sweeps the whole song — replacing what rides
-                          </span>
-                        </button>
+                        {/* Offered only once a loop is READY to sweep — the row
+                            used to summon the pill over a song with nothing
+                            playable, and the tap died on the server. */}
+                        {playableCount > 0 && (
+                          <button
+                            onClick={() => {
+                              setShapeOpen(false);
+                              setSweep("offer");
+                            }}
+                            className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-white/[0.06]"
+                          >
+                            <span className="block text-[13px] font-medium text-foreground">
+                              Effects &amp; breaks
+                            </span>
+                            <span className="mt-0.5 block text-[10.5px] leading-snug text-muted/60">
+                              The AI sweeps the whole song — replacing what rides
+                            </span>
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             setShapeOpen(false);

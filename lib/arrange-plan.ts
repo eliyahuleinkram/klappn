@@ -455,6 +455,11 @@ export async function composePageShape(
           c.layers.length ? ` [layers: ${c.layers.join(", ")}]` : ""
         }`,
     ),
+    // One loop still has motion and still has a turn — it turns back into
+    // itself. Say so, or the model reads "no next section" as "no shape".
+    args.loops.length === 1
+      ? "This piece is ONE loop that repeats: a glide rides once across it, and a fill on its closing bar breaks it back into itself."
+      : "",
     riding.length
       ? ["RIDING NOW (your sets replace ALL of this — both kinds):", ...riding].join("\n")
       : "Nothing rides yet.",
