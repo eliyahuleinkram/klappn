@@ -2735,6 +2735,19 @@ export default function ZaltzIDE({
             )}
           </button>
         </div>
+        {/* ✎ THE ASK — the door for "change this", always here, at every width.
+            The whisper OFFERS (you take it with ⇥); the ask INSTRUCTS (you say
+            it in words). Two verbs, two affordances — and this one must never
+            be desktop-only: ⌘K is the chord, this is the same door for a thumb.
+            Opens on the SOUND pane's whole code; a selection still narrows it. */}
+        <button
+          onClick={() => openEditSel(focusedPane, null)}
+          className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/70 transition hover:text-foreground active:scale-[.97] sm:inline-flex"
+          title="Ask for a change (⌘K) — say it in words and the code is rewritten"
+        >
+          <span aria-hidden className="text-[13px] leading-none">✎</span>
+          edit
+        </button>
         {/* THE LINEUP — the night's structure, one quiet word. It sits AFTER
             the transport (user 07-29: "the first pill should be play"):
             the transport is the control you reach for every few seconds, the
@@ -2817,7 +2830,11 @@ export default function ZaltzIDE({
                     disabled={liveBusy}
                     className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-foreground/85 transition hover:bg-white/[0.06] disabled:opacity-60"
                   >
-                    <span className="text-accent-strong/80">◉</span>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="shrink-0 text-accent-strong/80" aria-hidden>
+                      <circle cx="12" cy="12" r="2.6" fill="currentColor" />
+                      <path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 16.2a6 6 0 0 0 0-8.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      <path d="M4.9 4.9a10 10 0 0 0 0 14.2M19.1 19.1a10 10 0 0 0 0-14.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity=".55" />
+                    </svg>
                     {liveBusy ? "opening…" : "Go live"}
                   </button>
                 )}
@@ -2830,7 +2847,23 @@ export default function ZaltzIDE({
                     disabled={shareBusy}
                     className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-foreground/85 transition hover:bg-white/[0.06] disabled:opacity-60"
                   >
-                    <span className="text-muted/70">▸</span>
+                    {/* A LINK, drawn: two rounded capsules interlocking on one
+                        axis. The ▸ that stood here read as PLAY, which is the
+                        one thing sharing is not. */}
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="shrink-0 text-muted/70" aria-hidden>
+                      <path
+                        d="M10 13.6a4 4 0 0 0 5.7.3l2.6-2.6a4 4 0 0 0-5.66-5.66l-1.3 1.3"
+                        stroke="currentColor"
+                        strokeWidth="1.9"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d="M14 10.4a4 4 0 0 0-5.7-.3l-2.6 2.6a4 4 0 1 0 5.66 5.66l1.3-1.3"
+                        stroke="currentColor"
+                        strokeWidth="1.9"
+                        strokeLinecap="round"
+                      />
+                    </svg>
                     {shareBusy ? "minting…" : "Share this code"}
                   </button>
                 )}
@@ -2930,6 +2963,7 @@ export default function ZaltzIDE({
         )}
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
+
         {/* WHAT IS PLAYING UNDER YOU. A hit riding the bench is invisible in
             the code by design, so it has to be visible SOMEWHERE — one quiet
             capsule naming it, with the one verb it needs. */}
@@ -2955,19 +2989,7 @@ export default function ZaltzIDE({
             </button>
           </span>
         )}
-        {/* ✎ THE ASK — the door for "change this", always here, at every width.
-            The whisper OFFERS (you take it with ⇥); the ask INSTRUCTS (you say
-            it in words). Two verbs, two affordances — and this one must never
-            be desktop-only: ⌘K is the chord, this is the same door for a thumb.
-            Opens on the SOUND pane's whole code; a selection still narrows it. */}
-        <button
-          onClick={() => openEditSel(focusedPane, null)}
-          className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/70 transition hover:text-foreground active:scale-[.97] sm:inline-flex"
-          title="Ask for a change (⌘K) — say it in words and the code is rewritten"
-        >
-          <span aria-hidden className="text-[13px] leading-none">✎</span>
-          edit
-        </button>
+
         <button
           onClick={toggleCopilot}
           className={`hidden shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] transition active:scale-[.97] sm:inline-flex ${
@@ -3229,16 +3251,23 @@ export default function ZaltzIDE({
               ? "Leave the show — back to the bench (Esc)"
               : "The show — the picture full-on, the desk in hand"
           }
-          className={`ide-live group fixed z-[19] rounded-full p-2 transition hover:bg-white/[0.08] hover:text-foreground active:scale-[.94] ${
-            show ? "text-accent-strong" : "text-muted/45"
+          /* A CONTROL YOU CAN SEE (2026-07-30, the user: "barely visible").
+             It was a bare glyph at 45% over a picture that is sometimes white —
+             which is a rumour of a button, not a button. Now it wears the
+             room's own glass: a machined circle with a rim, an inset crown and
+             a real hit area, so it reads on any frame the hydra throws. */
+          className={`ide-live group fixed z-[19] grid h-11 w-11 place-items-center rounded-full border backdrop-blur-2xl backdrop-saturate-[1.6] transition active:scale-[.94] ${
+            show
+              ? "border-accent/40 bg-accent/[0.14] text-accent-strong shadow-[0_0_34px_-8px_rgba(224,49,156,.75),inset_0_1px_0_rgba(255,255,255,.14)]"
+              : "border-white/[0.16] bg-black/45 text-foreground/80 shadow-[0_6px_22px_-8px_rgba(0,0,0,.75),inset_0_1px_0_rgba(255,255,255,.11)] hover:border-white/[0.26] hover:bg-black/60 hover:text-foreground"
           }`}
           style={{
             right: "max(0.75rem, env(safe-area-inset-right))",
             bottom: "max(0.75rem, env(safe-area-inset-bottom))",
           }}
         >
-          <svg viewBox="0 0 24 24" className="h-[15px] w-[15px]" fill="none"
-            stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             {show ? (
               /* the same four corners, turned INWARD — the frame closing.
                  THE ONLY WAY BACK ON A PHONE: no Esc key, and a touch show
