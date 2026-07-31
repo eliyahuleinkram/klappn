@@ -4,7 +4,7 @@ import ZaltzSite from "@/components/ZaltzSite";
 export const metadata: Metadata = {
   // zaltz is the ENGINE's name — never the room's. The room is Klappn's
   // engine room; this is the free software underneath it.
-  title: "zaltz — the audio engine you can read",
+  title: "zaltz — the instrument you type",
   description:
     "A live-coding audio engine in C, compiled to WebAssembly, running on the audio thread: superdough's sound rebuilt so nothing allocates while it plays. Nine distortion algorithms, a phase vocoder, an FDN room, per-orbit buses. AGPL, on npm.",
   icons: {
