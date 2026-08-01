@@ -1,24 +1,17 @@
 import { headers } from "next/headers";
 import { getAuth } from "@/lib/auth";
 import { warmPool } from "@/lib/db";
-import {
-  allowanceFor,
-  getBilling,
-  getCredits,
-  getUsage,
-  tasteAvailable,
-  usedFor,
-  type PlanId,
-} from "@/lib/billing";
+import { readMeter, type Meter } from "@/lib/billing";
 import SignIn from "@/components/SignIn";
 import BillingClient from "@/components/BillingClient";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Tokens page (the prepaid-token pivot, 2026-07-19). Real token counts and
- * real dollars ship to the client on purpose — transparency IS the product;
- * the old "loops only, never tokens" concealment is gone with the tiers.
+ * The plan page (the subscription pivot, 2026-08-02). Real numbers still ship
+ * to the client on purpose — transparency IS the product — but they are no
+ * longer the headline: the page says what a month buys, and the units sit
+ * underneath for anyone who wants to check the arithmetic.
  */
 export default async function BillingPage() {
   let userId: string | null = null;
@@ -31,34 +24,14 @@ export default async function BillingPage() {
   }
   if (!userId) return <SignIn />;
 
-  let plan: PlanId = "free";
-  let usedTokens = 0;
-  let credits = 0;
-  let allowanceTokens = allowanceFor("free", 0);
+  // A DISPLAY READ NEVER MINTS (mint: false) — the taste is claimed by the
+  // gate, at the moment somebody actually asks the machine for something.
+  let meter: Meter | null = null;
   try {
-    const [billing, usage, creditTokens] = await Promise.all([
-      getBilling(userId),
-      getUsage(userId),
-      getCredits(userId),
-    ]);
-    plan = billing.plan;
-    credits = creditTokens;
-    // Credits meter against lifetime; legacy subscriptions against the month.
-    usedTokens = usedFor(plan, usage);
-    // Free pool: show the taste only if this account holds/can claim a grant,
-    // so the meter here always agrees with the compose gate.
-    const taste = plan === "free" ? await tasteAvailable(userId) : true;
-    allowanceTokens = allowanceFor(plan, credits, taste);
+    meter = await readMeter(userId);
   } catch {
-    /* fail soft — show the free view */
+    /* fail soft — the client renders the free view from its own defaults */
   }
 
-  return (
-    <BillingClient
-      plan={plan}
-      usedTokens={usedTokens}
-      allowanceTokens={allowanceTokens}
-      credits={credits}
-    />
-  );
+  return <BillingClient meter={meter} />;
 }

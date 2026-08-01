@@ -7,7 +7,7 @@ import { useState } from "react";
  * ACCOUNT MENU — one avatar, everything about YOU behind a click (the email
  * never sits in the open for anyone glancing over). Born on klappn.com's
  * home; the zaltz IDE wears the exact same one (user 2026-07-27: "it must
- * look the same"). Menu: email · Tokens & usage (/billing) · Sign out — or
+ * look the same"). Menu: email · Plan & usage (/billing) · Sign out — or
  * the guest's claim path, or a sign-in door when nobody's home yet.
  */
 export default function AccountMenu({
@@ -85,7 +85,7 @@ export default function AccountMenu({
                 href="/billing"
                 className="block w-full rounded-lg px-3 py-2 text-left text-[14px] text-foreground transition hover:bg-white/[0.06]"
               >
-                Tokens &amp; usage
+                Plan &amp; usage
               </Link>
             )}
             {!signedIn ? (

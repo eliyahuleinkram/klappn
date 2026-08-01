@@ -38,6 +38,39 @@ export function loopsFor(tokens: number): number {
 }
 
 /**
+ * WHAT A MONTH BUYS — the units the price page speaks since the subscription
+ * pivot (2026-08-02). A plan should be readable without arithmetic: songs and
+ * nights, with the token number still printed underneath for anyone who wants
+ * to check it.
+ *
+ * Both are honest ESTIMATES, floored so a plan always delivers at least what
+ * it promised, and both are derived from measured shapes rather than wishes:
+ *
+ *  · a SONG is its sections — five is the common shape, each one a loop at
+ *    TOKENS_PER_LOOP (measured p50 28k, rounded up).
+ *  · a NIGHT IN THE ROOM is a real live-coding session: ~100 whispers at
+ *    TOKENS_PER_GHOST plus ~20 turns of conversation (~4.3k each warm, the
+ *    measured shape — the first turn of a session costs more because it writes
+ *    the cache, and that is inside the rounding).
+ *
+ * If either shape moves, move it HERE — the page, the tier grid and the meter
+ * all read these, so they can never disagree with each other.
+ */
+export const LOOPS_PER_SONG = 5;
+export const TOKENS_PER_SONG = TOKENS_PER_LOOP * LOOPS_PER_SONG; // 150k
+export const TOKENS_PER_NIGHT = 350_000;
+
+/** Whole songs an allowance buys (floored). */
+export function songsFor(tokens: number): number {
+  return Math.floor(tokens / TOKENS_PER_SONG);
+}
+
+/** Whole nights in the room an allowance buys (floored). */
+export function nightsFor(tokens: number): number {
+  return Math.floor(tokens / TOKENS_PER_NIGHT);
+}
+
+/**
  * The IDE copilot's friendly estimate — "~2.5k weighted units buys a ghost".
  * Ghosts run OPUS 5 no-thinking (2026-07-27 quality call) and units bill at
  * the served model's own rate (Opus 5 = the anchor, ×1). MEASURED live
@@ -53,9 +86,52 @@ export function tokensForUsdCents(usdCents: number): number {
   return Math.round((usdCents / USD_CENTS_PER_MILLION) * 1_000_000);
 }
 
-/** The purchasable top-up amounts (USD, token value — the card fee is added
- *  on top at checkout). Flat rate — no bulk games; the $5 floor keeps the
- *  fixed part of the card fee from dwarfing the purchase. */
+/**
+ * THE SHELF (2026-08-02, the subscription pivot) — client-safe, so the price
+ * page, the tier grid and the meter all read the SAME row. lib/billing.ts
+ * builds PLANS from this and adds the Stripe price ids from the environment;
+ * nothing about a price is ever typed twice.
+ *
+ * `tokens` is the monthly allowance in the same weighted units everything else
+ * is metered in, so what a tier buys can be DERIVED (songsFor / nightsFor) and
+ * can never drift from what the gate actually allows.
+ */
+export const TIERS = [
+  {
+    id: "creator",
+    name: "Creator",
+    usd: 12,
+    tokens: 1_100_000,
+    blurb: "a song a week, and the room on the nights you want it.",
+  },
+  {
+    id: "studio",
+    name: "Studio",
+    usd: 39,
+    tokens: 3_500_000,
+    blurb: "live in it — an EP a month, and the room whenever.",
+  },
+] as const;
+
+export type TierId = (typeof TIERS)[number]["id"];
+
+/**
+ * THE TASTE — what a claimed account gets on the house, once, with no card and
+ * no clock (2026-08-02, the user: "just give them a few free tries to try out
+ * the technology"). Sized so the door's own sentence is TRUE: a whole song, and
+ * a night in the room. A day-counted trial was considered and rejected — it
+ * spends without a ceiling, it can be farmed with a second email, and it runs
+ * down while the person is at work; a taste measured in USE waits for them.
+ * (Lives here, with the rest of the sheet, so it can be tested without dragging
+ * the database in — lib/billing's PLANS.free reads it.)
+ */
+export const FREE_TASTE_TOKENS = 500_000;
+
+/** The top-up amounts (USD, token value — the card fee is added on top at
+ *  checkout). Since the subscription pivot these are the OVERFLOW VALVE, not
+ *  the product: the plan covers the month, a top-up is for the night that ran
+ *  long. Flat rate — no bulk games; the $5 floor keeps the fixed part of the
+ *  card fee from dwarfing the purchase. */
 export const CREDIT_PACK_USD = [5, 10, 25, 50] as const;
 
 /**

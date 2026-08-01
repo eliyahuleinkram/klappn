@@ -8,6 +8,8 @@ import {
   ZISSL_PLAYGROUND_URL,
 } from "@/lib/links";
 import {
+  songsFor,
+  TIERS,
   USD_CENTS_PER_MILLION,
 } from "@/lib/pricing";
 
@@ -26,6 +28,9 @@ export default function OpenPage() {
   // The dollar framing (user 07-28): "a dollar is 200k tokens" — one sentence,
   // derived from the public constant so the copy can never drift from the code.
   const tokensPerDollarK = Math.round((100 / USD_CENTS_PER_MILLION) * 1_000_000) / 1000;
+  // The shelf, read off the same constants the gate meters against — the page
+  // can never quote a price or a promise the machine does not honour.
+  const [creator, studio] = TIERS;
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-5 pb-28 pt-6 sm:pt-8">
       <div className="flex items-center justify-between">
@@ -156,20 +161,22 @@ export default function OpenPage() {
           A price you can read
         </h2>
         <p className="mt-2 text-[14px] leading-relaxed text-muted">
-          Prepaid tokens: a dollar is {tokensPerDollarK}k tokens, flat at
-          every size, and they never expire.
-          The card fee is Stripe’s,
-          shown before you pay. The entire price sheet is{" "}
+          One price a month, and it says what it buys: {creator.name} is $
+          {creator.usd} for {songsFor(creator.tokens)} songs, {studio.name} is $
+          {studio.usd} for {songsFor(studio.tokens)}. Make an account and the
+          first ones are on the house — no card to look around, and no clock
+          running while you are at work. Underneath, the meter is still a flat
+          public rate — a dollar of machine time is {tokensPerDollarK}k units —
+          and the entire sheet is{" "}
           <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[12px]">
             lib/pricing.ts
           </code>{" "}
-          — one screen of open code, so the price is something you read,
-          and any change to it is a commit with our name on it, never a
-          surprise on a bill. The instrument itself — engine, panes, mixer,
-          sketches — is free, no account needed to start; only the
-          machine&rsquo;s composing is prepaid, and the servers are on us.
-          Rather hold the keys yourself? Self-host: your model key, your
-          bill, our code.
+          — one screen of open code, so the price is something you read, and any
+          change to it is a commit with our name on it, never a surprise on a
+          bill. The instrument itself — engine, panes, mixer, the live room — is
+          free, no account needed to start; only the machine&rsquo;s own work is
+          on the plan, and the servers are on us. Rather hold the keys yourself?
+          Self-host: your model key, your bill, our code.
         </p>
       </section>
 

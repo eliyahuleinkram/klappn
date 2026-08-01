@@ -1,42 +1,33 @@
 import { getSessionUser } from "@/lib/session";
-import {
-  allowanceFor,
-  getBilling,
-  getCredits,
-  getUsage,
-  PLANS,
-  tasteAvailable,
-  usedFor,
-} from "@/lib/billing";
+import { PLANS, readMeter } from "@/lib/billing";
 
 export const dynamic = "force-dynamic";
 
 /**
- * The IDE's one identity + meter read: who am I (guest counts), and how many
- * tokens are left before the gate closes. (poolOpen is a launch-era relic kept
- * for parsing; since 2026-07-28 the sign-up dollar is uncapped, so it simply
- * reads true — every claimed account can mint its grant.)
+ * The room's one identity + meter read: who am I (guest counts), what plan is
+ * on the door, and how much machine time is left before the gate closes.
+ * (poolOpen is a launch-era relic kept for parsing; the sign-up taste is
+ * uncapped, so it simply reads true — every claimed account can mint one.)
  */
 export async function GET(req: Request) {
   const user = await getSessionUser(req).catch(() => null);
   if (!user) {
     return Response.json({ signedIn: false, poolOpen: true });
   }
-  let plan: string = "free";
+  let plan = "free";
   let usedTokens = 0;
   let credits = 0;
-  let allowanceTokens = allowanceFor("free", 0);
+  let allowanceTokens = PLANS.free.tokens;
+  let remainingTokens: number | null = PLANS.free.tokens;
   try {
-    const [billing, usage, creditTokens] = await Promise.all([
-      getBilling(user.id),
-      getUsage(user.id),
-      getCredits(user.id),
-    ]);
-    plan = billing.plan;
-    credits = creditTokens;
-    usedTokens = usedFor(billing.plan, usage);
-    const taste = billing.plan === "free" ? await tasteAvailable(user.id) : true;
-    allowanceTokens = allowanceFor(billing.plan, credits, taste);
+    const m = await readMeter(user.id);
+    plan = m.plan;
+    credits = m.credits;
+    // The two buckets, flattened for the client: what a month covers plus what
+    // never expires. The room only ever asks "is there anything left?".
+    allowanceTokens = m.planAllowance + m.taste + m.credits;
+    usedTokens = m.planAllowance ? m.monthUsed : m.spent;
+    remainingTokens = m.remaining;
   } catch {
     /* fail soft — free view */
   }
@@ -49,8 +40,6 @@ export async function GET(req: Request) {
     usedTokens,
     credits,
     allowanceTokens: plan === "owner" ? PLANS.owner.tokens : allowanceTokens,
-    remainingTokens:
-      plan === "owner" ? null : Math.max(0, allowanceTokens - usedTokens),
+    remainingTokens,
   });
 }
-

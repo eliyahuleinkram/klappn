@@ -157,6 +157,15 @@ create table if not exists user_billing (
 alter table user_billing add column if not exists stripe_account_id text;
 alter table user_billing add column if not exists stripe_account_ready boolean not null default false;
 
+-- THE BEST MONTHLY ALLOWANCE THIS ACCOUNT HAS EVER HELD (2026-08-02, the
+-- subscription pivot). Top-ups are a lifetime bucket spent only by usage that
+-- spilled PAST the plan's monthly allowance, and that sum is computed over
+-- history — so if it used the CURRENT plan, a downgrade would retroactively
+-- eat prepaid credit somebody already paid for. Pinning the high-water mark
+-- makes the sum monotonic: a plan change can forgive past spill, never invent
+-- it. Written on plan changes only, never on the metering hot path.
+alter table user_billing add column if not exists peak_allowance bigint not null default 0;
+
 -- Metered model-token usage per user per calendar month ("2026-06"), recorded
 -- from every Anthropic call (input + output, thinking included).
 create table if not exists token_usage (

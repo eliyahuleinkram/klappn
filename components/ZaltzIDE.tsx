@@ -87,6 +87,9 @@ import { transformForPlayback } from "@/lib/playback";
 import {
   cardFeeCents,
   CREDIT_PACK_USD,
+  nightsFor,
+  songsFor,
+  TIERS,
   TOKENS_PER_GHOST,
   tokensForUsdCents,
 } from "@/lib/pricing";
@@ -119,6 +122,8 @@ interface Me {
   owner?: boolean;
   remainingTokens?: number | null;
   allowanceTokens?: number;
+  /** Which plan is on the door — the paying moment offers the OTHER ones. */
+  plan?: string;
 }
 
 type PaneId = "strudel" | "hydra";
@@ -2302,20 +2307,24 @@ export default function ZaltzIDE({
 
 
   // ── tokens ─────────────────────────────────────────────────────────────────
-  const [buying, setBuying] = useState<number | null>(null);
-  async function buy(usd: number) {
+  // One checkout, two things it can open: a PLAN (the product) or a top-up
+  // (the overflow valve). `buying` holds whichever is in flight.
+  const [buying, setBuying] = useState<number | string | null>(null);
+  const subscribe = (tier: string) => openCheckout({ plan: tier }, tier);
+  const buy = (usd: number) => openCheckout({ usd }, usd);
+  async function openCheckout(what: { plan?: string; usd?: number }, key: string | number) {
     if (buying) return;
     if (me?.isGuest || !me?.signedIn) {
       setSheet("signin");
-      setNotice("Money needs a name on the door — one email and your tokens are forever.");
+      setNotice("Money needs a name on the door — one email and it is yours on every machine.");
       return;
     }
-    setBuying(usd);
+    setBuying(key);
     try {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ usd, back: "/engine" }),
+        body: JSON.stringify({ ...what, back: "/engine" }),
       });
       const d = (await res.json().catch(() => ({}))) as {
         url?: string;
@@ -2324,7 +2333,7 @@ export default function ZaltzIDE({
       };
       if (res.status === 401 && d.code === "account_required") {
         setSheet("signin");
-        setNotice(d.error || "Sign in first — then the tokens are yours forever.");
+        setNotice(d.error || "Sign in first — then it is yours on every machine.");
         return;
       }
       if (!res.ok || !d.url) {
@@ -2399,6 +2408,8 @@ export default function ZaltzIDE({
   // The wall, named: signed in, metered, and dry. The chip burns, the ✦
   // buttons redirect to the register — the machine never just goes mute.
   const spent = !!me?.signedIn && !me.owner && (remaining ?? 0) <= 0;
+  /** Which plan is on the door (if any) — the sheet marks it and offers the rest. */
+  const plan = me?.plan ?? "free";
 
   // ⇥ ON AN EMPTY PANE — the hint text BECOMES the reality: the placeholder's
   // code lines land in the buffer (free, deterministic), then the copilot
@@ -3618,7 +3629,11 @@ export default function ZaltzIDE({
       {/* ── sheets ──────────────────────────────────────────────────────── */}
       {sheet && (
         <div
-          className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center"
+          /* ABOVE EVERY PANEL (z-40): a sheet is a modal — it is the only thing
+             on screen that wants an answer. At z-20 the conversation's own
+             sheet (z-22) sat on top of the paying moment and cut it in half,
+             which is a bad place to discover you have run out. */
+          className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center"
           onClick={() => setSheet(null)}
         >
           <div
@@ -3630,78 +3645,115 @@ export default function ZaltzIDE({
 
             {sheet === "tokens" && (
               <>
+                {/* THE PAYING MOMENT, IN THE ROOM (2026-08-02, the
+                    subscription pivot). This used to be four prepaid packs and
+                    a balance, which asked somebody mid-set to do arithmetic
+                    about their own music. Now it offers the one thing: a month
+                    of the machine, at a price, with what it buys said in the
+                    words people use. The top-up row survives underneath, quiet,
+                    for the night that ran long. */}
                 <div className="flex items-baseline justify-between">
-                  <h2 className="text-[15px] font-medium text-foreground">Tokens</h2>
+                  <h2 className="text-[15px] font-medium text-foreground">
+                    {plan === "creator" || plan === "studio" || plan === "label"
+                      ? "Your plan"
+                      : "Keep the machine on"}
+                  </h2>
                   <span className="text-[12.5px] tabular-nums text-muted">
                     {me?.owner
                       ? "house account — unmetered"
                       : me?.signedIn
                         ? spent
-                        ? "the machine waits — feed it"
-                        : `${fmtTokens(Math.max(0, remaining ?? 0))} left · ~${Math.floor(
-                            Math.max(0, remaining ?? 0) / TOKENS_PER_GHOST,
-                          ).toLocaleString()} whispers`
-                        : "the instrument is free — the machine is prepaid"}
+                          ? "the machine waits"
+                          : `${fmtTokens(Math.max(0, remaining ?? 0))} units · ~${Math.floor(
+                              Math.max(0, remaining ?? 0) / TOKENS_PER_GHOST,
+                            ).toLocaleString()} whispers`
+                        : "the instrument is free — the machine runs on a plan"}
                   </span>
                 </div>
                 <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-                  {/* NOT A DEFENCE (user 07-29). The old line listed
-                      properties — passed through, flat, never expiring, open —
-                      which reads as a company explaining itself. Say the one
-                      thing that matters and let it land: this money is not
-                      ours — WITHOUT SAYING IT (user 07-29: "a way to say it
-                      without saying it, it's about a feeling"). So no "at
-                      cost", no "we keep nothing": those are claims, and a
-                      claim invites doubt and dates badly the day a provider
-                      reprices. One fact instead, and let the reader draw the
-                      conclusion themselves — nobody taking a cut halves their
-                      price the day their costs fall. It happened (pricing.ts:
-                      launched at $10/1M under Fable 5, halved to $5 when Opus
-                      took over), so it is a story, not a promise. */}
-                  Tokens are machine time, bought at the model&apos;s own rate.
-                  When the model got cheaper, we halved ours the same day.
+                  {/* NOT A DEFENCE (user 07-29): no "at cost", no "we keep
+                      nothing" — a claim invites doubt and dates badly. One
+                      fact, and the reader draws the conclusion: nobody taking a
+                      cut halves their price the day their costs fall. */}
+                  A month of the machine — the whispers, the conversation, the
+                  composing. When the model got cheaper, we halved our price the
+                  same day.
                 </p>
-                <div className="mt-3.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {CREDIT_PACK_USD.map((usd, i) => {
-                    const tokens = tokensForUsdCents(usd * 100);
-                    const fee = cardFeeCents(usd * 100);
-                    const anchor = usd === 10;
+                <div className="mt-3.5 grid gap-2 sm:grid-cols-2">
+                  {TIERS.map((t, i) => {
+                    const mine = plan === t.id;
+                    const hot = t.id === "studio";
                     return (
                       <div
-                        key={usd}
+                        key={t.id}
                         style={{ "--i": i } as CSSProperties}
-                        className="animate-rise flex flex-col rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3"
+                        className={`animate-rise flex flex-col rounded-2xl border p-3.5 ${
+                          hot
+                            ? "border-accent/30 bg-accent/[0.06]"
+                            : "border-white/[0.08] bg-white/[0.03]"
+                        }`}
                       >
-                        <span className="wordmark text-[20px] leading-none text-foreground">
-                          ${usd}
-                        </span>
-                        <span className="mt-1 text-[12px] text-foreground/80">
-                          {fmtTokens(tokens)} tokens
-                        </span>
-                        <span className="text-[11px] tabular-nums text-muted/60">
-                          + ${(fee / 100).toFixed(2)} card fee
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-[13px] font-medium text-foreground">
+                            {t.name}
+                          </span>
+                          {mine && (
+                            <span className="text-[10px] uppercase tracking-[0.16em] text-accent-strong">
+                              yours
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1.5 flex items-baseline gap-1">
+                          <span
+                            className={`wordmark text-[24px] leading-none ${hot ? "text-gradient" : "text-foreground"}`}
+                          >
+                            ${t.usd}
+                          </span>
+                          <span className="text-[11.5px] text-muted/60">/month</span>
+                        </div>
+                        <span className="mt-2 text-[12px] leading-relaxed text-foreground/80">
+                          {songsFor(t.tokens)} songs · or {nightsFor(t.tokens)} nights
+                          in the room
                         </span>
                         <button
-                          onClick={() => void buy(usd)}
+                          onClick={() => void subscribe(t.id)}
                           disabled={buying !== null}
-                          className={`mt-2.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium transition active:scale-[.97] disabled:opacity-40 ${
-                            anchor
+                          className={`mt-3 rounded-full px-3 py-1.5 text-[12.5px] font-medium transition active:scale-[.97] disabled:opacity-40 ${
+                            hot
                               ? "btn-primary"
                               : "bg-white/[0.06] text-foreground hover:bg-white/[0.1]"
                           }`}
                         >
-                          {buying === usd ? (
+                          {buying === t.id ? (
                             <span className="shimmer-text">Opening…</span>
+                          ) : mine ? (
+                            "Manage"
                           ) : (
-                            "Top up"
+                            `Start ${t.name}`
                           )}
                         </button>
                       </div>
                     );
                   })}
                 </div>
+                {/* THE OVERFLOW VALVE — one quiet line, never a grid. */}
+                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-muted/55">
+                  <span>Just need to finish tonight?</span>
+                  {CREDIT_PACK_USD.map((usd) => (
+                    <button
+                      key={usd}
+                      onClick={() => void buy(usd)}
+                      disabled={buying !== null}
+                      title={`${fmtTokens(tokensForUsdCents(usd * 100))} units · + $${(cardFeeCents(usd * 100) / 100).toFixed(2)} card fee`}
+                      className="rounded-full border border-white/[0.1] px-2.5 py-1 transition hover:border-white/[0.2] hover:text-foreground disabled:opacity-40"
+                    >
+                      ${usd}
+                    </button>
+                  ))}
+                </div>
                 <p className="mt-3 text-[11.5px] leading-relaxed text-muted/60">
-                  The card fee is Stripe&apos;s, passed through to the cent.{" "}
+                  Cancel any time — the instrument, and everything you have
+                  made, stay exactly where they are.{" "}
                   <Link href="/open" className="underline decoration-white/20 transition hover:text-foreground">
                     Here&apos;s the whole deal
                   </Link>
@@ -3722,9 +3774,9 @@ export default function ZaltzIDE({
                     machine, so it never reads as a toll. */}
                 {!me?.signedIn || me?.isGuest ? (
                   <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-                    Your work stays yours — and the first{" "}
-                    <span className="text-accent-strong">240k tokens</span> are
-                    on the house.
+                    Your work stays yours — and your first song, and a night
+                    in the room, are{" "}
+                    <span className="text-accent-strong">on the house</span>.
                   </p>
                 ) : null}
                 {siState === "sent" || siState === "verifying" ? (

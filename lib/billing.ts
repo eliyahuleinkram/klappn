@@ -2,31 +2,33 @@ import type { Sql } from "postgres";
 import { db } from "./db";
 
 /**
- * Billing — PREPAID TOKENS at one flat readable rate (2026-07-19, the
- * open-source pivot),
- * metered in COST-WEIGHTED token units (lib/llm.ts onUsage: output ×5, cache
- * read ×0.1, cache write ×1.25 — the same price ratios every Anthropic model
- * uses, so the unit is model-agnostic; only the $/unit differs by model).
+ * Billing — A MONTHLY PLAN, with the meter honest underneath (2026-08-02, the
+ * user: "move away from token based billing, we will move towards subscription
+ * based billing").
  *
- * THE DEAL, stated plainly (and shown to users just as plainly — /open): you
- * buy tokens at one flat public rate that TRACKS THE COMPOSER'S OWN INPUT
- * RATE — $5 per 1M weighted units since Opus 5 took over (repriced 2026-07-26;
- * launched at $10/1M in the Fable era) — with output/cache normalized by the
- * weights above, so a metered unit follows real model spend. The rate lives in open code (lib/pricing.ts) — changing it
- * is a commit anyone can read. Credits never expire and are metered
- * against LIFETIME usage alongside the free taste. This replaces the
- * subscription tiers AND their old posture of hiding the $/M rate behind
- * opaque "loops" — the rate is now the headline. Loops remain as a friendly
- * ESTIMATE (~30k units each, measured p50 28k), never a disguise.
+ * THE DEAL: the instrument is free forever and always will be. The MACHINE —
+ * the whispers, the conversation, the composing — runs on a plan that covers a
+ * month at a time (PLANS below). A claimed account gets a taste on the house
+ * first: no card, no clock, no seven-day countdown running while you are at
+ * work. It waits until you use it.
+ *
+ * TWO BUCKETS THAT NEVER MIX (readMeter):
+ *   · the PLAN covers the first N units of each calendar month, and refills.
+ *   · the LIFETIME bucket — the sign-up taste plus every top-up ever bought —
+ *     never expires, and is only touched once a month's allowance is gone.
+ * A free account is simply an empty plan bucket, which is why one formula
+ * serves everybody. Top-ups survive as an overflow valve so a good night never
+ * hits a wall, and every prepaid dollar sold in the July token era stays
+ * spendable, forever, exactly as promised.
+ *
+ * Units are COST-WEIGHTED (lib/llm.ts onUsage: output ×5, cache read ×0.1,
+ * cache write ×1.25/×2 — Anthropic's own ratios, scaled by the served model's
+ * rate) so a metered unit tracks real spend on every model. The $/M rate stays
+ * public in lib/pricing.ts: a plan is a simpler promise, not a vaguer one, and
+ * anyone who wants to check our arithmetic still can.
  *
  * Limits are a HARD gate checked before any AI work starts (never
  * mid-composition — a loop that begins always finishes).
- *
- * LEGACY SUBSCRIPTIONS: PLANS + the webhook sync remain so existing
- * subscribers keep exactly the old monthly-allowance behavior until they
- * cancel (portal still works). Tiers are no longer purchasable — checkout
- * sells credits only — and a live subscription blocks credit purchase so the
- * two meters never mix.
  */
 
 export type PlanId = "free" | "creator" | "studio" | "label" | "owner";
@@ -36,13 +38,19 @@ export type PlanId = "free" | "creator" | "studio" | "label" | "owner";
 export {
   cardFeeCents,
   CREDIT_PACK_USD,
+  FREE_TASTE_TOKENS,
   loopsFor,
+  nightsFor,
+  songsFor,
+  TIERS,
   TOKENS_PER_LOOP,
+  TOKENS_PER_NIGHT,
+  TOKENS_PER_SONG,
   tokensForUsdCents,
   totalWithCardFeeCents,
   USD_CENTS_PER_MILLION,
 } from "./pricing";
-import { loopsFor, TOKENS_PER_LOOP } from "./pricing";
+import { FREE_TASTE_TOKENS, loopsFor, TIERS, TOKENS_PER_LOOP } from "./pricing";
 
 export interface Plan {
   id: PlanId;
@@ -60,51 +68,47 @@ export interface Plan {
  * THE GIFT, IN ONE SENTENCE — the only place this is worded.
  *
  * A walk-in gets the instrument free forever; the MACHINE (the whispers, the
- * composing) runs on prepaid tokens, and a claimed account starts with 240k of
- * them. Said once, at the moment it matters, and never as a nag: the house
- * rule is that we are confident enough not to push. Every gate that needs an
- * account answers with this line, so a guest never reads two versions of the
- * same offer.
+ * conversation, the composing) runs on a monthly plan, and a claimed account
+ * starts with a taste of it on the house. Said once, at the moment it matters,
+ * and never as a nag: the house rule is that we are confident enough not to
+ * push. Every gate that needs an account answers with this line, so a guest
+ * never reads two versions of the same offer.
  *
- * TOKENS, NEVER DOLLARS (user law, 2026-07-28, re-stated 07-29). Customer-
- * facing copy speaks OUR unit and only our unit — no dollar equivalence, no
- * loop-math, no model's-cost framing. A price lives on the billing page; the
- * gift is an amount of machine time, and that amount is 240k tokens. Writing
- * "$1.20" here made the app speak two currencies at once.
+ * WHAT IT BUYS, NOT WHAT IT COUNTS (user, 2026-08-02 — this SUPERSEDES the
+ * 07-28/29 "tokens, never dollars" law, which was written for a prepaid meter
+ * where the unit WAS the product). Under a subscription, making somebody do
+ * arithmetic is the exact thing the subscription is there to abolish: the copy
+ * says a song, a night in the room. The token number stays readable underneath
+ * for anyone who wants it — on the billing page, in open code — and it is
+ * still never dressed up in dollars.
  */
 export const SIGNUP_GIFT =
-  "Make an account and the first 240k tokens are on the house.";
+  "Make an account and your first song — and a night in the room — are on the house.";
 
 export const PLANS: Record<PlanId, Plan> = {
   // Free is the pre-subscription state, not a plan on the page. `tokens` is
-  // the value of the SIGN-UP TASTE (2026-07-28, user reopened it — $1.20:
-  // every CLAIMED account starts with 240k weighted units at
-  // the public $5/M rate; see FREE_TASTE_GRANTS). Anonymous walk-ins get the
-  // free instrument, never the dollar (a walk-in needs no email — a blanket
-  // grant would be farmable; the dollar lands when a name lands on the door).
+  // the SIGN-UP TASTE (lib/pricing FREE_TASTE_TOKENS — a song and a night in
+  // the room, no card, no clock). Anonymous walk-ins get the free instrument
+  // but never the taste: a walk-in needs no email, so a blanket grant is
+  // bot-farmable — it lands when a name lands on the door.
   free: {
     id: "free",
     name: "Free",
-    tokens: 240_000,
+    tokens: FREE_TASTE_TOKENS,
     usd: 0,
     priceId: "",
-    blurb: "the machine is prepaid.",
+    blurb: "the instrument is yours. The machine, for a while.",
   },
+  // THE TWO ON THE SHELF — name, price and allowance come from lib/pricing's
+  // TIERS (the client reads that same row, so the grid and the gate can never
+  // disagree); only the Stripe price id is added here, from the environment.
   creator: {
-    id: "creator",
-    name: "Creator",
-    tokens: 1_100_000,
-    usd: 12,
+    ...TIERS[0],
     priceId: process.env.STRIPE_PRICE_CREATOR || "",
-    blurb: "a new groove every night before you sleep.",
   },
   studio: {
-    id: "studio",
-    name: "Studio",
-    tokens: 3_500_000,
-    usd: 39,
+    ...TIERS[1],
     priceId: process.env.STRIPE_PRICE_STUDIO || "",
-    blurb: "walk in humming, walk out with an EP.",
   },
   // HISTORICAL (pre-pivot): the retired top tier, sized so $/loop dipped
   // slightly below Studio's as a bulk nod. Kept only so existing Label
@@ -193,10 +197,47 @@ export async function setBilling(
   },
   sql: Sql = db(),
 ): Promise<void> {
+  // THE HIGH-WATER MARK rises here and only here — a plan change is rare, the
+  // metering path is not (see peak_allowance in schema.sql: it is what keeps a
+  // downgrade from retroactively eating somebody's prepaid top-ups).
+  // SUBSCRIPTION allowances only: "free" carries the sign-up taste in the same
+  // field, and letting that count as a monthly allowance would forgive a
+  // taste's worth of spill in every period a free account ever had.
+  const gained =
+    patch.plan === "creator" || patch.plan === "studio" || patch.plan === "label"
+      ? PLANS[patch.plan].tokens
+      : 0;
+  try {
+    await writeBilling(userId, patch, gained, sql);
+  } catch (e) {
+    // A PLAN MUST LAND EVEN IF THE COLUMN HASN'T (deploy ordering): this runs
+    // from the Stripe webhook, and a throw here means somebody paid and never
+    // got their plan. peak_allowance is protection for prepaid top-ups — worth
+    // losing for one write, never worth losing a customer's subscription over.
+    console.info(
+      "[klappn] user_billing.peak_allowance is missing — plan written without it. " +
+        "Run: alter table user_billing add column if not exists peak_allowance bigint not null default 0;",
+      String(e).slice(0, 120),
+    );
+    await writeBilling(userId, patch, null, sql);
+  }
+}
+
+async function writeBilling(
+  userId: string,
+  patch: {
+    plan?: PlanId;
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string | null;
+  },
+  gained: number | null,
+  sql: Sql,
+): Promise<void> {
   await sql`
-    insert into user_billing (user_id, plan, stripe_customer_id, stripe_subscription_id)
-    values (${userId}, ${patch.plan ?? "free"}, ${patch.stripeCustomerId ?? null}, ${patch.stripeSubscriptionId ?? null})
+    insert into user_billing (user_id, plan, stripe_customer_id, stripe_subscription_id${gained === null ? sql`` : sql`, peak_allowance`})
+    values (${userId}, ${patch.plan ?? "free"}, ${patch.stripeCustomerId ?? null}, ${patch.stripeSubscriptionId ?? null}${gained === null ? sql`` : sql`, ${gained}`})
     on conflict (user_id) do update set
+      ${gained === null ? sql`` : sql`peak_allowance = greatest(user_billing.peak_allowance, ${gained}),`}
       plan = coalesce(${patch.plan ?? null}, user_billing.plan),
       stripe_customer_id = coalesce(${patch.stripeCustomerId ?? null}, user_billing.stripe_customer_id),
       stripe_subscription_id = ${patch.stripeSubscriptionId === undefined ? sql`user_billing.stripe_subscription_id` : (patch.stripeSubscriptionId ?? null)},
@@ -304,11 +345,144 @@ export async function getUsage(
   }
 }
 
-/** The units a plan meters against: legacy paid allowances refresh monthly;
- *  the free taste + purchased credits are lifetime — they never refill and
- *  never expire. */
+/** The units a plan meters against: a subscription's allowance refreshes
+ *  monthly; the free taste + purchased top-ups are lifetime — they never
+ *  refill and never expire. */
 export function usedFor(plan: PlanId, usage: Usage): number {
   return plan === "free" ? usage.lifetime : usage.month;
+}
+
+/**
+ * TOP-UP UNITS ALREADY SPENT — every period's usage PAST the monthly
+ * allowance, summed. This is the whole interaction between the two meters,
+ * and it is deliberately one line of arithmetic:
+ *
+ *   the plan covers the first `allowance` units of each month;
+ *   anything past that comes out of the lifetime bucket.
+ *
+ * On the free plan `allowance` is 0, so this reduces to lifetime usage — the
+ * exact prepaid semantics that shipped in July, unchanged.
+ *
+ * `allowance` is the account's PEAK (see peak_allowance in schema.sql): using
+ * the current plan would let a downgrade retroactively eat credit somebody
+ * paid for. The peak can only forgive spill, never invent it.
+ */
+export async function creditsSpent(
+  userId: string,
+  allowance: number,
+  sql: Sql = db(),
+): Promise<number> {
+  try {
+    const [row] = await sql<{ spill: string | number }[]>`
+      select coalesce(sum(greatest(tokens - ${Math.round(allowance)}, 0)), 0) as spill
+      from token_usage where user_id = ${userId}`;
+    return Number(row?.spill ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * The best monthly allowance this account has ever held — raised on every plan
+ * change, never lowered (see schema.sql).
+ *
+ * DEGRADES SAFELY, and this is deliberate: where the column does not exist yet
+ * (prod's role cannot ALTER — the migration is a hand-run line), this falls
+ * back to the CURRENT plan's allowance, which is the correct answer for every
+ * account that has never downgraded. The stronger guarantee switches itself on
+ * the moment the column appears; nothing else has to change.
+ */
+export async function peakAllowance(
+  userId: string,
+  plan: PlanId,
+  sql: Sql = db(),
+): Promise<number> {
+  const now = plan === "free" || plan === "owner" ? 0 : PLANS[plan].tokens;
+  try {
+    const [row] = await sql<{ peak: string | number }[]>`
+      select coalesce(peak_allowance, 0) as peak from user_billing where user_id = ${userId}`;
+    return Math.max(now, Number(row?.peak ?? 0));
+  } catch {
+    return now;
+  }
+}
+
+/**
+ * THE METER — one read, one formula, every surface. What anyone can still
+ * spend is two buckets that never mix:
+ *
+ *   what the plan still covers this month  +  what is left of the lifetime
+ *   bucket (the sign-up taste plus every top-up ever bought)
+ *
+ * The plan bucket refills on the 1st; the lifetime bucket never expires and is
+ * only touched once a month's allowance is gone. A free account simply has an
+ * empty plan bucket, which is why the same formula serves both.
+ */
+export interface Meter {
+  plan: PlanId;
+  /** What the subscription covers each month (0 when there isn't one). */
+  planAllowance: number;
+  /** Units spent this calendar month. */
+  monthUsed: number;
+  /** What the plan still covers before the month is out. */
+  planLeft: number;
+  /** The sign-up taste, if this account holds (or can mint) one. */
+  taste: number;
+  /** Units ever bought as top-ups. */
+  credits: number;
+  /** Of taste + credits, what is already gone. */
+  spent: number;
+  /** What is left of the lifetime bucket. */
+  creditsLeft: number;
+  /** Everything still spendable — `null` for the house (unmetered). */
+  remaining: number | null;
+}
+
+/** Read the meter. `mint` claims the sign-up taste if this account has never
+ *  had it (the gate does; a display read never should). */
+export async function readMeter(
+  userId: string,
+  { mint = false }: { mint?: boolean } = {},
+): Promise<Meter> {
+  const [billing, usage, credits] = await Promise.all([
+    getBilling(userId),
+    getUsage(userId),
+    getCredits(userId),
+  ]);
+  const plan = PLANS[billing.plan] ? billing.plan : "free";
+  if (plan === "owner") {
+    return {
+      plan,
+      planAllowance: PLANS.owner.tokens,
+      monthUsed: usage.month,
+      planLeft: PLANS.owner.tokens,
+      taste: 0,
+      credits,
+      spent: 0,
+      creditsLeft: 0,
+      remaining: null,
+    };
+  }
+  const planAllowance = plan === "free" ? 0 : PLANS[plan].tokens;
+  const [peak, hasTaste] = await Promise.all([
+    peakAllowance(userId, plan),
+    mint ? claimTasteGrant(userId) : tasteAvailable(userId),
+  ]);
+  const taste = hasTaste ? PLANS.free.tokens : 0;
+  const spent = await creditsSpent(userId, peak);
+  const planLeft = Math.max(0, planAllowance - usage.month);
+  const creditsLeft = Math.max(0, taste + credits - spent);
+  return {
+    plan,
+    planAllowance,
+    monthUsed: usage.month,
+    planLeft,
+    taste,
+    credits,
+    spent,
+    creditsLeft,
+    remaining: planLeft + creditsLeft,
+  };
 }
 
 /** Total prepaid tokens the user has ever bought (the credit ledger). */
@@ -417,16 +591,12 @@ export function allowanceFor(
  *  tokens are spent. (Checked before work starts — a loop that begins always
  *  finishes, so going slightly over on the last loop is by design.) */
 export async function assertQuota(userId: string): Promise<Response | null> {
-  const [billing, usage, credits] = await Promise.all([
-    getBilling(userId),
-    getUsage(userId),
-    getCredits(userId),
-  ]);
-  const plan = PLANS[billing.plan] ?? PLANS.free;
-  const used = usedFor(plan.id, usage);
-  const taste = plan.id === "free" ? await claimTasteGrant(userId) : true;
-  const limit = allowanceFor(plan.id, credits, taste);
-  if (used < limit) return null;
+  const meter = await readMeter(userId, { mint: true });
+  if (meter.remaining === null || meter.remaining > 0) return null;
+  const plan = PLANS[meter.plan] ?? PLANS.free;
+  const used = meter.planAllowance ? meter.monthUsed : meter.spent;
+  const limit = meter.planAllowance + meter.taste + meter.credits;
+  const credits = meter.credits;
   // A GUEST IS NOT OUT OF MONEY — THEY ARE OUT OF ACCOUNT (2026-07-29). The
   // dollar only mints for a claimed name, so telling a walk-in to "top up"
   // asks them to pay for something already waiting for them. Offer the gift
@@ -472,14 +642,16 @@ function quotaExceeded(
     {
       // Everyone has a door: top up on /billing (legacy subscribers can also
       // just wait for the month to refresh, so they're told both).
+      // Everyone has a door, and it is the one that fits: a free account is
+      // being invited to subscribe, a subscriber has simply had a big month.
       error:
         plan === "free"
           ? credits > 0
-            ? "Your tokens are spent — top up to keep composing."
+            ? "That’s everything on the meter — a plan keeps the machine on all month."
             : limitTokens === 0
-              ? "The instrument is free — the machine plays for prepaid tokens. Top up to start composing."
-              : "That was the free taste — top up tokens to keep composing."
-          : "You’ve used this month’s loops — they refresh next month, or top up tokens on the billing page.",
+              ? "The instrument is free; the machine runs on a plan. Pick one and it starts composing."
+              : "That was the taste. A plan keeps the machine on all month."
+          : "Big month — the plan’s month is spent. It refills on the 1st, and a top-up carries you to it.",
       code: "quota_exhausted",
       plan,
       used: Math.round((used / TOKENS_PER_LOOP) * 10) / 10,
