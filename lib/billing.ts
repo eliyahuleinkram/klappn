@@ -308,14 +308,47 @@ export async function addTokenUsage(
   sql: Sql = db(),
 ): Promise<void> {
   if (!userId || !Number.isFinite(tokens) || tokens <= 0) return;
+  const n = Math.round(tokens);
+  const period = currentPeriod();
   try {
+    // THE MONTH STAMPS ITS OWN COVER. What the plan is worth is read off
+    // user_billing in the SAME statement (no extra round trip on a path that
+    // runs per model call) and written beside the usage, so `creditsSpent` can
+    // ask "how much of this month did the plan NOT cover?" of every past month
+    // without needing to know what plan was live back then. `greatest` on
+    // conflict means a mid-month upgrade keeps the better cover for the whole
+    // month — monotonic, and in the customer's favour.
     await sql`
-      insert into token_usage (user_id, period, tokens)
-      values (${userId}, ${currentPeriod()}, ${Math.round(tokens)})
+      insert into token_usage (user_id, period, tokens, covered)
+      select ${userId}, ${period}, ${n}, coalesce((
+        select case ub.plan
+          when 'creator' then ${PLANS.creator.tokens}
+          when 'studio' then ${PLANS.studio.tokens}
+          when 'label' then ${PLANS.label.tokens}
+          else 0
+        end from user_billing ub where ub.user_id = ${userId}
+      ), 0)
       on conflict (user_id, period) do update
-      set tokens = token_usage.tokens + excluded.tokens`;
+      set tokens = token_usage.tokens + excluded.tokens,
+          covered = greatest(token_usage.covered, excluded.covered)`;
   } catch (e) {
-    console.error("[klappn] usage metering failed", e);
+    // No `covered` column yet — meter anyway. Losing the stamp costs precision
+    // in the spill sum; losing the USAGE would cost the house the whole call.
+    try {
+      await sql`
+        insert into token_usage (user_id, period, tokens)
+        values (${userId}, ${period}, ${n})
+        on conflict (user_id, period) do update
+        set tokens = token_usage.tokens + excluded.tokens`;
+    } catch (e2) {
+      console.error("[klappn] usage metering failed", e2);
+      return;
+    }
+    console.info(
+      "[klappn] token_usage.covered is missing — metered without it. " +
+        "Run: alter table token_usage add column if not exists covered bigint not null default 0;",
+      String(e).slice(0, 120),
+    );
   }
 }
 
@@ -373,12 +406,28 @@ export async function creditsSpent(
   sql: Sql = db(),
 ): Promise<number> {
   try {
+    // EACH PERIOD AGAINST ITS OWN COVER (token_usage.covered — what the plan
+    // was worth THAT month, stamped as the usage was metered). Nothing about a
+    // past month can change afterwards, which is the only way both of these
+    // are true at once: cancelling never reaches back and eats prepaid
+    // top-ups, and a churned subscriber's new free months are not still
+    // covered by a plan they no longer pay for.
     const [row] = await sql<{ spill: string | number }[]>`
-      select coalesce(sum(greatest(tokens - ${Math.round(allowance)}, 0)), 0) as spill
+      select coalesce(sum(greatest(tokens - coalesce(covered, 0), 0)), 0) as spill
       from token_usage where user_id = ${userId}`;
     return Number(row?.spill ?? 0);
   } catch {
-    return 0;
+    // No `covered` column yet: fall back to one allowance across all history
+    // (see peakAllowance). Never returns 0 on failure — a zero here would
+    // report every bucket as untouched and open the gate to everybody.
+    try {
+      const [row] = await sql<{ spill: string | number }[]>`
+        select coalesce(sum(greatest(tokens - ${Math.round(allowance)}, 0)), 0) as spill
+        from token_usage where user_id = ${userId}`;
+      return Number(row?.spill ?? 0);
+    } catch {
+      return 0;
+    }
   }
 }
 

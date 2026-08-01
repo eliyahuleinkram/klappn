@@ -158,12 +158,12 @@ alter table user_billing add column if not exists stripe_account_id text;
 alter table user_billing add column if not exists stripe_account_ready boolean not null default false;
 
 -- THE BEST MONTHLY ALLOWANCE THIS ACCOUNT HAS EVER HELD (2026-08-02, the
--- subscription pivot). Top-ups are a lifetime bucket spent only by usage that
--- spilled PAST the plan's monthly allowance, and that sum is computed over
--- history — so if it used the CURRENT plan, a downgrade would retroactively
--- eat prepaid credit somebody already paid for. Pinning the high-water mark
--- makes the sum monotonic: a plan change can forgive past spill, never invent
--- it. Written on plan changes only, never on the metering hot path.
+-- subscription pivot). A FALLBACK now, not the mechanism: token_usage.covered
+-- below is the real answer. Kept because it is already on prod and because it
+-- is what `creditsSpent` degrades to if `covered` is ever missing — one
+-- allowance across all history, monotonic, so a plan change can forgive past
+-- spill but never invent it. Written on plan changes only, never on the
+-- metering hot path.
 alter table user_billing add column if not exists peak_allowance bigint not null default 0;
 
 -- Metered model-token usage per user per calendar month ("2026-06"), recorded
@@ -174,6 +174,17 @@ create table if not exists token_usage (
   tokens  bigint not null default 0,
   primary key (user_id, period)
 );
+
+-- WHAT THE PLAN COVERED THAT MONTH (2026-08-02, the subscription pivot) —
+-- stamped as the usage is metered, from user_billing in the same statement.
+-- The prepaid bucket is spent only by what a month's plan did NOT cover, and
+-- that sum runs over ALL of history, so the coverage has to be remembered PER
+-- PERIOD: a global "current plan" reading lets a cancellation reach backwards
+-- and eat top-ups somebody paid for, and a global "best plan ever" reading
+-- leaves a churned subscriber's free months still covered by a plan they no
+-- longer pay for. Written here, once a month is touched, it can never change
+-- afterwards — which is the only way both of those stay impossible.
+alter table token_usage add column if not exists covered bigint not null default 0;
 
 -- QUOTA RESERVATIONS — a short-lived HOLD taken at the gate for each in-flight
 -- generation, released when it finishes (its real cost then lands in token_usage).
