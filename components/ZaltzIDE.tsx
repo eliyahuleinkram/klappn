@@ -91,6 +91,7 @@ import {
   tokensForUsdCents,
 } from "@/lib/pricing";
 import EngineMark from "@/components/EngineMark";
+import RoomChat, { type ChatSeed } from "@/components/RoomChat";
 
 /**
  * THE ZALTZ IDE — a live-coding surface where the picture is the room and the
@@ -98,8 +99,12 @@ import EngineMark from "@/components/EngineMark";
  * (the light). ⌘↵ evaluates the pane under your fingers; the running set
  * crossfades to the new take, it never cuts.
  *
- * The AI is a bandmate, not an autocomplete: you type an ask, it proposes a
- * whole take, and NOTHING lands until you drop it in. The instrument is free —
+ * The AI has exactly TWO verbs and they never wear the same clothes: the
+ * WHISPER offers grey text at the caret (⇥ takes it, it only ever adds), and
+ * the CONVERSATION talks — a panel beside the panes where you say what you
+ * want in words and it writes whole panes back into them, live, mid-set
+ * (⌘K, 2026-08-02; it replaced a one-shot ✎ ask bar that answered in code and
+ * could not be asked a follow-up). The instrument is free —
  * no account needed; the machine's asks burn PREPAID tokens (price in open
  * code; the launch taste pool closed 2026-07-26, holders grandfathered).
  * A guest session is minted the moment you need one, and everything you make
@@ -199,6 +204,8 @@ $: note("<[e3,g3,b3] [c3,e3,g3] [g2,b2,d3] [a2,c3,e3]>").s("triangle").attack(2)
 ];
 
 const DRAFT_KEY = "zaltz-ide-draft-v1";
+/** Whether the conversation panel was up when you last left the room. */
+const CHAT_OPEN_KEY = "klappn-room-chat-open";
 
 /** Engine errors arrive as raw JS strings — translate the known classes into
  *  one line a live coder can act on mid-set. The raw text stays in the
@@ -298,6 +305,38 @@ function CopilotMark({ on }: { on: boolean }) {
 
 
 
+
+/** The conversation's mark — a speech bubble with the machine's own spark
+ *  inside it. The bubble is the word "talk" that every human already reads;
+ *  the spark says who is listening. Gradient id is per-instance (useId — the
+ *  shared-id/display:none trap left a twin unpainted once). */
+function ChatMark({ on, className = "h-[14px] w-[14px]" }: { on: boolean; className?: string }) {
+  const uid = useId();
+  const grad = `chat-${uid.replace(/[^a-zA-Z0-9]/g, "")}`;
+  return (
+    <svg viewBox="0 0 24 24" className={`${className} shrink-0`} aria-hidden>
+      <defs>
+        <linearGradient id={grad} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#ff63c1" />
+          <stop offset="55%" stopColor="#e0319c" />
+          <stop offset="100%" stopColor="#b3126f" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M4 6.6A2.6 2.6 0 0 1 6.6 4h10.8A2.6 2.6 0 0 1 20 6.6v7.2a2.6 2.6 0 0 1-2.6 2.6H10l-4.4 3.4a.7.7 0 0 1-1.1-.56V6.6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        opacity={on ? 0.9 : 0.75}
+      />
+      <path
+        d="M12 7c.45 2 1.2 2.75 3.2 3.2-2 .45-2.75 1.2-3.2 3.2-.45-2-1.2-2.75-3.2-3.2 2-.45 2.75-1.2 3.2-3.2Z"
+        fill={on ? `url(#${grad})` : "currentColor"}
+        opacity={on ? 1 : 0.5}
+      />
+    </svg>
+  );
+}
 
 /** Earlier placeholder copy leaked into some saved buffers as real comments —
  *  and it named keyboard chords, which lied on phones. Scrub the known legacy
@@ -2470,102 +2509,89 @@ export default function ZaltzIDE({
     }
   };
 
-  // ✎ EDIT — select code, say the change, THE COPILOT PERFORMS IT (2026-07-28,
-  // user: "with the AI copilot, you must be able to perform the edit"). An
-  // editor's move, not a chat: the reply replaces exactly the selected span,
-  // in place, ⌘Z undoes it as ONE step (CodePane's own history), and while
-  // the room plays the live-room auto-eval lands it seamlessly.
-  /** THE ASK's target. `whole` = the entire pane (⌘K with nothing selected, or
-   *  the ✎ door) — selecting first is a convenience, never a toll. */
-  const [editSel, setEditSel] = useState<{
-    pane: PaneId;
-    start: number;
-    end: number;
-    text: string;
-    whole: boolean;
-  } | null>(null);
-  /** Which pane has the hands (desktop shows both at once). The ✎ door means
-   *  THIS one — a button that always edited the sound would quietly rewrite the
-   *  wrong half while you were working in the picture. */
+  // ── THE CONVERSATION (2026-08-02, the user: "another panel… like a
+  // conversation with an AI just like in Claude — we can talk to it and it can
+  // make changes before our very eyes"). It replaced the ✎ ask, a one-shot
+  // command bar that answered in code and could not be asked a follow-up.
+  //
+  // The room's AI verbs are now exactly two, and they still wear different
+  // clothes (the 07-30 law): the WHISPER offers grey text at the caret (⇥ takes
+  // it, it only ever adds); the CHAT talks, and what it writes lands in the
+  // pane whole. ⌘K is its chord — the same one the ask had, so nobody has to
+  // learn a new one — and the pane's own selection chip hands it a quote.
+  /** Which pane has the hands (desktop shows both at once) — a selection-less
+   *  ⌘K in the sound pane must not hand the picture over by accident. */
   const [focusedPane, setFocusedPane] = useState<PaneId>("strudel");
-  const [editAsk, setEditAsk] = useState("");
-  const [editBusy, setEditBusy] = useState(false);
-  /** Open the ask. `sel` null ⇒ the WHOLE pane is the span — same bar, same
-   *  contract ("rewrite exactly this, smallest change, keep the rest"), it just
-   *  happens to be all of it. */
-  const openEditSel = (
-    pane: PaneId,
-    sel: { text: string; start: number; end: number } | null,
-  ) => {
-    if (spent) return setSheet("tokens");
-    const code = pane === "hydra" ? stateRef.current.hydra : stateRef.current.strudel;
-    if (!sel && !code.trim()) return; // an empty pane has nothing to rework
-    setEditAsk("");
-    setEditSel(
-      sel
-        ? { pane, ...sel, whole: false }
-        : { pane, start: 0, end: code.length, text: code, whole: true },
-    );
-  };
-  const sendEditSel = async () => {
-    const target = editSel;
-    const ask = editAsk.trim();
-    if (!target || !ask || editBusy) return;
-    setEditBusy(true);
+  /** THE PANEL IS FURNITURE, NOT A MODE (2026-08-02). It used to start closed
+   *  every visit, so talking to the room began with pressing something — and a
+   *  door you must open every time reads as a mode you must enter. Now: a desk
+   *  wide enough for three columns OPENS it (the conversation is the point of
+   *  the room), a phone does not (a sheet over the code on arrival would be),
+   *  and after that the room simply remembers how you left it. */
+  const [chatOpen, setChatOpen] = useState(false);
+  useEffect(() => {
+    let want: boolean;
     try {
-      if (!meRef.current?.signedIn && !(await ensureSession())) return;
-      const base =
-        target.pane === "hydra" ? stateRef.current.hydra : stateRef.current.strudel;
-      // The pane may have moved under the ask (auto-eval never does, but the
-      // hands might) — the span must still read exactly as selected.
-      // A SPAN must still read exactly as selected. THE WHOLE PANE cannot go
-      // stale in that sense — it is whatever is there now — so it re-targets
-      // instead of refusing (the hands may have typed since the bar opened).
-      const span = target.whole
-        ? { ...target, start: 0, end: base.length, text: base }
-        : target;
-      if (base.slice(span.start, span.end) !== span.text) {
-        setNotice("The code moved under that selection — select it again.");
-        setEditSel(null);
-        return;
-      }
-      const res = await fetch("/api/edit-sel", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          pane: span.pane,
-          code: base,
-          start: span.start,
-          end: span.end,
-          ask,
-        }),
-      });
-      if (res.status === 402) {
-        void refreshMe();
-        setSheet("tokens");
-        return;
-      }
-      const d = openDeep(
-        (await res.json().catch(() => ({}))) as { code?: string; gone?: boolean },
-      );
-      const out = d.code ?? "";
-      // gone = the copilot judged the right edit is REMOVAL (subtraction is a
-      // first-class move — "remove this layer" splices to nothing).
-      if (!out.trim() && !d.gone) {
-        setNotice("That edit wouldn't build — say it differently.");
-        return;
-      }
-      const next = base.slice(0, span.start) + out + base.slice(span.end);
-      if (target.pane === "hydra") setHydra(next);
-      else setStrudel(next);
-      snapRoom(target.pane, "edit", next, { ask }); // corpus gold — save save save
-      setEditSel(null);
+      const kept = localStorage.getItem(CHAT_OPEN_KEY);
+      want = kept === null ? window.matchMedia("(min-width: 1024px)").matches : kept === "1";
     } catch {
-      setNotice("The edit didn't reach the machine — try again.");
-    } finally {
-      setEditBusy(false);
+      want = false;
     }
-  };
+    if (want) setChatOpen(true);
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_OPEN_KEY, chatOpen ? "1" : "0");
+    } catch {
+      /* the room still works without a memory */
+    }
+  }, [chatOpen]);
+  const [chatSeed, setChatSeed] = useState<ChatSeed | null>(null);
+  const chatSeedNonce = useRef(0);
+  /** Open the conversation. A selection rides along as a quote — never a toll:
+   *  ⌘K with nothing selected simply opens it, and the panes are context either
+   *  way (the machine reads both, always). */
+  const openChat = useCallback(
+    (pane: PaneId, sel: { text: string } | null) => {
+      if (spent) return setSheet("tokens");
+      // A fresh object every time, even with nothing selected: the panel takes
+      // it as "the hands are coming here now" and puts the caret in the
+      // composer — a door that opens onto a field you still have to click is
+      // half a door.
+      setChatSeed({ pane, text: sel?.text ?? "", nonce: ++chatSeedNonce.current });
+      setChatOpen(true);
+    },
+    [spent],
+  );
+  /** WHICH LINES THE MACHINE JUST WROTE, per pane. A whole-pane rewrite lands
+   *  invisibly — a two-character change inside forty lines is a change you did
+   *  not see yourself make — so the pane beds those lines in faint accent until
+   *  you take it back — meaning a real touch: a keystroke (onChange) or a hand
+   *  on the pane (the section's onPointerDown). NOT focus: the sound pane holds
+   *  the focus most of the time anyway (it takes it at load), so a focus-based
+   *  clear fires once at mount and never again — measured, the marks never
+   *  retired. */
+  const [fresh, setFresh] = useState<Record<PaneId, number[] | null>>({
+    strudel: null,
+    hydra: null,
+  });
+  const clearFresh = useCallback((pane: PaneId) => {
+    setFresh((prev) => (prev[pane] ? { ...prev, [pane]: null } : prev));
+  }, []);
+  /** A gated pane, landed. It is a COMPLETE thought — so it skips the live
+   *  room's composing debounce and takes the room at once (landNow), exactly
+   *  like a mute; the pane's own history makes it one ⌘Z. */
+  const writeFromChat = useCallback(
+    (pane: PaneId, code: string, ask: string, fresh: number[]) => {
+      landNow.current = true;
+      draftParked.current = false; // the machine wrote in it — this bench is yours
+      if (pane === "hydra") setHydra(code);
+      else setStrudel(code);
+      setFresh((prev) => ({ ...prev, [pane]: fresh.length ? fresh : null }));
+      snapRoom(pane, "chat", code, { ask }); // corpus gold — save save save
+    },
+    [snapRoom],
+  );
 
   // The run button IS the transport (user's law: hit run, it turns into
   // stop, that is it): `stop` given + active → the same button reads ■ stop.
@@ -2737,19 +2763,27 @@ export default function ZaltzIDE({
             )}
           </button>
         </div>
-        {/* ✎ THE ASK — the door for "change this", always here, at every width.
-            The whisper OFFERS (you take it with ⇥); the ask INSTRUCTS (you say
-            it in words). Two verbs, two affordances — and this one must never
-            be desktop-only: ⌘K is the chord, this is the same door for a thumb.
-            Opens on the SOUND pane's whole code; a selection still narrows it. */}
-        <button
-          onClick={() => openEditSel(focusedPane, null)}
-          className="hidden shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3.5 py-2 text-[13px] text-muted/70 transition hover:text-foreground active:scale-[.97] sm:inline-flex"
-          title="Ask for a change (⌘K) — say it in words and the code is rewritten"
-        >
-          <span aria-hidden className="text-[13px] leading-none">✎</span>
-          edit
-        </button>
+        {/* THE CONVERSATION — the door for everything you would say in words.
+            The whisper OFFERS at the caret (⇥ takes it); this one TALKS, and
+            what it writes lands in the panes while the room runs.
+            IT IS A GLYPH, IN THE FAMILY IT BELONGS TO (2026-08-02): in this bar
+            a WORD-pill is a switch you leave set (Copilot) and a round glyph is
+            a door you push (☰ hits, ⋯). A worded "chat" pill sat beside Copilot
+            wearing identical clothes and identical pink when lit — two objects
+            that look the same and mean different things, which is exactly what
+            read as wonky. And it HIDES while the panel is up: doors hide, STATE
+            never does — the open panel is the state, so a lit pill beside it
+            was saying a thing the eye could already see. */}
+        {!chatOpen && (
+          <button
+            onClick={() => openChat(focusedPane, null)}
+            aria-label="Chat"
+            title="Chat (⌘K) — talk to the room; it writes into the panes as you speak"
+            className="hidden h-9 w-9 shrink-0 place-items-center rounded-full text-muted/60 transition hover:text-foreground active:scale-[.94] sm:grid"
+          >
+            <ChatMark on={false} className="h-[17px] w-[17px]" />
+          </button>
+        )}
         {/* THE LINEUP — the night's structure, one quiet word. It sits AFTER
             the transport (user 07-29: "the first pill should be play"):
             the transport is the control you reach for every few seconds, the
@@ -3061,17 +3095,22 @@ export default function ZaltzIDE({
           visuals
         </button>
         <span className="flex-1" />
-        {/* ✎ THE ASK, on a thumb. ⌘K is the desktop chord; a phone has no
-            chord at all, so the door must be furniture — and it sits in the
-            gap this row already had, costing no width. */}
-        <button
-          onClick={() => openEditSel(mobilePane === "hydra" ? "hydra" : "strudel", null)}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted/70 transition active:scale-[.97]"
-          aria-label="Ask for a change"
-        >
-          <span aria-hidden className="text-[12px] leading-none">✎</span>
-          edit
-        </button>
+        {/* THE CONVERSATION, on a thumb. ⌘K is the desktop chord; a phone has
+            no chord at all, so the door must be furniture — and it sits in the
+            gap this row already had, costing no width. It keeps its WORD here
+            (a phone has no tooltip to fall back on) and, like its desktop twin,
+            stands down while the sheet is up: the sheet's own ✕ is the way
+            back, and a lit pill under an open sheet is state said twice. */}
+        {!chatOpen && (
+          <button
+            onClick={() => openChat(mobilePane === "hydra" ? "hydra" : "strudel", null)}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted/70 transition active:scale-[.97]"
+            aria-label="Chat"
+          >
+            <ChatMark on={false} />
+            chat
+          </button>
+        )}
         <button
           onClick={toggleCopilot}
           className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] transition active:scale-[.97] ${
@@ -3092,9 +3131,15 @@ export default function ZaltzIDE({
             the "alive" tell), and a machined top highlight. The type carries
             its own shadow for bright frames — see .code-pane pre. */}
         <section
+          /* With the conversation up, the sound gives it the room — on a desk
+             wide enough for three columns, you watch the pane change beside
+             the sentence that changed it. */
           className={`relative min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,.09),inset_0_-1px_0_rgba(255,255,255,.03)] backdrop-blur-2xl backdrop-saturate-[1.6] transition focus-within:border-accent/30 sm:flex sm:w-[58%] ${
-            mobilePane === "strudel" ? "flex w-full" : "hidden"
-          }`}
+            chatOpen ? "lg:w-[40%]" : ""
+          } ${mobilePane === "strudel" ? "flex w-full" : "hidden"}`}
+          /* A HAND ON THE PANE RETIRES THE MACHINE'S MARKS — you have seen
+             what it wrote, and the code is yours again. */
+          onPointerDown={() => clearFresh("strudel")}
         >
           {ghost?.pane === "strudel" &&
             whisperChip(() => strudelPane.current?.take())}
@@ -3104,6 +3149,7 @@ export default function ZaltzIDE({
             onChange={(v) => {
               if (ghost?.pane === "strudel") killGhost();
               draftParked.current = false; // touched it → it's your bench now
+              clearFresh("strudel"); // a keystroke of your own retires the machine's marks
               setStrudel(v);
             }}
             onRun={() => void runMusic()}
@@ -3123,8 +3169,8 @@ export default function ZaltzIDE({
             onTakeHint={hit ? undefined : seedMusic}
             onCaretIdle={(ctx) => void requestGhost("strudel", ctx)}
             onExplain={(sel) => void explainSel("strudel", sel)}
-            onEditSel={(sel) => openEditSel("strudel", sel)}
-            onAsk={(sel) => openEditSel("strudel", sel)}
+            onAsk={(sel) => openChat("strudel", sel)}
+            fresh={fresh.strudel}
             onFocusPane={() => setFocusedPane("strudel")}
             onMuteToggle={() => {
               landNow.current = true;
@@ -3151,6 +3197,7 @@ export default function ZaltzIDE({
           className={`relative min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-black/30 shadow-[inset_0_1px_0_rgba(255,255,255,.09),inset_0_-1px_0_rgba(255,255,255,.03)] backdrop-blur-2xl backdrop-saturate-[1.6] transition focus-within:border-accent/30 sm:flex ${
             mobilePane === "hydra" ? "flex w-full" : "hidden"
           }`}
+          onPointerDown={() => clearFresh("hydra")}
         >
           {ghost?.pane === "hydra" &&
             whisperChip(() => hydraPane.current?.take())}
@@ -3160,6 +3207,7 @@ export default function ZaltzIDE({
             onChange={(v) => {
               if (ghost?.pane === "hydra") killGhost();
               draftParked.current = false; // touched it → it's your bench now
+              clearFresh("hydra"); // a keystroke of your own retires the machine's marks
               setHydra(v);
             }}
             onRun={runVisuals}
@@ -3177,8 +3225,8 @@ export default function ZaltzIDE({
             onTakeHint={hit ? undefined : seedVisuals}
             onCaretIdle={(ctx) => void requestGhost("hydra", ctx)}
             onExplain={(sel) => void explainSel("hydra", sel)}
-            onEditSel={(sel) => openEditSel("hydra", sel)}
-            onAsk={(sel) => openEditSel("hydra", sel)}
+            onAsk={(sel) => openChat("hydra", sel)}
+            fresh={fresh.hydra}
             onFocusPane={() => setFocusedPane("hydra")}
             /* Same rule as the sound pane: a hit brought its own light, and a
                canned osc() would only fight it. */
@@ -3195,6 +3243,34 @@ export default function ZaltzIDE({
             }
           />
         </section>
+        {/* ── THE CONVERSATION — a real third column from lg up, a glass sheet
+            on the bottom edge below that. It reads both panes, answers in
+            words, and writes whole panes back into them. ────────────────── */}
+        <RoomChat
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          /* Read at SEND time, never from render — the hands move while the
+             machine is talking, and the code it answers must be the live one. */
+          room={() => ({
+            strudel: stateRef.current.strudel,
+            hydra: stateRef.current.hydra,
+            playing: stateRef.current.playing,
+            hit: hitRef.current
+              ? { title: hitRef.current.title, program: hitRef.current.program }
+              : null,
+          })}
+          onWrite={writeFromChat}
+          onSpent={() => {
+            void refreshMe();
+            setSheet("tokens");
+          }}
+          ensureSession={async () =>
+            !!meRef.current?.signedIn || (await ensureSession())
+          }
+          spent={spent}
+          seed={chatSeed}
+          kbInset={kbInset}
+        />
       </div>
 
       {/* ── errors / notices ──────────────────────────────────────────────
@@ -3258,16 +3334,6 @@ export default function ZaltzIDE({
       {/* ── the lesson — ✦ explain's answer: the selected line quoted, then
           what it does to the ear (or the eye), in plain words. A capsule like
           the error chip's; ✕ closes it (✕ = dismiss, everywhere). */}
-      {/* ✎ THE ASK — the selection edit's command bar (07-28, "it must fuck
-          cleanly"): ONE machined glass capsule floating centre-bottom, the
-          house cmdbar idiom — pink-lit rim, inset crown, the span in mono
-          behind a hairline, your words in the middle, the orb'd word spends.
-          Rides above the shaker, lifts over the phone keyboard, pill-pops in.
-          Esc or ✕ lets it go; nothing outside the selection is ever touched.
-          Centred by INSETS, never transform — the pill-pop entrance owns the
-          transform channel (its final keyframe stomped a translateX centring,
-          seen live: the bar drifted off the right edge); the keyboard lift
-          rides `bottom` for the same reason. */}
       {/* THE SHOW — bottom right (2026-07-30, the user). It sat beside the
           room's name for a day, which put a thing you do ONCE next to the way
           home; a fullscreen control belongs where every player in the world
@@ -3287,7 +3353,15 @@ export default function ZaltzIDE({
              which is a rumour of a button, not a button. Now it wears the
              room's own glass: a machined circle with a rim, an inset crown and
              a real hit area, so it reads on any frame the hydra throws. */
-          className={`ide-live group fixed z-[19] grid h-11 w-11 place-items-center rounded-full border backdrop-blur-2xl backdrop-saturate-[1.6] transition active:scale-[.94] ${
+          /* THE CHAT OWNS THIS CORNER WHILE IT IS OPEN. Its composer lands on
+             exactly this spot at every width (a sheet on the bottom edge, a
+             column on the right), and two glass objects on one corner is a
+             pile, not a room — the send button was measurably ON TOP of this
+             one. Nothing is lost: the show hides every panel including the
+             chat, so you were never going to enter it mid-sentence. */
+          className={`ide-live group fixed z-[19] h-11 w-11 place-items-center rounded-full border backdrop-blur-2xl backdrop-saturate-[1.6] transition active:scale-[.94] ${
+            chatOpen ? "hidden" : "grid"
+          } ${
             show
               ? "border-accent/40 bg-accent/[0.14] text-accent-strong shadow-[0_0_34px_-8px_rgba(224,49,156,.75),inset_0_1px_0_rgba(255,255,255,.14)]"
               : "border-white/[0.16] bg-black/45 text-foreground/80 shadow-[0_6px_22px_-8px_rgba(0,0,0,.75),inset_0_1px_0_rgba(255,255,255,.11)] hover:border-white/[0.26] hover:bg-black/60 hover:text-foreground"
@@ -3321,126 +3395,6 @@ export default function ZaltzIDE({
             )}
           </svg>
         </button>
-      {editSel && (
-        <div
-          className="pill-pop fixed inset-x-3 z-30 mx-auto max-w-xl transition-[bottom] duration-150"
-          style={{
-            /* SITS ON THE BOTTOM, like every composer a thumb has ever used.
-               The +4.4rem this used to carry was clearance for the salt-shaker
-               FAB that floated bottom-right — and that FAB was deleted 07-29,
-               so the bar has been hovering 70px above nothing ever since, which
-               is exactly the odd float you feel on a phone. The keyboard lift
-               still rides `bottom` (never transform — pill-pop owns that
-               channel), so with the keyboard up it rests right on top of it. */
-            bottom: `calc(max(0.75rem, env(safe-area-inset-bottom)) + ${kbInset}px)`,
-          }}
-        >
-          {/* GLASS, BUT IT SITS OVER CODE. The panes' own /30 glass reads
-              beautifully over a picture; this bar lands on dense, bright text,
-              and at /60 the code behind it climbed straight through the target
-              line and the words you were typing (seen at 375px). /88 keeps the
-              blur and the saturation — still glass, still alive — while the one
-              thing that must be legible, is. */}
-          <div className="overflow-hidden rounded-[22px] border border-white/[0.14] bg-black/[0.88] shadow-[0_0_80px_-20px_rgba(224,49,156,.5),0_24px_60px_-24px_rgba(0,0,0,.85),inset_0_1px_0_rgba(255,255,255,.1)] backdrop-blur-2xl backdrop-saturate-[1.6]">
-            {/* THE THREAD — the house gradient along the top edge, the grains
-                card's own move: this is a klappn object, said in one hairline
-                instead of a slab of pink. */}
-            <div
-              aria-hidden
-              className="h-[2px] w-full"
-              style={{ backgroundImage: "linear-gradient(90deg, #ff63c1, #e0319c 55%, #b3126f)" }}
-            />
-            {/* WHAT WILL CHANGE — its own line, so it can be READ instead of
-                squeezed to 24% beside an input. The consequence is legible
-                before a word is typed, which is the whole point of the row. */}
-            <div className="flex items-center gap-2 px-4 pt-3">
-              <span
-                aria-hidden
-                className="shrink-0 bg-gradient-to-br from-[#ff63c1] to-[#b3126f] bg-clip-text text-[13px] leading-none text-transparent"
-              >
-                ✎
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[12px] text-muted/70">
-                rewriting{" "}
-                {editSel.whole ? (
-                  <span className="text-accent-strong/85">
-                    {editSel.pane === "hydra" ? "the whole picture" : "the whole thing"}
-                  </span>
-                ) : (
-                  <span className="font-mono text-foreground/70">{editSel.text}</span>
-                )}
-              </span>
-              <button
-                onClick={() => setEditSel(null)}
-                className="-mr-1.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-[12px] text-muted/50 transition hover:bg-white/[0.07] hover:text-foreground active:scale-[.92]"
-                aria-label="Let it go"
-                title="Let it go (Esc)"
-              >
-                ✕
-              </button>
-            </div>
-            {/* THE WORDS — the hero of the object. Full width, nothing stealing
-                from it; the verb sits inside the field the way a send sits in a
-                message box, so the eye never leaves the line it is typing. */}
-            <div className="flex items-center gap-2 px-3 pb-3 pt-2">
-              <input
-                autoFocus
-                value={editAsk}
-                onChange={(e) => setEditAsk(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void sendEditSel();
-                  if (e.key === "Escape") setEditSel(null);
-                }}
-                placeholder={
-                  editSel.pane === "hydra"
-                    ? "darker · slower · one chain less"
-                    : "quieter · half time · lose the hats"
-                }
-                disabled={editBusy}
-                /* 16px on touch — under that, iOS zooms the whole page into the
-                   input and the room lurches. Inline outline:none — the GLOBAL
-                   :focus-visible ring boxes the input inside its own capsule,
-                   and an inline style beats the unlayered global rule. */
-                style={{ outline: "none" }}
-                className="min-w-0 flex-1 rounded-2xl bg-white/[0.07] px-3.5 py-2.5 text-[16px] text-foreground caret-accent transition placeholder:text-muted/35 focus:bg-white/[0.08] disabled:opacity-60 sm:text-[13.5px]"
-              />
-              <button
-                onClick={() => void sendEditSel()}
-                disabled={editBusy || !editAsk.trim()}
-                aria-label="Make the change"
-                title="Make the change (↵)"
-                className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-2xl text-white transition active:scale-[.94] disabled:opacity-30"
-                style={{
-                  backgroundImage: editAsk.trim()
-                    ? "linear-gradient(165deg, #ff63c1 0%, #e0319c 55%, #b3126f 100%)"
-                    : undefined,
-                  backgroundColor: editAsk.trim() ? undefined : "rgba(255,255,255,.06)",
-                  boxShadow: editAsk.trim()
-                    ? "0 2px 12px -2px rgba(179,18,111,.85), 0 0 34px -8px rgba(224,49,156,.8), inset 0 1px 0 rgba(255,255,255,.4)"
-                    : undefined,
-                }}
-              >
-                {editBusy ? (
-                  /* IT IS WORKING — the mark itself breathes; no word, no
-                     spinner borrowed from someone else's software. */
-                  <span className="h-2 w-2 animate-ping rounded-full bg-white/90" />
-                ) : (
-                  /* An arrow, in real geometry — the one gesture: send it. */
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <path
-                      d="M5 12h13M13 6l6 6-6 6"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {lesson && (
         <div className="mt-2 flex items-start gap-2.5 rounded-2xl border border-accent/25 bg-black/55 px-3.5 py-2.5 shadow-[0_0_44px_-16px_rgba(224,49,156,.45)] backdrop-blur-xl sm:mx-auto sm:max-w-2xl">
           <span className="mt-0.5 shrink-0 rounded-full bg-accent/[0.14] px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-accent-strong">

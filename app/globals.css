@@ -937,6 +937,26 @@ body.ide-stage.ide-solo #k1-canvas {
   filter: saturate(0.15);
 }
 
+/* JUST WRITTEN BY THE MACHINE — the conversation landed these lines. A faint
+   accent bed, no animation, no border: the eye finds what changed without
+   anything moving (the pink eval WASH is dead and stays dead — that was
+   feedback that a send happened, on the whole pane, every time; this is a
+   record of WHICH lines are new, and it leaves the moment the pane takes the
+   hands back). box-decoration-break so a soft-wrapped line is one continuous
+   bed instead of a stack of ragged boxes. */
+.tok-new {
+  background: linear-gradient(
+    90deg,
+    rgba(224, 49, 156, 0.16),
+    rgba(224, 49, 156, 0.07) 65%,
+    rgba(224, 49, 156, 0.03)
+  );
+  box-shadow: inset 2px 0 0 rgba(255, 99, 193, 0.75);
+  border-radius: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
 /* The copilot's pulse — while a completion is in flight the NATIVE caret
    itself breathes pink (user 2026-07-26, twice: no glyph inside the text, and
    never a second bar — a marker drawn in the highlight twin put TWO cursors on

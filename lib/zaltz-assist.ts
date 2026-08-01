@@ -80,36 +80,161 @@ THE SELECTION TO EXPLAIN:
 ${sel}`;
 }
 
-// ── THE SELECTION EDIT ───────────────────────────────────────────────────────
-// Select a span, say the change, the copilot rewrites EXACTLY that span
-// (2026-07-28, user: "with the AI copilot, you must be able to perform the
-// edit"). An editor's move, not a chat: the reply is the replacement text and
-// nothing else; the route gates it differentially like a ghost.
+// ── THE CONVERSATION ─────────────────────────────────────────────────────────
+// The room's third panel (2026-08-02, user: "a conversation with an AI just
+// like in Claude… it can make changes before our very eyes"). One agent that
+// TALKS and WRITES: it answers in plain words and, when the ask is a change,
+// emits the whole new pane between markers — which the route gates and the
+// browser lands in the pane, live, mid-set.
+//
+// Whole panes, not diffs, on purpose: a fragment has to be matched back into a
+// file that the hands may have moved under it, and a mis-splice in a room that
+// is PLAYING is heard. A whole pane either parses or it doesn't.
 
-const EDIT_SEL_CONTRACT = `You are the selection EDIT in a live-coding IDE. You get a FILE, a SELECTED SPAN from it, and an instruction. Output ONLY the code that replaces the selected span — raw code, no prose, no fences, nothing from outside the span. Make the SMALLEST change that fulfils the instruction; match the file's own style and vocabulary; inside the span, keep everything the instruction didn't ask about byte-identical. The replacement must splice cleanly into the file exactly where the span sat (same expression position — never open or orphan brackets across the span's edges). Quieting is a first-class edit: "quieter" / "sparser" / "strip the reverb" mean REDUCE — lower gains, remove methods, thin the pattern; to mute a whole layer, prefix its \`$:\` as \`_$:\` (the mute idiom). If the right change is to REMOVE the span entirely, output exactly [gone] and nothing else. If the instruction cannot apply to this selection, output the span unchanged.`;
+const CHAT_CONTRACT = `You are the other half of a live-coding room, talking with the person at the desk. Two panes are open in front of you both: THE SOUND (a Strudel loop) and THE PICTURE (a Hydra sketch). What is in them is playing RIGHT NOW, and anything you write lands in the room within a breath — write as if someone is listening, because they are.
 
-export const EDIT_SEL_STRUDEL_SYSTEM = `${EDIT_SEL_CONTRACT}
+TALK LIKE A BANDMATE: plain sentences, concrete, SHORT — two or three at most, often one. No headings, no bullet lists, no markdown, no code fences in your words, and never a line-by-line walkthrough unless you are asked for one. Name what the ear will hear or the eye will see ("a longer tail on the hats", "the picture breathes with the bass"), never a changelog of method names. When they ask a question, answer it — a question is not a request for new code.
 
-The file is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer. Stay in the file's key and grid.
+TO CHANGE THE ROOM, WRITE THE PANE. Put the WHOLE new pane between its own markers, each marker alone on its line, after your words:
+[sound]
+…the entire sound pane…
+[/sound]
+[picture]
+…the entire picture pane…
+[/picture]
+Raw code between the markers — no fences, no prose (comments that belong in the file are fine). Emit ONLY a pane you actually changed, and inside it keep every line the ask did not touch BYTE-IDENTICAL: this is someone's live take, not your draft. What you emit REPLACES that pane, so it must be whole and runnable by itself. Never write a pane you were not asked to touch, and never write one just to show your work.
 
-${STRUDEL_SPEC}`;
+Silencing is a first-class change: prefix a layer's \`$:\` as \`_$:\` to mute it without losing it (a \`_$:\` layer is staged — it sits there silent until they wake it). Removing a layer means it is simply gone from the pane you write.`;
 
-export const EDIT_SEL_HYDRA_SYSTEM = `${EDIT_SEL_CONTRACT}
+export const CHAT_SYSTEM = `${CHAT_CONTRACT}
 
-The file is a Hydra sketch for this IDE: chains ending in .out() (NOTHING chains after .out()), hydra's own clocks frozen, all motion via H(<strudel signal>).
+THE SOUND PANE is a Strudel loop: \`setcpm(BPM/beatsPerBar)\` first, then one \`$:\` line per layer. Stay in the room's key, tempo and grid unless they ask you to move it.
+
+THE PICTURE PANE is a Hydra sketch for this room: chains ending in .out() (NOTHING chains after .out()), hydra's own clocks frozen, all motion via H(<strudel signal>). Plain JS is part of the dialect (a control bus of \`let x = H(saw.slow(16))\` thunks, arrow functions, Math, arrays). More is not better in a picture: two or three chains fill a frame. Every H() period should divide the loop that is playing.
+
+${STRUDEL_SPEC}
 
 ${HYDRA_SPEC}`;
 
-/** The selection-edit call's user block. */
-export function editSelUserText(code: string, sel: string, ask: string): string {
-  return `THE FILE:
-${code}
+/** One turn in the room's conversation, as the client keeps it. */
+export interface ChatTurn {
+  role: "them" | "you";
+  text: string;
+}
 
-THE SELECTED SPAN (replace exactly this):
-${sel}
+/** The conversation call's user block. The PANES are the state — the machine's
+ *  own past code is stripped out of the transcript (it is either in the pane
+ *  above or it was undone), which keeps a long conversation cheap and stops an
+ *  old take arguing with the live one. */
+export function chatUserText(o: {
+  strudel: string;
+  hydra: string;
+  hit?: { title: string; program: string } | null;
+  playing: boolean;
+  selection?: { pane: "strudel" | "hydra"; text: string } | null;
+  history: ChatTurn[];
+  message: string;
+}): string {
+  const parts = [
+    `THE SOUND PANE:\n${o.strudel.trim() || "(empty)"}`,
+    `THE PICTURE PANE:\n${o.hydra.trim() || "(empty)"}`,
+  ];
+  if (o.hit?.program) {
+    parts.push(
+      `THE HIT PLAYING UNDER THE BENCH — "${o.hit.title}". It is not in either pane and it is not yours to change; the sound pane's layers play OVER it, so answer in its key, its tempo and its grid:\n${o.hit.program}`,
+    );
+  }
+  parts.push(
+    o.playing
+      ? "THE ROOM IS PLAYING — what you write is heard the moment it lands."
+      : "THE ROOM IS STOPPED — what you write waits for them to press play.",
+  );
+  if (o.selection?.text.trim()) {
+    parts.push(
+      `THEY HAVE SELECTED, in the ${o.selection.pane === "hydra" ? "picture" : "sound"} pane:\n${o.selection.text}`,
+    );
+  }
+  if (o.history.length) {
+    parts.push(
+      `EARLIER IN THIS CONVERSATION (oldest first):\n${o.history
+        .map((t) => `${t.role}: ${t.text}`)
+        .join("\n")}`,
+    );
+  }
+  parts.push(`THEY SAY:\n${o.message}`);
+  return parts.join("\n\n");
+}
 
-THE INSTRUCTION:
-${ask}`;
+/** A chat answer, split as it streams: prose out one way, pane code the other.
+ *
+ *  The markers arrive in pieces (a delta can end mid-`[/sou`), so prose is held
+ *  back by the length of the longest marker until it is proven not to be one —
+ *  that lag is invisible at streaming speed and it is what keeps a half-written
+ *  `[sound]` from flashing up as words. */
+export function makeChatSplitter(sink: {
+  say: (text: string) => void;
+  open: (pane: "strudel" | "hydra") => void;
+  close: (pane: "strudel" | "hydra", code: string) => void;
+}) {
+  const OPEN = { "[sound]": "strudel", "[picture]": "hydra" } as const;
+  const CLOSE = { strudel: "[/sound]", hydra: "[/picture]" } as const;
+  const HOLD = 10; // "[/picture]".length — the longest marker
+  let buf = "";
+  let pane: "strudel" | "hydra" | null = null;
+  let code = "";
+
+  const pump = (final: boolean) => {
+    for (;;) {
+      if (!pane) {
+        const m = buf.match(/\[(sound|picture)\]\r?\n?/);
+        if (!m) {
+          const safe = final ? buf.length : Math.max(0, buf.length - HOLD);
+          if (safe > 0) {
+            sink.say(buf.slice(0, safe));
+            buf = buf.slice(safe);
+          }
+          return;
+        }
+        const at = m.index ?? 0;
+        if (at > 0) sink.say(buf.slice(0, at));
+        pane = OPEN[`[${m[1]}]` as keyof typeof OPEN];
+        code = "";
+        buf = buf.slice(at + m[0].length);
+        sink.open(pane);
+        continue;
+      }
+      const end = buf.indexOf(CLOSE[pane]);
+      if (end < 0) {
+        const safe = final ? buf.length : Math.max(0, buf.length - HOLD);
+        if (safe > 0) {
+          code += buf.slice(0, safe);
+          buf = buf.slice(safe);
+        }
+        if (!final) return;
+        // The stream ended mid-pane (a cap-truncated answer). Close it anyway —
+        // the gate decides whether a half-written pane is shippable, and it
+        // won't be, which is the honest outcome.
+        sink.close(pane, code);
+        pane = null;
+        return;
+      }
+      code += buf.slice(0, end);
+      buf = buf.slice(end + CLOSE[pane].length).replace(/^\r?\n/, "");
+      sink.close(pane, code);
+      pane = null;
+      code = "";
+    }
+  };
+
+  return {
+    push(delta: string) {
+      buf += delta;
+      pump(false);
+    },
+    end() {
+      pump(true);
+    },
+  };
 }
 
 /** The fix call's user block. */

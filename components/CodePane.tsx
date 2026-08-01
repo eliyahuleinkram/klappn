@@ -21,8 +21,8 @@ import {
  * THE COPILOT'S GHOST (2026-07-26): a completion renders as grey ghost text at
  * the caret. Grey means ONE thing here — "this would be added". (A TRIM
  * whisper, where grey meant "this line would go", was removed 2026-07-30: the
- * same affordance must never carry opposite meanings. Subtraction is the ✎
- * ask's job now — ⌘K, in words.) — ⇥ takes it, Esc (or just typing on) dismisses it. Ghosts may be
+ * same affordance must never carry opposite meanings. Subtraction is the
+ * CONVERSATION's job now — ⌘K, in words.) — ⇥ takes it, Esc (or just typing on) dismisses it. Ghosts may be
  * MULTI-LINE anywhere in the file: the ghost lives only in the <pre>, and
  * since the <pre> is ALL the visible text (the textarea's own text is
  * transparent), a mid-file ghost pushes the picture down exactly like VS Code
@@ -75,16 +75,24 @@ function highlightCore(code: string): string {
  * The `_$:` label keeps its own token colour underneath so the idiom stays
  * legible to anyone reading the code as code.
  */
-function highlightLines(code: string): string {
+function highlightLines(code: string, fresh?: ReadonlySet<number> | null): string {
   // Split-and-rejoin on "\n" only: highlightCore is line-anchored for labels
   // (^ with /m), so feeding it one line at a time preserves every token class.
+  //
+  // `fresh` = 1-based line numbers the MACHINE just wrote (the conversation's
+  // landed pane). They wear a faint accent bed until the hands touch the pane —
+  // a whole-pane rewrite lands invisibly otherwise, and an edit you cannot see
+  // is an edit you did not make. NOT a flash: it does not animate and it is not
+  // feedback that a send happened (that wash is dead, 2026-07-28) — it is a
+  // record of WHICH lines are new, and it leaves when you take the pane back.
   return code
     .split("\n")
-    .map((line) =>
-      MUTED_LINE.test(line)
-        ? `<span class="tok-off">${highlightCore(line)}</span>`
-        : highlightCore(line),
-    )
+    .map((line, i) => {
+      const cls = `${MUTED_LINE.test(line) ? "tok-off " : ""}${
+        fresh?.has(i + 1) ? "tok-new" : ""
+      }`.trim();
+      return cls ? `<span class="${cls}">${highlightCore(line)}</span>` : highlightCore(line);
+    })
     .join("\n");
 }
 
@@ -137,15 +145,18 @@ const CodePane = forwardRef<
     /** ✦ explain — select a stretch of code and a quiet chip floats past it;
      *  one tap asks the machine to teach that fragment (strictly on-demand). */
     onExplain?: (sel: string) => void;
-    /** Selection EDIT — the copilot rewrites exactly the selected span
-     *  (07-28): the chip's second segment hands the span up. */
-    onEditSel?: (sel: { text: string; start: number; end: number }) => void;
+    /** 1-based line numbers the CONVERSATION just wrote into this pane. They
+     *  wear a faint accent bed so a landed rewrite is VISIBLE — the parent
+     *  clears them the moment the pane takes the hands back. */
+    fresh?: number[] | null;
     /** A layer was just silenced or woken. The edit is COMPLETE by definition,
      *  so the room lands it without the composing debounce (see landNow). */
     onMuteToggle?: () => void;
-    /** ⌘K — THE ASK. Opens the edit bar for whatever is selected, or for the
-     *  WHOLE pane when nothing is (null). Selecting first is a convenience,
-     *  never a toll. */
+    /** ⌘K — THE CONVERSATION. Opens the chat, carrying whatever is selected as
+     *  a quote (null = nothing selected — the machine reads both panes either
+     *  way). The selection chip's second segment is the same door for a thumb.
+     *  (Until 2026-08-02 this opened a one-shot ✎ ask bar that answered in
+     *  code and could not be asked a follow-up.) */
     onAsk?: (sel: { text: string; start: number; end: number } | null) => void;
     /** This pane took the hands. On desktop BOTH panes are on screen at once,
      *  so any door that says "edit" without naming a pane has to mean the one
@@ -167,13 +178,20 @@ const CodePane = forwardRef<
     onTakeHint,
     onCaretIdle,
     onExplain,
-    onEditSel,
+    fresh,
     onMuteToggle,
     onAsk,
     onFocusPane,
   },
   handleRef,
 ) {
+  /** The machine's fresh lines as a set — memoised on the array's own contents
+   *  so a parent re-render never re-highlights the whole pane for nothing. */
+  const freshSet = useMemo(
+    () => (fresh?.length ? new Set(fresh) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fresh?.join(",")],
+  );
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -322,7 +340,7 @@ const CodePane = forwardRef<
   const measureSelection = useCallback(() => {
     const ta = taRef.current;
     const content = contentRef.current;
-    if (!ta || !content || (!onExplain && !onEditSel) || ghost) return setSelChip(null);
+    if (!ta || !content || (!onExplain && !onAsk) || ghost) return setSelChip(null);
     const start = ta.selectionStart ?? 0;
     const end = ta.selectionEnd ?? 0;
     if (end - start < 4) return setSelChip(null);
@@ -356,7 +374,7 @@ const CodePane = forwardRef<
     const last = rects[rects.length - 1];
     if (!last) return setSelChip(null);
     const box = content.getBoundingClientRect();
-    const CHIP_W = onEditSel ? 168 : 96;
+    const CHIP_W = onAsk ? 160 : 96;
     const CHIP_H = 28;
     const fitsBeside =
       last.right - box.left + 10 + CHIP_W <= content.clientWidth - 4;
@@ -377,7 +395,7 @@ const CodePane = forwardRef<
             ),
           }),
     });
-  }, [ghost, onExplain, onEditSel]);
+  }, [ghost, onExplain, onAsk]);
 
   // With a ghost up, the twin renders before + ghost + after; the textarea
   // knows nothing about it (alignment guaranteed by the parent's truncation
@@ -399,8 +417,8 @@ const CodePane = forwardRef<
     // highlightCore deliberately: they slice the buffer MID-LINE to seat the
     // grey, and the take-pill / explain-chip geometry walks those exact text
     // nodes — the dimming resumes the moment the whisper retires.
-    return highlightLines(value) + "\n";
-  }, [value, ghost]);
+    return highlightLines(value, freshSet) + "\n";
+  }, [value, ghost, freshSet]);
 
   // Keep the caret's line inside the scroll viewport while typing. Reads the
   // DOM, never the prop — a stale closure value here computed the caret's
@@ -935,20 +953,22 @@ const CodePane = forwardRef<
                   ✦ explain
                 </button>
               )}
-              {onExplain && onEditSel && (
+              {onExplain && onAsk && (
                 <span className="w-px bg-white/[0.14]" aria-hidden />
               )}
-              {onEditSel && (
+              {onAsk && (
+                /* …or TALK about it: the span rides into the conversation as a
+                   quote, so "make this dirtier" has a "this". */
                 <button
                   onPointerDown={(e) => {
                     e.preventDefault();
                     const c = selChip;
                     setSelChip(null);
-                    onEditSel({ text: c.text, start: c.start, end: c.end });
+                    onAsk({ text: c.text, start: c.start, end: c.end });
                   }}
                   className="px-3 py-1.5 transition hover:bg-white/[0.06] hover:text-accent-strong active:scale-[.96]"
                 >
-                  ✎ edit
+                  ✎ ask
                 </button>
               )}
             </span>

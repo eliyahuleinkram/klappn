@@ -220,6 +220,12 @@ export interface CompleteOpts {
    *  layer pays the write again. A 1h write costs 2x input vs 1.25x for 5m, so it
    *  only pays when the prefix is genuinely re-read many times — see ROUTE. */
   cacheTtl?: "5m" | "1h";
+  /** LIVE TEXT — called with each visible-text delta as it arrives, so a route
+   *  can forward the answer to the browser WHILE the model writes it (the
+   *  room's chat). Never called for thinking tokens, never for a retried
+   *  attempt's discarded prefix (retries only happen before the first event).
+   *  Must not throw; a delta sink that fails would kill a healthy call. */
+  onDelta?: (text: string) => void;
   /** PROMPT-CACHE SPLIT: a STABLE user-prompt prefix (e.g. the loop brief) that
    *  repeats byte-identically across sibling calls while the rest of the user
    *  text varies (the layer loop's growing prior-tracks list). Rendered as its
@@ -273,8 +279,13 @@ export const ROUTE = {
   // ── THE ROOM'S FAST LANE — Opus 5, thinking OFF. A whisper that arrives late
   //    is a wrong whisper; Opus keeps the dialect straight at no-think latency.
   ghost: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 640 } as CompleteOpts,
-  assist: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 1200 } as CompleteOpts, // ✎ edit, a selected span
-  rework: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 8000 } as CompleteOpts, // ✎ edit, the WHOLE pane (same agent, a file-sized answer)
+  // THE CONVERSATION (2026-08-02) — words back, and whole panes rewritten in
+  // the same breath. It replaced the ✎ ask's two budgets (assist 1200 for a
+  // span, rework 8000 for a file) when the one-shot command bar became a
+  // conversation. Thinking OFF for the same reason as its neighbours: this
+  // answer is WATCHED arriving, and 8000 is the hard ceiling a no-thinking call
+  // can even ask for (effort drops to "low", whose tier budget IS 8000).
+  chat: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 8000 } as CompleteOpts,
   fix: { provider: "anthropic", model: "opus", thinking: false, maxTokens: 4000 } as CompleteOpts, // ✦ one-tap fix
 
   // ── NAME / DECIDE ONE BIT — Sonnet 5, thinking OFF. Answer-only work; a
@@ -644,6 +655,17 @@ async function completeAnthropic(
     // QUIET one (long thinking gaps) when diagnosing stalls from `wrangler tail`.
     firstEventMs = -1;
     maxGapMs = 0;
+    // THE ANSWER, AS IT IS WRITTEN — the chat forwards these straight to the
+    // browser. Guarded: a throwing sink must never take down a live call.
+    if (opts?.onDelta) {
+      stream.on("text", (t: string) => {
+        try {
+          opts.onDelta?.(t);
+        } catch {
+          /* the sink's problem, not the stream's */
+        }
+      });
+    }
     stream.on("streamEvent", () => {
       const now = Date.now();
       if (firstEventMs < 0) {
