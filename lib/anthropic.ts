@@ -1699,6 +1699,11 @@ export async function generateHydra(
     intent?: string;
     key?: string;
     bpm?: number;
+    /** The song's meter (plan.timeSignature). One cycle is one BAR, so the
+     *  loop-sync already lands in any meter — this tells the model how many
+     *  beats are inside that bar, which is what it needs to phrase an odd or
+     *  compound meter instead of pulsing in fours over a 7/8 loop. */
+    timeSignature?: string;
     /** The music loop's TRUE length in cycles — the visual must return home every
      *  this-many cycles. Enables the loop-sync gate + tells the model the divisors. */
     loopCycles?: number;
@@ -1722,8 +1727,15 @@ export async function generateHydra(
   if (mockEnabled(cfg?.mock))
     return `osc(4, 0, 1.25)\n  .rotate(H(saw.slow(4).range(0, 6.283)))\n  .modulate(noise(1.4, 0), 0.1)\n  .modulateScale(noise(0.6, 0), 0.06)\n  .kaleid(6)\n  .color(1.0, 0.55, 0.7)\n  .hue(H(sine.slow(2).range(-0.03, 0.03)))\n  .saturate(1.18)\n  .out()`;
   const n = args.loopCycles && args.loopCycles > 0 ? args.loopCycles : 0;
+  const ts = (args.timeSignature || "").trim();
+  const beats = ts ? Number(ts.split("/")[0]) : 0;
   const loopLine = n
-    ? `This loop is ${n} cycles long — the visual must return to its exact starting frame every ${n} cycles.`
+    ? `This loop is ${n} cycles long — the visual must return to its exact starting frame every ${n} cycles.` +
+      // One cycle IS one bar, so the return-home gate lands in any meter on its
+      // own. Spelling the beats out is only worth the words when the meter is
+      // NOT four — there it's what lets the piece be PHRASED, since a pulse in
+      // fours over a seven-beat bar drifts against the music all night.
+      (beats > 1 && beats !== 4 ? ` Each cycle is one BAR of ${ts} — ${beats} beats, so phrase in ${beats}, never in four.` : "")
     : "";
   const continuity = args.priorHydra
     ? `\nThis section joins a MULTI-PART song. The ${args.neighbourLabel || "adjacent"} section's visuals are below — CONTINUE this visual language (same palette, motifs, energy) and EVOLVE it for this section. Do NOT restart from a blank idea:\n${args.priorHydra}`
@@ -1732,7 +1744,7 @@ export async function generateHydra(
     `THE MUSIC (Strudel) these visuals must sync to:`,
     music,
     ``,
-    `GENRE: ${args.genre || "—"}   KEY: ${args.key || "—"}   BPM: ${args.bpm || "—"}`,
+    `GENRE: ${args.genre || "—"}   KEY: ${args.key || "—"}   BPM: ${args.bpm || "—"}   METER: ${ts || "4/4"}`,
     args.intent ? `MOOD / INTENT: ${args.intent}` : "",
     loopLine,
     continuity,

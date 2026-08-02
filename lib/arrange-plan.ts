@@ -394,11 +394,11 @@ const TURN_BREAK_SYSTEM = `You decide ONE TURN in an instrumental song: the mome
 Choose the drum fill that breaks the first section into the second, or NOTHING: a bare turn is a real answer, and a long rise often wants one.
 
 Respond with ONLY a JSON object, no markdown:
-{"tpl": "<template key>", "bars": how many CLOSING bars of the outgoing section the fill occupies (1-4), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8}
+{"tpl": "<template key>", "bars": how many CLOSING bars of the outgoing section the fill occupies (1-8), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8}
 or exactly {"tpl": null} for a bare turn.
 
 Templates: roll (snare roll) · run (tom run) · build (doubling roll) · stutter (kick stutter) · lift (rising hats) · clap (doubling claps) · crash (push into a ringing crash) · tumble (tom cascade).
-"bars" belongs to the SECTION, not the template: a section playing once wants a single closing bar, while one that runs sixteen or thirty-two bars can carry a three- or four-bar turn without losing the thread. The outgoing section's span is given — read it before choosing.
+"bars" belongs to the SECTION, not the template: a section playing once wants a single closing bar, while one that runs sixteen or thirty-two bars can carry a four- or eight-bar turn without losing the thread. The outgoing section's span is given — read it before choosing. The fill is ONE GESTURE stretched over the bars you give it — its intensity climbs across the whole length, it does not restart each bar — so ask for the length the turn actually wants.
 The fill always ENDS on the change — that is what makes it a turn. Its length is the only thing you choose.
 Knobs: gain = level, heat = drive, tone = how open the top is (1 = fully open), space = room send. The fill is a point of RELEASE, not a running beat.`;
 
@@ -430,10 +430,13 @@ function sanitizeTurnBreak(raw: unknown, atLoop: number): PageBreak | null {
   return {
     tpl,
     atLoop,
-    // 1-4 closing bars; omitted (or unusable) = the template's own length.
-    // The renderer clamps again to the section's real span.
+    // 1-8 closing bars — the SAME range the Length knob offers (2026-08-02:
+    // the model was capped at 4 while a hand could dial 8, so a long section
+    // could be given a turn by hand that the AI was never allowed to author).
+    // Omitted (or unusable) = the template's own length; the renderer clamps
+    // again to the section's real span.
     ...(Number.isFinite(Number(e.bars))
-      ? { bars: Math.max(1, Math.min(4, Math.floor(Number(e.bars)))) }
+      ? { bars: Math.max(1, Math.min(8, Math.floor(Number(e.bars)))) }
       : {}),
     gain: knob(e.gain, 0, 1.2, 0.8),
     heat: knob(e.heat, 0, 0.6, 0),
