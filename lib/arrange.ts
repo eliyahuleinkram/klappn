@@ -567,14 +567,25 @@ export function buildArrangement(
   // `ends` flag itself is what tells playback to STOP at totalCycles instead
   // of wrapping — with or without tail code.
   const ends = opts.ending?.mode === "stop";
-  if (ends && opts.ending?.code) {
-    const code = bareExpr(opts.ending.code);
-    if (oneShotOk(code)) {
-      const endBars = Math.max(1, Math.min(16, Math.floor(opts.ending.bars ?? 2)));
-      entries.push({ cycles: endBars, expr: `(${code}\n)`, at });
-      spans.push({ id: "__end", start: at, end: at + endBars, bars: endBars });
-      at += endBars;
-    }
+  if (ends) {
+    // A SONG THAT ENDS ALWAYS RINGS OUT (2026-08-02, the user: "sometimes the
+    // ends here rings out does not work"). The control says "Ends here — rings
+    // out", but the tail was only ever appended when an AI-authored line
+    // existed — and flipping the switch by hand writes `{mode:"stop"}` with no
+    // code at all, so half the songs on prod simply CUT at the last bar, taking
+    // every reverb and delay tail with them.
+    //
+    // So the tail is unconditional now: the authored one-shot when there is a
+    // usable one, otherwise SILENCE. Silence is not nothing — it keeps the
+    // transport running for those bars, which is exactly what lets the last
+    // chord decay instead of being guillotined. Deterministic, no AI, and it
+    // makes the words on the button true for every song.
+    const authored = opts.ending?.code ? bareExpr(opts.ending.code) : "";
+    const usable = authored && oneShotOk(authored);
+    const endBars = Math.max(1, Math.min(16, Math.floor(opts.ending?.bars ?? 2)));
+    entries.push({ cycles: endBars, expr: usable ? `(${authored}\n)` : `silence`, at });
+    spans.push({ id: "__end", start: at, end: at + endBars, bars: endBars });
+    at += endBars;
   }
   const body = entries.map((e) => `[${e.cycles}, ${e.expr}]`).join(",\n");
   // The seek shift rides the WHOLE pattern (normalized into [0, total) —

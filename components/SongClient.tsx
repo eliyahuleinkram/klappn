@@ -2738,10 +2738,18 @@ export default function SongClient({
     if (sweepNoteAt.current) clearTimeout(sweepNoteAt.current);
     sweepNoteAt.current = setTimeout(() => setSweepNote(null), 3600);
   }
-  async function runSweep() {
+  /** Re-hear one half of the shape, or both (2026-08-02, the user: effects and
+   *  breaks "should not have to run together"). Whichever half isn't asked for
+   *  rides on untouched — and the turns still read the glides for context, so
+   *  asking for breaks alone never means asking blind. */
+  async function runSweep(what: "effects" | "breaks" | "both" = "both") {
     setSweep("busy");
     try {
-      const res = await fetch(`/api/songs/${songId}/shape`, { method: "POST" });
+      const res = await fetch(`/api/songs/${songId}/shape`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ what }),
+      });
       if (res.ok) {
         const j = (await res.json()) as {
           result?: "empty" | "whiffed" | "shaped";
@@ -3195,6 +3203,16 @@ export default function SongClient({
         seconds += barSeconds * mult(`break:${p.id}`);
       }
     });
+    // THE RING-OUT IS PART OF THE SONG (2026-08-02). A song that ends carries a
+    // tail — the authored one-shot, or the silence that lets the last chord
+    // decay — and it plays, so it counts. The header used to quote a length the
+    // song no longer had.
+    const end = arrangementRef.current?.ending;
+    if (end?.mode === "stop") {
+      const endSec = Math.max(1, Math.min(16, Math.floor(end.bars ?? 2))) * barSeconds;
+      base += endSec;
+      seconds += endSec;
+    }
     return { seconds, infinite, repeated: infinite || seconds !== base };
   })();
 
@@ -3486,19 +3504,33 @@ export default function SongClient({
               ) : sweep === "offer" ? (
                 <span className="animate-fade-in flex h-8 items-center gap-0.5 rounded-full bg-accent/12 px-1.5 text-[12.5px] font-medium leading-none">
                   <span className="px-1.5 text-foreground/80">
-                    Effects & breaks, the whole song?
+                    Re-hear the song?
                   </span>
-                  <button
-                    onClick={() => void runSweep()}
-                    title="The AI re-hears every loop — effects across the builds, breaks at the turns, replacing every one riding"
-                    className="flex items-center gap-1.5 rounded-full px-2 py-1.5 text-accent transition duration-200 hover:bg-white/[0.08] active:scale-95"
-                  >
-                    <span
-                      aria-hidden
-                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--accent)]"
-                    />
-                    Sweep
-                  </button>
+                  {/* TWO SPENDS, ONE CAPSULE (2026-08-02, the user: effects and
+                      breaks "should not have to run together"). Each word is
+                      its own orb and its own call — the arcs across the song,
+                      or the turns between the loops — and whichever you don't
+                      tap rides on exactly as it is. One segmented capsule, per
+                      the seam law; never two pills side by side. */}
+                  {(
+                    [
+                      ["effects", "Effects", "The AI re-hears the glides across the whole song — replacing the ones riding. The turns are left alone."],
+                      ["breaks", "Breaks", "The AI re-hears every turn — one call per seam, told what glides across it. The effects are left alone."],
+                    ] as const
+                  ).map(([what, word, why]) => (
+                    <button
+                      key={what}
+                      onClick={() => void runSweep(what)}
+                      title={why}
+                      className="flex items-center gap-1.5 rounded-full px-2 py-1.5 text-accent transition duration-200 hover:bg-white/[0.08] active:scale-95"
+                    >
+                      <span
+                        aria-hidden
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--accent)]"
+                      />
+                      {word}
+                    </button>
+                  ))}
                   <button
                     onClick={() => setSweep("idle")}
                     aria-label="Not now"
@@ -3572,21 +3604,42 @@ export default function SongClient({
                             setVisualsOpen(true);
                           }}
                         />
+                        {/* ASKED SEPARATELY (2026-08-02). Wanting new turns over
+                            the arcs you already like is an ordinary thing to
+                            want, and it costs one small call per seam instead
+                            of the whole song's shape again. */}
                         <MenuRow
-                          word="Effects & breaks"
+                          word="Effects"
                           line={
                             visiting
                               ? "Sweeping is the maker's — but every knob here is yours"
                               : busy
                                 ? "The song is still being built"
                                 : playableCount > 0
-                                  ? "The AI sweeps the whole song — replacing what rides"
+                                  ? "The AI re-hears the glides across the song — the turns stay"
                                   : "Once a loop is ready to sweep"
                           }
                           disabled={visiting || busy || playableCount === 0}
                           onClick={() => {
                             setShapeOpen(false);
-                            setSweep("offer");
+                            void runSweep("effects");
+                          }}
+                        />
+                        <MenuRow
+                          word="Breaks"
+                          line={
+                            visiting
+                              ? "The turns are the maker's — but every knob here is yours"
+                              : busy
+                                ? "The song is still being built"
+                                : playableCount > 0
+                                  ? "The AI re-hears every turn — the effects stay"
+                                  : "Once a loop is ready to sweep"
+                          }
+                          disabled={visiting || busy || playableCount === 0}
+                          onClick={() => {
+                            setShapeOpen(false);
+                            void runSweep("breaks");
                           }}
                         />
                         <MenuRow

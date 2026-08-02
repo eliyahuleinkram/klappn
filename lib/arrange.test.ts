@@ -327,13 +327,19 @@ test("buildArrangement: a stop ending appends the ring-out and flags ends", () =
   assert.match(arr!.program, /\[2, \(s\("crash"\)\.slow\(2\)/);
 });
 
-test("buildArrangement: a stop ending without code still ends (no tail span)", () => {
+test("buildArrangement: a stop ending with no authored tail still RINGS OUT", () => {
+  // The switch says "Ends here — rings out", and flipping it by hand writes
+  // {mode:"stop"} with no code — which used to cut the song dead on its last
+  // bar, taking every reverb tail with it (2026-08-02). A silent tail keeps the
+  // transport running so the last chord can decay.
   const arr = buildArrangement([{ id: "a", code: LOOP_A, seconds: 8 }], {
     ending: { mode: "stop" },
   });
   assert.ok(arr);
   assert.equal(arr!.ends, true);
-  assert.equal(arr!.totalCycles, 4);
+  assert.equal(arr!.totalCycles, 6, "4 bars of loop + a 2-bar ring-out");
+  assert.ok(arr!.spans.some((s) => s.id === "__end"), "the tail has its own span");
+  assert.match(arr!.program, /silence/, "the tail is silence, not a cut");
 });
 
 test("nextUnit: the ending only applies to the unit that reaches the list's end", () => {

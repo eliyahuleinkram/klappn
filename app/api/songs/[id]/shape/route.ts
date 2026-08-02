@@ -29,6 +29,12 @@ export async function POST(
   const userId = await getUserId(req);
   if (!userId) return unauthorized();
   const { id } = await params;
+  // WHAT to re-hear — effects, breaks, or both (2026-08-02, the user: they
+  // "should not have to run together"). Absent = both, so an older client is
+  // unchanged.
+  const body = (await req.json().catch(() => ({}))) as { what?: string };
+  const scope =
+    body.what === "effects" || body.what === "breaks" ? body.what : ("both" as const);
   const gate = await reserveQuota(userId);
   if (!gate.ok) return gate.response;
   try {
@@ -47,6 +53,7 @@ export async function POST(
       // it out per unit is enough here; the point of the runner is that the
       // sweep no longer keeps hold of anything while the models think.
       (_name, fn) => fn(sql),
+      scope,
     );
     await sink.flush();
     // autoShapeSong is best-effort by design — read back what actually rides

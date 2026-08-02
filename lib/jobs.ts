@@ -822,6 +822,20 @@ export async function autoShapeSong(
    * the models work. In the workflow each unit is also its own durable step.
    */
   withDb: <T>(name: string, fn: (sql: Sql) => Promise<T>) => Promise<T>,
+  /**
+   * WHAT TO RE-HEAR (2026-08-02, the user: "in the shape pill you should split
+   * up effects and breaks, they should not have to run together").
+   *
+   * They were welded together because a glide and a fill at one turn are one
+   * decision — but that argument only ever justified the fill KNOWING the
+   * glide, not the two being unaskable apart. Wanting new turns over the same
+   * arcs is an ordinary thing to want, and it should cost one call per turn,
+   * not the whole song's shape again.
+   *
+   * "breaks" reads the glides already riding for its context, so the coupling
+   * survives in the direction that matters.
+   */
+  scope: "effects" | "breaks" | "both" = "both",
 ): Promise<SweepResult> {
   // ── 1. GATHER (one connection, released before a single model call) ────────
   const gathered = await withDb("read", async (sql) => {
@@ -889,26 +903,34 @@ export async function autoShapeSong(
   // can only be judged against the arc. null = whiffed → nothing changes at all
   // (we don't rewrite the turns off the back of a failed half).
   const effectsNow = ((plan.effects ?? []) as SongFx[]);
-  const authored = await composePageEffects(
-    {
-      ...identity,
-      loops: loops.map(({ name, intent, layers, bars, loopBars }) => ({ name, intent, layers, bars, loopBars })),
-      ridingEffects: fxContext(effectsNow),
-    },
-    cfg,
-  ).catch(() => null);
-  if (!authored) return "whiffed";
-  const effects = authored.map((e) => ({
-    id: crypto.randomUUID(),
-    param: e.param,
-    from: e.from,
-    to: e.to,
-    curve: e.curve ?? "linear",
-    ...(e.name ? { name: e.name } : {}),
-    home: { from: e.from, to: e.to },
-    fromId: loops[Math.min(loops.length, Math.max(1, e.fromLoop)) - 1].id,
-    toId: loops[Math.min(loops.length, Math.max(1, e.toLoop)) - 1].id,
-  }));
+  const wantFx = scope !== "breaks";
+  const wantTurns = scope !== "effects";
+  const authored = wantFx
+    ? await composePageEffects(
+        {
+          ...identity,
+          loops: loops.map(({ name, intent, layers, bars, loopBars }) => ({ name, intent, layers, bars, loopBars })),
+          ridingEffects: fxContext(effectsNow),
+        },
+        cfg,
+      ).catch(() => null)
+    : null;
+  if (wantFx && !authored) return "whiffed";
+  // Breaks-only leaves the glides exactly as they ride — and uses them as the
+  // turns' context, so a fill still knows what crosses it.
+  const effects = authored
+    ? authored.map((e) => ({
+        id: crypto.randomUUID(),
+        param: e.param,
+        from: e.from,
+        to: e.to,
+        curve: e.curve ?? "linear",
+        ...(e.name ? { name: e.name } : {}),
+        home: { from: e.from, to: e.to },
+        fromId: loops[Math.min(loops.length, Math.max(1, e.fromLoop)) - 1].id,
+        toId: loops[Math.min(loops.length, Math.max(1, e.toLoop)) - 1].id,
+      }))
+    : effectsNow;
   // (Both sets are written together at the end — the turns are told the glides
   // from THIS array, not from the database, so nothing needs persisting first.)
   // THE TURNS — ONE CALL EACH, ALL AT ONCE (2026-08-02, the user). A fill is a
@@ -930,7 +952,9 @@ export async function autoShapeSong(
         ? [{ name: e.name, param: e.param, from: e.from, to: e.to }]
         : [];
     });
-  const turns = await Promise.all(
+  const turns = !wantTurns
+    ? []
+    : await Promise.all(
     loops.map((l, i) => {
       const last = i === loops.length - 1;
       const next = last ? (wraps ? loops[0] : null) : loops[i + 1];
@@ -978,9 +1002,10 @@ export async function autoShapeSong(
   // ── 3. PERSIST (one connection, taken only now that the thinking is done) ──
   // Both lists land together, and each REPLACES wholesale: the shape answered,
   // so an empty list CLEARS what rode (the piece may want bare turns).
+  // Only the half that was asked for is replaced — the other rides untouched.
   await withDb("write", async (sql) => {
-    await replaceSongEffects(songId, song.user_id, effects, sql);
-    await replaceSongOverlays(songId, song.user_id, overlays, sql);
+    if (wantFx) await replaceSongEffects(songId, song.user_id, effects, sql);
+    if (wantTurns) await replaceSongOverlays(songId, song.user_id, overlays, sql);
   });
   return "shaped";
 }
