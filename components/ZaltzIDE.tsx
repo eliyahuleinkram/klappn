@@ -3682,14 +3682,18 @@ export default function ZaltzIDE({
                 <div className="mt-3.5 grid gap-2 sm:grid-cols-2">
                   {TIERS.map((t, i) => {
                     const mine = plan === t.id;
-                    const hot = t.id === "studio";
+                    // THE ANCHOR BURNS, NEVER THE CEILING (house law): a hot
+                    // button on the priciest tier reads as pressure — and it
+                    // would read as pressure hardest right here, in the middle
+                    // of somebody's set.
+                    const anchor = t.id === "creator";
                     return (
                       <div
                         key={t.id}
                         style={{ "--i": i } as CSSProperties}
                         className={`animate-rise flex flex-col rounded-2xl border p-3.5 ${
-                          hot
-                            ? "border-accent/30 bg-accent/[0.06]"
+                          anchor
+                            ? "border-accent/25 bg-accent/[0.06]"
                             : "border-white/[0.08] bg-white/[0.03]"
                         }`}
                       >
@@ -3705,21 +3709,21 @@ export default function ZaltzIDE({
                         </div>
                         <div className="mt-1.5 flex items-baseline gap-1">
                           <span
-                            className={`wordmark text-[24px] leading-none ${hot ? "text-gradient" : "text-foreground"}`}
+                            className={`wordmark text-[24px] leading-none ${anchor ? "text-gradient" : "text-foreground"}`}
                           >
                             ${t.usd}
                           </span>
                           <span className="text-[11.5px] text-muted/60">/month</span>
                         </div>
                         <span className="mt-2 text-[12px] leading-relaxed text-foreground/80">
-                          {songsFor(t.tokens)} songs · or {nightsFor(t.tokens)} nights
+                          {songsFor(t.tokens)} songs, or {nightsFor(t.tokens)} nights
                           in the room
                         </span>
                         <button
                           onClick={() => void subscribe(t.id)}
                           disabled={buying !== null}
                           className={`mt-3 rounded-full px-3 py-1.5 text-[12.5px] font-medium transition active:scale-[.97] disabled:opacity-40 ${
-                            hot
+                            anchor
                               ? "btn-primary"
                               : "bg-white/[0.06] text-foreground hover:bg-white/[0.1]"
                           }`}
