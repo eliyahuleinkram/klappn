@@ -19,6 +19,17 @@ import { isKnownBank } from "./sound-palette";
  *
  * A template is given the song's TONIC (the root it should land on) because an
  * ending that isn't in the song's key isn't an ending, it's an accident.
+ *
+ * NO SOUNDFONTS IN A TAIL (2026-08-02, the user: "maybe it is because of the
+ * sound engine"). These lines are the LAST four bars of a song and, unlike
+ * every other note in it, their sound may appear nowhere else — a `gm_*` font
+ * whose first and only use is the outro has to be fetched and decoded right at
+ * the moment it must sound, and a font that isn't loaded yet plays SILENCE.
+ * That is a ring-out you cannot hear. So every tail is built from the engine's
+ * built-in oscillators (triangle, sawtooth), which are always there, shaped
+ * with the filter and envelope instead of borrowed from a sample bank. The one
+ * sampled voice left is the crash, and it rides alongside a synth chord that
+ * carries the gesture on its own if the bank is cold.
  */
 
 export type EndingKnobField = "bars" | "gain" | "tone" | "space";
@@ -65,7 +76,7 @@ export const ENDING_MOVES: EndingMove[] = [
     bars: 4,
     gain: 0.5,
     code: ({ bars, chord }) =>
-      `note("${chord}").s("gm_pad_warm").attack(0.02).decay(${(bars * 0.4).toFixed(2)}).sustain(0).release(${(bars * 0.9).toFixed(2)}).gain(saw.range(0.9,0).slow(${bars}))`,
+      `note("${chord}").s("triangle").attack(0.02).decay(${(bars * 0.5).toFixed(2)}).sustain(0).release(${(bars * 0.9).toFixed(2)}).lpf(2600).gain(saw.range(0.9,0).slow(${bars}))`,
   },
   {
     tpl: "breath",
@@ -84,7 +95,7 @@ export const ENDING_MOVES: EndingMove[] = [
     bars: 4,
     gain: 0.5,
     code: ({ bars, root }) =>
-      `note("<${root} ${root}>").s("gm_epiano1").attack(0.01).decay(1.2).sustain(0).release(2.4).gain(saw.range(0.8,0).slow(${bars})).lpf(saw.range(6000,400).slow(${bars}))`,
+      `note("<${root} ${root}>").s("triangle").attack(0.01).decay(1.4).sustain(0).release(2.4).gain(saw.range(0.8,0).slow(${bars})).lpf(saw.range(6000,400).slow(${bars}))`,
   },
   {
     tpl: "crash",
@@ -93,7 +104,7 @@ export const ENDING_MOVES: EndingMove[] = [
     bars: 4,
     gain: 0.55,
     code: ({ bars, chord, bank }) =>
-      `stack(s("cr").bank("${bank}").gain(0.9), note("${chord}").s("gm_pad_warm").attack(0.01).decay(${(bars * 0.5).toFixed(2)}).sustain(0).release(${(bars * 0.8).toFixed(2)}).gain(0.7)).gain(saw.range(1,0).slow(${bars}))`,
+      `stack(s("cr").bank("${bank}").gain(0.9), note("${chord}").s("sawtooth").attack(0.01).decay(${(bars * 0.5).toFixed(2)}).sustain(0).release(${(bars * 0.8).toFixed(2)}).lpf(1800).gain(0.5)).gain(saw.range(1,0).slow(${bars}))`,
   },
   {
     tpl: "dim",
@@ -102,7 +113,7 @@ export const ENDING_MOVES: EndingMove[] = [
     bars: 4,
     gain: 0.5,
     code: ({ bars, chord }) =>
-      `note("${chord}").s("gm_string_ensemble_1").attack(0.05).decay(${bars}).sustain(0).release(${(bars * 0.6).toFixed(2)}).lpf(saw.range(5000,220).slow(${bars})).lpq(3).gain(saw.range(0.85,0).slow(${bars}))`,
+      `note("${chord}").s("sawtooth").attack(0.05).decay(${bars}).sustain(0).release(${(bars * 0.6).toFixed(2)}).lpf(saw.range(5000,220).slow(${bars})).lpq(3).gain(saw.range(0.85,0).slow(${bars}))`,
   },
   {
     tpl: "cut",
