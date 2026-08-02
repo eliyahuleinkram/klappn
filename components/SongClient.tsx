@@ -849,6 +849,13 @@ export default function SongClient({
 
   // The ending capsule's tap: stop ⟷ loop, zero AI. Optimistic — the capsule
   // answers the tap NOW; the PATCH is the fact-write (re-sync on failure).
+  // The ending's card — open only while you're choosing. The page itself never
+  // carries the six ways; it carries the one the song does.
+  const [endOpen, setEndOpen] = useState(false);
+  const ends =
+    (song.plan as { arrangement?: SongArrangement | null } | null)?.arrangement?.ending
+      ?.mode === "stop";
+
   /** Change HOW the song ends — its template or a knob. Optimistic like every
    *  other deterministic control, then persisted; the tail is rebuilt from
    *  these numbers at play time, so the change is heard on the next pass. */
@@ -4307,67 +4314,64 @@ export default function SongClient({
           })}
           {/* grow the song DOWNWARD — a new section after the last */}
           {renderAddPart("after")}
-          {/* how the song ENDS — spatially where the end lives, after the last
-              loop. One quiet capsule, tap to flip: ■ it stops and rings out,
-              ⟳ it loops forever. Zero AI. Only exists once the song is unfolded. */}
+          {/* HOW IT ENDS — ONE capsule, and everything else behind it
+              (2026-08-02, the user: "rethink how you display the ending
+              options… must feel frictionless"). A row of six chips with a
+              paragraph under them was a menu bolted to the page; the page says
+              only what the song DOES — "Ring out", "Loops forever" — and the
+              ways to change it live in a card that opens where you tapped.
+              Same object as the Shape menu and the share card: a word and one
+              quiet line per row, so the consequence is legible before the tap
+              and nothing is explained twice. */}
           {playableVisible.length > 0 && !busy && (
             <div className="flex justify-center pt-1">
-              <button
-                onClick={() =>
-                  void flipEnding(
-                    plan.arrangement?.ending?.mode === "stop" ? "loop" : "stop",
-                  )
-                }
-                title={
-                  plan.arrangement?.ending?.mode === "stop"
-                    ? "The song ends here and rings out — tap to loop forever"
-                    : "The song loops forever — tap to give it an ending"
-                }
-                className="flex h-8 items-center gap-2 rounded-full px-4 text-[12.5px] font-medium leading-none text-muted/55 transition duration-200 hover:bg-white/[0.05] hover:text-foreground active:scale-95"
-              >
-                {plan.arrangement?.ending?.mode === "stop" ? (
+              <div className="relative">
+                <button
+                  onClick={() => (visiting ? void flipEnding(ends ? "loop" : "stop") : setEndOpen((v) => !v))}
+                  className={`flex h-8 items-center gap-2 rounded-full px-4 text-[12.5px] font-medium leading-none transition duration-200 active:scale-95 ${
+                    endOpen
+                      ? "bg-accent/12 text-accent"
+                      : "text-muted/55 hover:bg-white/[0.05] hover:text-foreground"
+                  }`}
+                >
+                  {ends ? (
+                    <>
+                      <span className="text-[10px]">■</span>
+                      {endingMoveOf(plan.arrangement?.ending?.tpl ?? "")?.word ?? "Ends here"}
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[13px]">⟳</span> Loops forever
+                    </>
+                  )}
+                </button>
+                {endOpen && !visiting && (
                   <>
-                    <span className="text-[10px]">■</span>{" "}
-                    {endingMoveOf(plan.arrangement?.ending?.tpl ?? "")?.word ?? "Ends here"}
-                  </>
-                ) : (
-                  <>
-                    <span className="text-[13px]">⟳</span> Loops forever
+                    <div className="fixed inset-0 z-10" onClick={() => setEndOpen(false)} aria-hidden />
+                    <div className="animate-fade-in absolute bottom-full left-1/2 z-20 mb-2 w-72 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.05] p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+                      <MenuRow
+                        word="Loops forever"
+                        line="It comes back around and never lands"
+                        onClick={() => {
+                          setEndOpen(false);
+                          void flipEnding("loop");
+                        }}
+                      />
+                      {ENDING_MOVES.map((m) => (
+                        <MenuRow
+                          key={m.tpl}
+                          word={m.word}
+                          line={m.hint}
+                          onClick={() => {
+                            setEndOpen(false);
+                            void setEndingShape({ tpl: m.tpl });
+                          }}
+                        />
+                      ))}
+                    </div>
                   </>
                 )}
-              </button>
-              {/* HOW IT ENDS — six ways, and the knobs under them (2026-08-02,
-                  the user: "we should have a few options for how to end a song…
-                  the AI can choose it… and it also can be fiddled with manually
-                  and tweaked"). Every one is built to reach silence, which the
-                  freehand line never promised. Zero AI to change: the tail is
-                  rebuilt from these numbers at play time, like a break's. */}
-              {!visiting && plan.arrangement?.ending?.mode === "stop" && (
-                <div className="mt-3 w-full max-w-md">
-                  <div className="flex flex-wrap justify-center gap-1">
-                    {ENDING_MOVES.map((m) => {
-                      const on = (plan.arrangement?.ending?.tpl ?? "ring") === m.tpl;
-                      return (
-                        <button
-                          key={m.tpl}
-                          title={m.hint}
-                          onClick={() => void setEndingShape({ tpl: m.tpl })}
-                          className={`rounded-full px-2.5 py-1 text-[11px] font-medium leading-none transition active:scale-95 ${
-                            on
-                              ? "bg-gradient-to-r from-[#ff63c1] to-accent-strong text-white"
-                              : "text-muted/55 hover:bg-white/[0.06] hover:text-foreground"
-                          }`}
-                        >
-                          {m.word}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-1.5 text-center text-[10.5px] leading-snug text-muted/45">
-                    {endingMoveOf(plan.arrangement?.ending?.tpl ?? "ring")?.hint}
-                  </p>
-                </div>
-              )}
+              </div>
             </div>
           )}
         </div>
