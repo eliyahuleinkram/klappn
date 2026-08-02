@@ -381,6 +381,15 @@ export async function setSongStage(
   stage: "arranging" | "shaping" | null,
   sql: Sql = db(),
 ): Promise<void> {
+  // CLEARING REMOVES THE KEY. `jsonb_set(plan, path, NULL)` returns NULL for
+  // the WHOLE plan — the function is strict — so the clear threw on the
+  // not-null column every time and was swallowed by the caller's catch, leaving
+  // every finished song stamped "shaping" forever (seen on prod 2026-08-02).
+  // Only the not-null constraint stood between that and a wiped plan.
+  if (stage === null) {
+    await sql`update songs set plan = plan - 'stage' where id = ${songId}`;
+    return;
+  }
   await sql`
     update songs
     set plan = jsonb_set(plan, '{stage}', ${sql.json(stage)})

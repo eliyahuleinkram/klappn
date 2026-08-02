@@ -43,7 +43,10 @@ export async function POST(
         onCall: sink.onCall,
         model: song.model ?? "anthropic",
       },
-      sql,
+      // The app worker's client is the shared Hyperdrive-backed one — handing
+      // it out per unit is enough here; the point of the runner is that the
+      // sweep no longer keeps hold of anything while the models think.
+      (_name, fn) => fn(sql),
     );
     await sink.flush();
     // autoShapeSong is best-effort by design — read back what actually rides

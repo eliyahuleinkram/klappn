@@ -81,7 +81,9 @@ export async function POST(
     const arrangement = await arrangeSong(
       id,
       cfg,
-      db(),
+      // Per-unit, so the request isn't holding a connection through the model
+      // call — the app worker's client is the shared Hyperdrive-backed one.
+      (_name, fn) => fn(db()),
       direction,
       onlySectionId,
       targetBars,

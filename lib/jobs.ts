@@ -709,16 +709,31 @@ export type SweepResult = "empty" | "whiffed" | "shaped";
 export async function autoShapeSong(
   songId: string,
   cfg: ClaudeConfig | undefined,
-  sql: Sql,
+  /**
+   * Runs ONE unit of database work and gives the connection straight back.
+   *
+   * NOT a live `Sql` (2026-08-02, after a prod stall): this call reads, then
+   * thinks for minutes — one Opus call plus a Sonnet call per turn — then
+   * writes. Holding a connection across all of that pins a slot on a database
+   * whose ceiling is 25, and a run that can't open a connection dies mid-part
+   * with no way to even record the error. So the sweep now holds NOTHING while
+   * the models work. In the workflow each unit is also its own durable step.
+   */
+  withDb: <T>(name: string, fn: (sql: Sql) => Promise<T>) => Promise<T>,
 ): Promise<SweepResult> {
-  const [song] = await sql<SongRow[]>`select * from songs where id = ${songId}`;
-  if (!song) return "empty";
+  // ── 1. GATHER (one connection, released before a single model call) ────────
+  const gathered = await withDb("read", async (sql) => {
+    const [song] = await sql<SongRow[]>`select * from songs where id = ${songId}`;
+    if (!song) return null;
+    return { song, parts: await getPartsOrdered(songId, sql) };
+  });
+  if (!gathered) return "empty";
+  const { song, parts } = gathered;
   const plan = song.plan as SongPlan;
   // playable loops in order — blueprints (legacy chapter parents) excluded, like playback
   const bpIds = new Set(
     Object.values((plan as { chapters?: Record<string, string> }).chapters ?? {}),
   );
-  const parts = await getPartsOrdered(songId, sql);
   // HOW LONG EACH LOOP ACTUALLY RUNS (2026-08-02). The arrangement decides a
   // section's SPAN — a 4-bar loop can unfold over 32 — and a glide across 32
   // bars is a different musical decision from one across 4. Nothing is
@@ -787,7 +802,8 @@ export async function autoShapeSong(
     fromId: loops[Math.min(loops.length, Math.max(1, e.fromLoop)) - 1].id,
     toId: loops[Math.min(loops.length, Math.max(1, e.toLoop)) - 1].id,
   }));
-  await replaceSongEffects(songId, song.user_id, effects, sql);
+  // (Both sets are written together at the end — the turns are told the glides
+  // from THIS array, not from the database, so nothing needs persisting first.)
   // THE TURNS — ONE CALL EACH, ALL AT ONCE (2026-08-02, the user). A fill is a
   // local decision: the two loops it sits between are the whole context, so
   // each turn gets its own small call on a cheap tier instead of a share of one
@@ -849,9 +865,13 @@ export async function autoShapeSong(
       } satisfies BreakOverlay,
     ];
   });
-  // Unconditional — the shape call answered, so an empty list CLEARS old fills
-  // (the piece may want its turns bare).
-  await replaceSongOverlays(songId, song.user_id, overlays, sql);
+  // ── 3. PERSIST (one connection, taken only now that the thinking is done) ──
+  // Both lists land together, and each REPLACES wholesale: the shape answered,
+  // so an empty list CLEARS what rode (the piece may want bare turns).
+  await withDb("write", async (sql) => {
+    await replaceSongEffects(songId, song.user_id, effects, sql);
+    await replaceSongOverlays(songId, song.user_id, overlays, sql);
+  });
   return "shaped";
 }
 
@@ -895,15 +915,23 @@ export async function finishSong(
     // fill mode: write only what has no unfold yet, and the ending only when
     // absent — anything the user already shaped mid-build stands.
     await run("stage-arranging", (sql) => setSongStage(songId, "arranging", sql)).catch(() => {});
-    await run("arrange", (sql) =>
-      arrangeSong(songId, cfg, sql, undefined, undefined, undefined, true),
+    await arrangeSong(
+      songId,
+      cfg,
+      (name, fn) => run(`arrange-${name}`, fn),
+      undefined,
+      undefined,
+      undefined,
+      true,
     );
   } catch (e) {
     console.error(`[klappn] closing arrange failed for ${songId}:`, e);
   }
   try {
     await run("stage-shaping", (sql) => setSongStage(songId, "shaping", sql)).catch(() => {});
-    await run("sweep", (sql) => autoShapeSong(songId, cfg, sql));
+    // Each of the sweep's DB units becomes its own step with its own
+    // connection; the model calls in between hold none.
+    await autoShapeSong(songId, cfg, (name, fn) => run(`sweep-${name}`, fn));
   } catch (e) {
     console.error(`[klappn] closing sweep failed for ${songId}:`, e);
   }
@@ -1943,7 +1971,10 @@ export async function composePartWith(
 export async function arrangeSong(
   songId: string,
   cfg: ClaudeConfig | undefined,
-  sql: Sql,
+  /** One unit of DB work, connection released on the way out — see
+   *  autoShapeSong. This call reads, then thinks for a minute or two on Opus,
+   *  then writes; it must not pin a slot through the thinking (2026-08-02). */
+  withDb: <T>(name: string, fn: (sql: Sql) => Promise<T>) => Promise<T>,
   /** The user's own words for how the song should move (the ✎ re-roll). */
   direction?: string,
   /** When set, the model still sees the WHOLE song (coherence) but only THIS
@@ -1957,15 +1988,20 @@ export async function arrangeSong(
    *  landed at birth (and anything the user shaped) stand. */
   fill?: boolean,
 ): Promise<SongArrangement | null> {
-  const [song] = await sql<SongRow[]>`select * from songs where id = ${songId}`;
+  // ── GATHER (connection taken and given straight back) ─────────────────────
+  const read = await withDb("read", async (sql) => {
+    const [song] = await sql<SongRow[]>`select * from songs where id = ${songId}`;
+    const rows = await sql<PartRow[]>`
+      select * from parts where song_id = ${songId} order by position asc`;
+    return { song, rows };
+  });
+  const { song, rows } = read;
   const plan = song?.plan as SongPlan | undefined;
   if (!plan || !Array.isArray(plan.parts)) return null;
   const existing =
     ((plan as { arrangement?: SongArrangement | null }).arrangement ?? null) as
       | SongArrangement
       | null;
-  const rows = await sql<PartRow[]>`
-    select * from parts where song_id = ${songId} order by position asc`;
   const ready = rows.filter((p) => p.status === "ready" && p.strudel?.trim());
   if (!ready.length) return null;
   // Fill mode with nothing missing = nothing to compose (no model call).
@@ -2074,8 +2110,9 @@ export async function arrangeSong(
     if (!spec) return null;
     await dressSweeps(onlySectionId, spec);
     spec = withTakes(onlySectionId, spec);
-    await saveSongSectionSpec(songId, onlySectionId, spec, sql);
-    return { sections: { [onlySectionId]: spec } };
+    const one = spec;
+    await withDb("write", (sql) => saveSongSectionSpec(songId, onlySectionId, one, sql));
+    return { sections: { [onlySectionId]: one } };
   }
   // FILL: only the sections still without an unfold (+ a missing ending) land;
   // everything already shaped — at birth or by hand — stands untouched.
@@ -2095,7 +2132,7 @@ export async function arrangeSong(
         ending: existing?.ending ?? arrangement.ending,
       }
     : { sections: written, ending: arrangement.ending };
-  await saveSongArrangement(songId, merged, sql);
+  await withDb("write", (sql) => saveSongArrangement(songId, merged, sql));
   return merged;
 }
 
