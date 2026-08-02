@@ -2305,6 +2305,24 @@ export default function SongClient({
     if (rotated.length === 0) return;
     setMixActive(true);
     lastPlayedRef.current = startId;
+    // THE BUTTON ANSWERS YOUR HAND, NOT THE AUDIO (2026-08-02, the user: on a
+    // freshly-opened share link "I do not see the play / pause icon toggle when
+    // I hit play").
+    //
+    // `playing` was set ONLY from onSection — after the engine actually starts a
+    // section — and inside a startTransition, which React deliberately starves
+    // while the main thread is busy. On a page you have been using, every
+    // soundfont is warm and that reads as instant. On a link you just opened,
+    // nothing is cached: the engine can't start for seconds, and the decoding
+    // saturates the very thread the deferred update is queued on. So the glyph
+    // sat on ▶ while you waited, which reads as a dead button.
+    //
+    // Setting it here, urgently, is also simply correct: a control should
+    // acknowledge the press. onSection still owns every LATER section change
+    // (and keeps its transition — that update walks the whole song tree), and
+    // the playhead still starts from the sound, because that one IS a sync
+    // concern.
+    setPlaying(startId);
     // (no setPaused — publishNowPlaying below carries `paused: false`, and that
     // descriptor IS the paused state now.)
     // The music now belongs to the APP, not this page: publish the session so the
