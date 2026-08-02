@@ -5661,8 +5661,18 @@ export async function playSong(
       if (!songActive || arrangement !== a) return;
       endSong();
     };
+    // A HAIR EARLY, NEVER LATE (2026-08-02, the user: "it does play the
+    // beginning of where we first clicked… for a second and then finally
+    // stops"). arrange() is CYCLIC: the instant the program passes
+    // totalCycles it restarts at cycle 0 — the first section of whatever you
+    // are playing — so a stop armed AFTER the boundary buys nothing but an
+    // audible lurch back to the top. The old +120ms breath existed to let a
+    // final note ring past the end; it doesn't need to any more, because the
+    // ring-out is now a real span INSIDE the program and its envelope has
+    // already reached silence by the time we get here. Landing a few
+    // milliseconds early is inaudible; landing late is the bug.
     const endRemainingMs = (): number =>
-      Math.max(250, ((a.totalCycles - unitPos()) / a.cps) * 1000 + 120);
+      Math.max(250, ((a.totalCycles - unitPos()) / a.cps) * 1000 - 40);
     if (a.ends) arm(songEndAt, endRemainingMs());
     else if (!a.wholeList) arm(unitEnd, remainingMs());
 
