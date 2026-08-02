@@ -3838,6 +3838,13 @@ export default function SongClient({
                 busy={busy}
                 barSeconds={barSeconds}
                 span={spanOf(part)}
+                laterUnmade={
+                  parts.filter(
+                    (x) =>
+                      x.position > part.position &&
+                      !(x.status === "ready" && x.strudel?.trim()),
+                  ).length
+                }
                 onPlay={() => onPlay(part)}
                 onChanged={refresh}
                 onLocalCode={(code) => {
@@ -6098,7 +6105,8 @@ function loopCardEqual(
     a.selected === b.selected &&
     a.span?.passes === b.span?.passes &&
     a.span?.breakBars === b.span?.breakBars &&
-    a.span?.bars === b.span?.bars
+    a.span?.bars === b.span?.bars &&
+    a.laterUnmade === b.laterUnmade
   );
 }
 const LoopCard = memo(LoopCardImpl, loopCardEqual);
@@ -6225,6 +6233,7 @@ function LoopCardImpl({
   busy,
   barSeconds,
   span,
+  laterUnmade,
   onPlay,
   onChanged,
   onLocalCode,
@@ -6261,6 +6270,9 @@ function LoopCardImpl({
    *  bare turn (nothing to draw). `authored` = the arrangement's own count, so
    *  the dial can offer the way back to as-composed. See spanOf. */
   span: { passes: number; bars: number; breakBars: number; authored: number } | null;
+  /** How many sections AFTER this one still have no music — making this one
+   *  remakes them too, so the button says so before the tap. */
+  laterUnmade: number;
   onPlay: () => void;
   onChanged: () => Promise<void>;
   onLocalCode: (code: string) => void;
@@ -6699,17 +6711,32 @@ function LoopCardImpl({
             )}
           </button>
           {(pending || errored) && !generating && (
-            <button
-              onClick={() =>
-                call("POST", `/api/songs/${songId}/generate`, {
-                  partId: part.id,
-                })
-              }
-              disabled={busy || working}
-              className="btn-primary mt-3 rounded-full px-4 py-1.5 text-[14px] font-medium transition active:scale-[.98] disabled:opacity-40"
-            >
-              {errored ? "Try again" : "Generate"}
-            </button>
+            <div className="mt-3">
+              <button
+                onClick={() =>
+                  call("POST", `/api/songs/${songId}/generate`, {
+                    partId: part.id,
+                  })
+                }
+                disabled={busy || working}
+                className="btn-primary rounded-full px-4 py-1.5 text-[14px] font-medium transition active:scale-[.98] disabled:opacity-40"
+              >
+                {errored ? "Try again" : "Generate"}
+              </button>
+              {/* THE TAP SAYS ITS OWN SIZE (2026-08-02). A section is composed
+                  from the finished ones before it, so making this one also
+                  remakes every unmade section after it — otherwise they'd have
+                  been written against a hole. That's more spend than the word
+                  "Try again" implies, so it's written here, before the tap,
+                  never in a hover. */}
+              {laterUnmade > 0 && (
+                <span className="mt-1.5 block text-[11.5px] leading-snug text-muted/60">
+                  {laterUnmade === 1
+                    ? "and the section after it — it has to hear this one"
+                    : `and the ${laterUnmade} sections after it — they have to hear this one`}
+                </span>
+              )}
+            </div>
           )}
         </div>
 

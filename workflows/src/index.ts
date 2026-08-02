@@ -294,6 +294,10 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
     const runStep: StepRunner = (name, fn) =>
       step.do(name, { timeout: "10 minutes", retries: { limit: 0, delay: "1 second" } }, fn);
 
+    // Set when a section fails to compose: the run stops there, and the finish
+    // waits for the resume that completes the song (a shape authored around a
+    // hole would only have to be thrown away).
+    let failed = false;
     // The compose QUEUE. partIds → exactly those, in the caller's order (a
     // bridge is listed after the loop it depends on). Otherwise: every pending
     // part, LOOPS FIRST — a bridge is composed from both neighbours' finished
@@ -437,8 +441,18 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
         // (THE UNFOLDING removed 2026-07-16, the user: no more blueprints —
         // a prompt makes ONE loop; more loops are the user's own taps.)
       } catch (err) {
-        // One stubborn part shouldn't kill the whole song — flag it WITH the reason
-        // (so the failure is diagnosable, not silent), then keep going.
+        // A FAILED SECTION STOPS THE RUN (2026-08-02, the user: "if a loop fails
+        // along the way then we cannot generate the subsequent loops as
+        // everything needs to flow").
+        //
+        // Every section is composed from the finished code of the ones before
+        // it. Carrying on past a hole doesn't cost one section, it quietly
+        // spoils every section after it — they get written against a song that
+        // isn't the song. That damage is invisible: the loops look ready and
+        // sound plausible, and nothing says they never heard the middle. So the
+        // run flags this part with its reason and STOPS; the sections after it
+        // stay pending, and one tap on "Try again" resumes the whole remainder
+        // in order (see the generate route).
         const reason = err instanceof Error ? err.message : String(err);
         console.error(`[klappn] part ${p.id} (${p.label}) failed to compose:`, err);
         await step.do(`err-${p.id}`, () =>
@@ -446,6 +460,10 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
             setPartStatus(p.id, "error", sql, `compose failed: ${reason}`.slice(0, 500)),
           ),
         );
+        failed = true;
+        await meter.flush();
+        await trace.flush();
+        break;
       }
       // Flush the meter + call-trace once per part (a single awaited connection each), not once per model call.
       await meter.flush();
@@ -482,7 +500,7 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
     // reversed the same day, when a prompt made ONE loop and shaping a
     // single-loop song unasked was noise. A prompt now makes a whole song, and
     // an unfinished song is the noise. Every OTHER run still only offers.)
-    if (finish) {
+    if (finish && !failed) {
       await finishSong(songId, cfg, (name, fn) =>
         runStep(name, () => withSql(env, fn)),
       );

@@ -63,22 +63,35 @@ export async function POST(
     await sink.flush();
   }
 
-  // IS THIS A BIRTH? A song with several sections and NO music anywhere has
-  // never been made — whether it just got its arc back from the re-derive above
-  // or its first trigger never landed. Compose the whole thing in order and let
-  // the run finish itself, exactly as creation does; anything else hands back a
-  // single loop where every other song is a piece (2026-08-02). A retry of ONE
-  // loop in a song that already has music stays exactly that.
+  // WHAT A TAP ON ONE SECTION ACTUALLY MEANS (2026-08-02, the user: "if a loop
+  // fails along the way then we cannot generate the subsequent loops as
+  // everything needs to flow").
+  //
+  // Every section is composed from the finished code of the ones before it, so
+  // a section is only worth making once the ones before it exist — and the ones
+  // AFTER a hole are worth remaking once it's filled. A tap therefore resumes
+  // from here to the end of what's unmade, in order: this section and every
+  // later one still missing its music. Sections that are already ready are
+  // skipped by the workflow, so a healthy song is untouched.
+  //
+  // `finish` rides along when this run will leave nothing unmade — the song
+  // completes here, so it gets its arrangement and its sweep exactly as a birth
+  // does. If something before the tapped section is still missing, the song
+  // isn't finished by this run and the shape waits.
   const sp = await getSongWithParts(id, userId);
-  const virgin = !!sp && sp.parts.length > 1 && sp.parts.every((p) => !p.strudel?.trim());
+  const ordered = (sp?.parts ?? []).slice().sort((a, b) => a.position - b.position);
+  const unmade = ordered.filter((p) => !(p.status === "ready" && p.strudel?.trim()));
+  const from = partId ? ordered.find((p) => p.id === partId) : undefined;
+  const resume = from ? unmade.filter((p) => p.position >= from.position) : unmade;
+  const completes = resume.length > 0 && resume.length === unmade.length;
   let workflowId: string;
   try {
-    workflowId = virgin
+    workflowId = resume.length
       ? await triggerGeneration(
           id,
-          sp!.parts.map((p) => p.id),
+          resume.map((p) => p.id),
           undefined,
-          { finish: true },
+          completes ? { finish: true } : undefined,
         )
       : await triggerGeneration(id, partId);
   } catch (e) {
