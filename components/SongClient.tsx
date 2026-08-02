@@ -919,6 +919,9 @@ export default function SongClient({
       };
     });
     refreshArrangement();
+    // WHAT THEY CHOSE — the template or the knob they landed on, and what it
+    // was before, so the record says what changed and not merely what is.
+    noteGesture("ending", { ...patch, was: plan.arrangement?.ending?.tpl ?? null });
     await fetch(`/api/songs/${songId}/arrange`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
