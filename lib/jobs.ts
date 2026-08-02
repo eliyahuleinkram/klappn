@@ -717,15 +717,28 @@ export async function autoShapeSong(
     Object.values((plan as { chapters?: Record<string, string> }).chapters ?? {}),
   );
   const parts = await getPartsOrdered(songId, sql);
+  // HOW LONG EACH LOOP ACTUALLY RUNS (2026-08-02). The arrangement decides a
+  // section's SPAN — a 4-bar loop can unfold over 32 — and a glide across 32
+  // bars is a different musical decision from one across 4. Nothing is
+  // MISPLACED without this (effects and breaks anchor to loop ids, and the
+  // renderer stretches them across whatever span the arrangement gives): this
+  // is the model's JUDGMENT, told how much time it's shaping. Natural loop
+  // length when a section has no unfold, which is what every song had before
+  // the whole-song run started arranging at birth.
+  const spans = (plan as { arrangement?: SongArrangement | null }).arrangement?.sections ?? {};
   const loops = parts
     .filter((p) => p.strudel?.trim() && p.status === "ready" && !bpIds.has(p.id))
-    .map((p) => ({
-      id: p.id,
-      name: p.label ?? "untitled",
-      intent: p.intent ?? undefined,
-      bars: computeLoopBars(p.strudel ?? "") || p.bars || 4,
-      layers: (p.tracks ?? []).map((t) => t.label ?? "").filter(Boolean),
-    }));
+    .map((p) => {
+      const natural = computeLoopBars(p.strudel ?? "") || p.bars || 4;
+      const span = spans[p.id]?.bars;
+      return {
+        id: p.id,
+        name: p.label ?? "untitled",
+        intent: p.intent ?? undefined,
+        bars: Number.isFinite(span) && (span as number) >= natural ? (span as number) : natural,
+        layers: (p.tracks ?? []).map((t) => t.label ?? "").filter(Boolean),
+      };
+    });
   if (!loops.length) return "empty";
   const identity = {
     genre: plan.genre,
@@ -808,9 +821,17 @@ export async function autoShapeSong(
  * When ONE run composed the entire song, the finish belongs to the run — a hit
  * arrives shaped and with a last bar, not needing two taps to become a song.
  * Exactly what a maker does after the last loop lands, in the same order:
- *   1. the SWEEP — effects across the loops, breaks at the turns (autoShapeSong);
- *   2. the ARRANGEMENT — per-section unfolds and, above all, an ENDING; without
- *      one the song wraps forever, and a piece that can't stop isn't finished.
+ *   1. the ARRANGEMENT — how long each section runs (a 4-bar loop unfolding
+ *      over 32 IS its repeat count), what its layers do across that span, and
+ *      an ENDING; without one the song wraps forever, and a piece that can't
+ *      stop isn't finished. FIRST (2026-08-02, the user) because the song's
+ *      timeline is settled here, and the sweep should shape a decided one.
+ *   2. the SWEEP — effects across the loops, breaks at the turns (autoShapeSong),
+ *      now reading each section's real span rather than its natural length.
+ * (Span and what fills it stay ONE call: a loop that repeats four times is only
+ * bearable because layers enter and leave across those bars — the same call's
+ * `moves` and `sweeps`. A separate "how many repeats" call would choose a
+ * number blind to whether the material can carry it.)
  * Then `plan.autoSwept` records that this song's shape came from its own run,
  * so the page doesn't offer a sweep that already happened. Every LATER run
  * (Extend, retry) clears the flag as it starts and the pill returns — nothing
@@ -830,11 +851,6 @@ export async function finishSong(
   run: <T>(name: string, fn: (sql: Sql) => Promise<T>) => Promise<T>,
 ): Promise<void> {
   try {
-    await run("sweep", (sql) => autoShapeSong(songId, cfg, sql));
-  } catch (e) {
-    console.error(`[klappn] closing sweep failed for ${songId}:`, e);
-  }
-  try {
     // fill mode: write only what has no unfold yet, and the ending only when
     // absent — anything the user already shaped mid-build stands.
     await run("arrange", (sql) =>
@@ -842,6 +858,11 @@ export async function finishSong(
     );
   } catch (e) {
     console.error(`[klappn] closing arrange failed for ${songId}:`, e);
+  }
+  try {
+    await run("sweep", (sql) => autoShapeSong(songId, cfg, sql));
+  } catch (e) {
+    console.error(`[klappn] closing sweep failed for ${songId}:`, e);
   }
   await run("swept", (sql) => setSongAutoSwept(songId, true, sql)).catch(() => {});
 }
