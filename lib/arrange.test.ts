@@ -356,6 +356,22 @@ test("nextUnit: the ending only applies to the unit that reaches the list's end"
   assert.equal(u2.arrangement!.ends, true);
 });
 
+test("nextUnit: a render records THROUGH the ring-out", () => {
+  // The exporter waits out `totalCycles` of the unit it just evaluated, so the
+  // tail has to be inside that number or the recorder stops while the last
+  // chord is still decaying into the file (2026-08-02, the user asked whether
+  // the ending is captured in a render).
+  const list = [{ id: "a", code: `$: s("bd*4")\nsetcpm(120/4)`, seconds: 8 }];
+  const loops = nextUnit(list, 0, { ending: { mode: "loop" } });
+  const ends = nextUnit(list, 0, { ending: { mode: "stop" } });
+  assert.equal(ends.arrangement!.ends, true);
+  assert.ok(
+    ends.arrangement!.totalCycles > loops.arrangement!.totalCycles,
+    "the stop unit must be LONGER than the looping one — that difference is the tail",
+  );
+  assert.ok(ends.arrangement!.spans.some((s) => s.id === "__end"));
+});
+
 // ── presence ⟷ moves (the unfold editor's math) ─────────────────────────────
 
 test("presenceFromMoves mirrors the renderer's semantics", () => {

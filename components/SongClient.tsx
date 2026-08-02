@@ -312,6 +312,11 @@ export default function SongClient({
   const [exportProg, setExportProg] = useState<{
     elapsed: number;
     total: number;
+    /** Seconds of RING-OUT at the end of the render — the song's tail is
+     *  recorded like everything else, and the bar names that stretch instead of
+     *  sitting full while the reverb is still going into the file. 0 = the song
+     *  loops rather than ends. */
+    tail: number;
   } | null>(null);
   const [immersive, setImmersive] = useState(false);
   const [exportMenu, setExportMenu] = useState(false);
@@ -2646,18 +2651,51 @@ export default function SongClient({
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  // Closing a link is as much a part of sharing as making one (2026-08-02, the
+  // user: "we have to be able to close a link too"). Armed once, like every
+  // other irreversible tap on this page — the second press is the one that
+  // kills every copy of the link that's out there.
+  const [shareArmed, setShareArmed] = useState(false);
+  async function copyShare() {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2400);
+    } catch {
+      setError("Couldn’t reach the clipboard — select the link and copy it by hand.");
+    }
+  }
+  async function stopSharing() {
+    if (!shareArmed) {
+      setShareArmed(true);
+      return;
+    }
+    setShareBusy(true);
+    try {
+      await fetch(`/api/songs/${songId}/share`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ on: false }),
+      });
+      setShareUrl(null);
+      setShareOpen(false);
+      setShareArmed(false);
+    } catch {
+      setError("Couldn’t close the link this time — try again.");
+    } finally {
+      setShareBusy(false);
+    }
+  }
+  /** Open the share card — minting the link the first time. The link is never
+   *  put on the clipboard by this tap (2026-08-02, the user: "the link should
+   *  not automatically copy… we have the text to copy"): it is shown as TEXT,
+   *  and copying is a separate, deliberate press. */
   async function onShare() {
     if (shareBusy) return;
     if (shareUrl) {
-      try {
-        await navigator.clipboard.writeText(shareUrl);
-        setShareCopied(true);
-        // The corner speaks — the glyph can't, and there is no hover on a phone.
-        noteSweep("Link copied — anyone can open it, no account");
-        setTimeout(() => setShareCopied(false), 2400);
-      } catch {
-        setError("Couldn’t reach the clipboard — try again, or long-press the link.");
-      }
+      setShareOpen((v) => !v);
       return;
     }
     setShareBusy(true);
@@ -2668,13 +2706,10 @@ export default function SongClient({
         body: JSON.stringify({ on: true }),
       });
       const d = (await res.json().catch(() => ({}))) as { path?: string | null };
-      // Minting and copying are two taps on purpose — the clipboard is never
-      // taken without a hand on it. No note here: the glyph LIGHTS and its word
-      // becomes "Copy the link", which says it without borrowing the corner
-      // (that slot hides the Shape control while it speaks, so it's spent only
-      // on things that have no other way to be seen).
-      if (d.path) setShareUrl(`${window.location.origin}${d.path}`);
-      else setError("Couldn’t make a link this time — try again.");
+      if (d.path) {
+        setShareUrl(`${window.location.origin}${d.path}`);
+        setShareOpen(true); // the card shows the link — reading it is the point
+      } else setError("Couldn’t make a link this time — try again.");
     } catch {
       setError("Couldn’t make a link this time — try again.");
     } finally {
@@ -3181,6 +3216,16 @@ export default function SongClient({
   // span (its chosen bar length), plus each chosen break × its repeat.
   // `repeated` marks that unfolds/repeats shape this length (the readout
   // wears the accent, like a transposed key).
+  /** Seconds of ring-out at the end of a render — the same tail lib/arrange
+   *  appends when the song ends (authored one-shot, or the silence that lets
+   *  the last chord decay). 0 when the song loops forever, which has no end to
+   *  capture. One source for the header's length, the export clock and the bar. */
+  const tailSeconds = () => {
+    const end = arrangementRef.current?.ending;
+    if (end?.mode !== "stop") return 0;
+    return Math.max(1, Math.min(16, Math.floor(end.bars ?? 2))) * barSeconds;
+  };
+
   const mixLength = (() => {
     let seconds = 0;
     let base = 0;
@@ -3214,12 +3259,9 @@ export default function SongClient({
     // tail — the authored one-shot, or the silence that lets the last chord
     // decay — and it plays, so it counts. The header used to quote a length the
     // song no longer had.
-    const end = arrangementRef.current?.ending;
-    if (end?.mode === "stop") {
-      const endSec = Math.max(1, Math.min(16, Math.floor(end.bars ?? 2))) * barSeconds;
-      base += endSec;
-      seconds += endSec;
-    }
+    const endSec = tailSeconds();
+    base += endSec;
+    seconds += endSec;
     return { seconds, infinite, repeated: infinite || seconds !== base };
   })();
 
@@ -3296,11 +3338,14 @@ export default function SongClient({
     if (format === "video") {
       const sections = exportSections();
       if (sections.length === 0) return;
-      const total = sections.reduce((s, x) => s + x.seconds, 0);
-      setExportProg({ elapsed: 0, total: Math.max(2, total) });
+      const tail = tailSeconds();
+      const total = sections.reduce((s, x) => s + x.seconds, 0) + tail;
+      setExportProg({ elapsed: 0, total: Math.max(2, total), tail });
       try {
         const { blob, mime } = await renderMixToVideo(sections, {
-          onProgress: (elapsed, t) => setExportProg({ elapsed, total: t }),
+          // The recorder's own clock wins for elapsed, but the TOTAL keeps our
+          // tail — the video is still being written while the song rings out.
+          onProgress: (elapsed, t) => setExportProg({ elapsed, total: Math.max(t, total), tail }),
           ending: endingOf(),
           effects: effectsRef.current,
         });
@@ -3318,13 +3363,18 @@ export default function SongClient({
     // Sections carry the dials, transpose and dialled repeats (exportSections),
     // so the file matches what the mix plays.
     const sections = exportSections();
-    const total = sections.reduce((s, x) => s + x.seconds, 0) || 1;
-    setExportProg({ elapsed: 0, total });
+    // The ring-out is recorded too — the renderer waits out the arrangement's
+    // whole totalCycles, tail included — so the clock has to count it, or the
+    // bar reads 100% while the file is still being written (2026-08-02).
+    const tail = tailSeconds();
+    const total = (sections.reduce((s, x) => s + x.seconds, 0) || 1) + tail;
+    setExportProg({ elapsed: 0, total, tail });
     const start = performance.now();
     const id = setInterval(() => {
       setExportProg({
         elapsed: Math.min(total, (performance.now() - start) / 1000),
         total,
+        tail,
       });
     }, 100);
     try {
@@ -3683,25 +3733,77 @@ export default function SongClient({
                   the next copies; the corner says which just happened, because
                   a glyph alone can't and touch has no hover. */}
               {!visiting && (
-                <IconBtn
-                  onClick={() => void onShare()}
-                  disabled={shareBusy || playableCount === 0}
-                  active={!!shareUrl}
-                  title={
-                    playableCount === 0
-                      ? "Share — once a loop has landed"
-                      : shareBusy
-                        ? "Making a link…"
-                        : shareUrl
-                          ? "Copy the link — anyone can open it, no account"
-                          : "Share — a link that needs no account; they play, they can't spend"
-                  }
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M10 13a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1L11.5 4.5" />
-                    <path d="M14 11a5 5 0 0 0-7.1 0l-3 3a5 5 0 0 0 7.1 7.1l1.5-1.4" />
-                  </svg>
-                </IconBtn>
+                <div className="relative">
+                  <IconBtn
+                    onClick={() => void onShare()}
+                    disabled={shareBusy || playableCount === 0}
+                    active={!!shareUrl}
+                    title={
+                      playableCount === 0
+                        ? "Share — once a loop has landed"
+                        : shareBusy
+                          ? "Working…"
+                          : shareUrl
+                            ? "The link to this song"
+                            : "Share — a link that needs no account; they play, they can't spend"
+                    }
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M10 13a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1L11.5 4.5" />
+                      <path d="M14 11a5 5 0 0 0-7.1 0l-3 3a5 5 0 0 0 7.1 7.1l1.5-1.4" />
+                    </svg>
+                  </IconBtn>
+                  {/* THE LINK, AS TEXT (2026-08-02, the user: "the link should
+                      not automatically copy… we have the text to copy, and we
+                      have to be able to close a link too"). You see the address
+                      you're about to send, you copy it deliberately, and you can
+                      kill it — armed once, because closing it breaks every copy
+                      already out there. */}
+                  {shareOpen && shareUrl && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => {
+                          setShareOpen(false);
+                          setShareArmed(false);
+                        }}
+                        aria-hidden
+                      />
+                      <div className="animate-fade-in absolute right-0 top-full z-20 mt-2 w-[19rem] overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.05] p-3 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+                        <p className="text-[10.5px] leading-snug text-muted/60">
+                          Anyone with this can open the song, take it apart and keep their
+                          own version. They can&rsquo;t spend your tokens.
+                        </p>
+                        <input
+                          readOnly
+                          value={shareUrl}
+                          onFocus={(e) => e.currentTarget.select()}
+                          className="mt-2 w-full select-all rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-2 text-[11.5px] text-foreground/90 outline-none focus:border-accent/40"
+                        />
+                        <div className="mt-2 flex items-center gap-1.5">
+                          <button
+                            onClick={() => void copyShare()}
+                            className="btn-primary rounded-full px-3 py-1.5 text-[12px] font-medium transition active:scale-95"
+                          >
+                            {shareCopied ? "Copied" : "Copy"}
+                          </button>
+                          <span className="flex-1" />
+                          <button
+                            onClick={() => void stopSharing()}
+                            disabled={shareBusy}
+                            className={`rounded-full px-3 py-1.5 text-[12px] font-medium leading-none transition active:scale-95 ${
+                              shareArmed
+                                ? "bg-rose-500/15 text-rose-300"
+                                : "text-muted/60 hover:bg-white/[0.06] hover:text-foreground"
+                            }`}
+                          >
+                            {shareArmed ? "Tap again — the link dies" : "Close the link"}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
               {/* EVERY song exports as a menu — Audio always, Video when it has
                   visuals, and Code · Strudel always (the code IS the song).
@@ -3786,7 +3888,17 @@ export default function SongClient({
       {exporting && exportProg && (
         <div className="mt-8">
           <div className="flex items-center gap-3 rounded-full border border-white/[0.07] bg-white/[0.03] px-4 py-2.5 backdrop-blur-md">
-            <span className="shimmer-text shrink-0 text-[13px]">Rendering</span>
+            {/* THE RING-OUT IS PART OF THE RECORDING (2026-08-02, the user
+                asked whether we capture the ending and show that we are). The
+                renderer keeps recording through the tail — the arrangement's
+                totalCycles includes it — so the last stretch of the bar is the
+                song ending, and it says so instead of sitting at 100% looking
+                stalled while the reverb decays into the file. */}
+            <span className="shimmer-text shrink-0 text-[13px]">
+              {exportProg.total - exportProg.elapsed <= exportProg.tail && exportProg.tail > 0
+                ? "Ringing out"
+                : "Rendering"}
+            </span>
             <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.08]">
               <div
                 className="h-full rounded-full bg-accent transition-[width] duration-100 ease-linear"
