@@ -21,6 +21,13 @@ export interface BreakOverlay {
    *  of the template. Absent = the template's own length (every break written
    *  before this rides its catalog length, unchanged). */
   bars?: number;
+  /** How many bars of the section still play AFTER the fill finishes
+   *  (2026-08-02, the user: a break should be able to start "a few bars before
+   *  the last bar"). 0 = the fill runs straight into the turn, which is what
+   *  every break did before this. Anything higher lands it early and lets the
+   *  groove breathe back before the change. Measured from the END so it
+   *  survives a section being lengthened or shortened. */
+  before?: number;
   /** Level, 0..1.2 — multiplies the fill's own envelope. */
   gain: number;
   /** Heat — drive into the wave, 0..0.6 (.shape). Default 0. */
@@ -35,8 +42,12 @@ export interface BreakOverlay {
   toId: string;
 }
 
-/** The tweak surface — one row per knob, shared by panel + API clamps. */
+/** The tweak surface — one row per knob, shared by panel + API clamps.
+ *  `bars` and `before` are counted in WHOLE BARS (int), not percentages: they
+ *  place the fill in time rather than colour it. Everything else is a feel. */
 export const BREAK_KNOBS = [
+  { field: "bars", word: "Length", min: 1, max: 8, int: true },
+  { field: "before", word: "Early", min: 0, max: 8, int: true },
   { field: "gain", word: "Level", min: 0, max: 1.2 },
   { field: "heat", word: "Heat", min: 0, max: 0.6 },
   { field: "tone", word: "Tone", min: 0, max: 1 },
@@ -44,8 +55,17 @@ export const BREAK_KNOBS = [
 ] as const;
 export type BreakKnobField = (typeof BREAK_KNOBS)[number]["field"];
 
+/** How a knob reads on the panel: bars say bars, feels say percent. */
+export function breakKnobText(field: BreakKnobField, v: number): string {
+  if (field === "bars") return `${Math.round(v)} ${Math.round(v) === 1 ? "bar" : "bars"}`;
+  if (field === "before")
+    return Math.round(v) === 0 ? "on the turn" : `${Math.round(v)} early`;
+  return `${Math.round(v * 100)}%`;
+}
+
 export function breakKnobDefault(move: BreakMove, field: BreakKnobField): number {
   if (field === "gain") return move.gain;
+  if (field === "bars") return move.bars;
   return field === "tone" ? 1 : 0;
 }
 

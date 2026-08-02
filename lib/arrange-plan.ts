@@ -394,11 +394,12 @@ const TURN_BREAK_SYSTEM = `You decide ONE TURN in an instrumental song: the mome
 Choose the drum fill that breaks the first section into the second, or NOTHING: a bare turn is a real answer, and a long rise often wants one.
 
 Respond with ONLY a JSON object, no markdown:
-{"tpl": "<template key>", "bars": how many CLOSING bars of the outgoing section the fill occupies (1-4), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8}
+{"tpl": "<template key>", "bars": how many bars the fill occupies (1-4), "before": how many bars of the section still play AFTER the fill ends (0 = it runs straight into the turn), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8}
 or exactly {"tpl": null} for a bare turn.
 
 Templates: roll (snare roll) · run (tom run) · build (doubling roll) · stutter (kick stutter) · lift (rising hats) · clap (doubling claps) · crash (push into a ringing crash) · tumble (tom cascade).
 "bars" belongs to the SECTION, not the template: a section playing once wants a single closing bar, while one that runs sixteen or thirty-two bars can carry a three- or four-bar turn without losing the thread. The outgoing section's span is given — read it before choosing.
+"before" places the fill in time. 0 lands it hard against the change, which is the common move. A larger number finishes the fill early and lets the groove play out for those bars — the drop-away that makes the next section land harder. Use it when the arrival wants air in front of it, never by default.
 Knobs: gain = level, heat = drive, tone = how open the top is (1 = fully open), space = room send. The fill is a point of RELEASE, not a running beat.`;
 
 export interface PageBreak {
@@ -409,6 +410,9 @@ export interface PageBreak {
    *  bars of one loop earn a longer break than a single pass. Absent = the
    *  template's own length. */
   bars?: number;
+  /** Bars of the section that still play AFTER the fill ends — 0 (the default)
+   *  runs it straight into the turn; higher lands it early. */
+  before?: number;
   gain: number;
   heat: number;
   tone: number;
@@ -433,6 +437,10 @@ function sanitizeTurnBreak(raw: unknown, atLoop: number): PageBreak | null {
     // The renderer clamps again to the section's real span.
     ...(Number.isFinite(Number(e.bars))
       ? { bars: Math.max(1, Math.min(4, Math.floor(Number(e.bars)))) }
+      : {}),
+    // where it sits — 0 (or absent) = hard against the change, as before
+    ...(Number.isFinite(Number(e.before)) && Number(e.before) >= 1
+      ? { before: Math.min(8, Math.floor(Number(e.before))) }
       : {}),
     gain: knob(e.gain, 0, 1.2, 0.8),
     heat: knob(e.heat, 0, 0.6, 0),
@@ -479,7 +487,7 @@ export async function composeTurnBreak(
      *  them (the 07-22 coupling, kept). */
     crossing?: { name?: string; param: string; from: number; to: number }[];
     /** What rides this turn now — replaced by whatever comes back. */
-    riding?: { tpl: string; bars?: number };
+    riding?: { tpl: string; bars?: number; before?: number };
   },
   cfg?: LlmConfig,
 ): Promise<PageBreak | null> {
@@ -508,7 +516,9 @@ export async function composeTurnBreak(
           .map((c) => `${c.name ? `"${c.name}" — ` : ""}${c.param} ${c.from}→${c.to}`)
           .join(" · ")}`
       : "",
-    args.riding ? `RIDING NOW (replaced by your answer): ${args.riding.tpl}${args.riding.bars ? ` over ${args.riding.bars} bars` : ""}` : "",
+    args.riding
+      ? `RIDING NOW (replaced by your answer): ${args.riding.tpl}${args.riding.bars ? ` over ${args.riding.bars} bars` : ""}${args.riding.before ? `, ending ${args.riding.before} bars before the turn` : ""}`
+      : "",
     `The turn. JSON only.`,
   ]
     .filter(Boolean)

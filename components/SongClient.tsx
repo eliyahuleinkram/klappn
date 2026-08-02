@@ -18,6 +18,7 @@ import { openDeep } from "@/lib/seal";
 import { sentenceLabel } from "@/lib/labels";
 import {
   BREAK_KNOBS,
+  breakKnobText,
   BREAK_MOVES,
   breakKnobDefault,
   breakMoveOf,
@@ -2855,7 +2856,20 @@ export default function SongClient({
   function arrOf(id: string) {
     const a = arrangementRef.current?.sections?.[id];
     if (!a) return undefined;
-    return (transposeRef.current ?? 0) !== 0 ? { ...a, overlays: undefined } : a;
+    // THE DIAL WINS OVER THE ARRANGEMENT (2026-08-02, the user). A section's
+    // repeat count lived in two languages: the ⋯ dial's ×2/×4/×8 (holdCycles)
+    // and the arrangement's span. Once songs arrive arranged, the dial was
+    // DEAD — repeatsFor returned 1 for any arranged loop, so the tap did
+    // nothing at all. Now a hold simply RESTATES the span in the dial's terms:
+    // held × the loop's own length. One number, one meaning, and the authored
+    // moves clamp into whatever span you choose (lib/arrange).
+    const held = holdCyclesRef.current[id];
+    const nat = Math.max(1, barsOf(partsRef.current.find((p) => p.id === id) ?? ({} as Part)) || 1);
+    const withHold =
+      Number.isFinite(held) && (held as number) >= 1 ? { ...a, bars: (held as number) * nat } : a;
+    return (transposeRef.current ?? 0) !== 0
+      ? { ...withHold, overlays: undefined }
+      : withHold;
   }
   /**
    * WHAT A SECTION ACTUALLY DOES, as three numbers the card can draw
@@ -2871,23 +2885,58 @@ export default function SongClient({
    * null when the loop just plays once with nothing at its end — nothing to
    * draw, and a strip of one bead would be noise.
    */
-  function spanOf(p: Part): { passes: number; bars: number; breakBars: number } | null {
+  function spanOf(
+    p: Part,
+  ): {
+    passes: number;
+    bars: number;
+    breakBars: number;
+    breakBefore: number;
+    authored: number;
+  } | null {
     const loopBars = Math.max(1, barsOf(p) || 1);
-    const spec = arrangementRef.current?.sections?.[p.id];
+    // arrOf, not the raw spec — so a dialled hold is the span, here and at
+    // playback, from one source. `authored` is what the ARRANGEMENT chose,
+    // which the dial uses to know when a tap is really "back to as composed".
+    const spec = arrOf(p.id);
+    const raw = arrangementRef.current?.sections?.[p.id];
+    const authored = Math.max(
+      1,
+      Math.round(
+        (Number.isFinite(raw?.bars) ? Math.floor(raw!.bars as number) : loopBars) / loopBars,
+      ),
+    );
+    const held = holdCycles[p.id];
     const bars = Math.max(
       loopBars,
-      Number.isFinite(spec?.bars) ? Math.floor(spec!.bars as number) : loopBars,
+      Number.isFinite(spec?.bars)
+        ? Math.floor(spec!.bars as number)
+        : Number.isFinite(held) && (held as number) >= 1
+          ? (held as number) * loopBars
+          : loopBars,
     );
     const passes = Math.max(1, Math.round(bars / loopBars));
     const ov = (plan as { overlays?: BreakOverlay[] } | null)?.overlays?.find(
       (o) => o.fromId === p.id,
     );
     let breakBars = 0;
+    let breakBefore = 0;
     if (ov) {
+      const room = bars > 1 ? bars - 1 : bars;
       const want = Number.isFinite(ov.bars) ? (ov.bars as number) : breakMoveOf(ov.tpl)?.bars ?? 1;
-      breakBars = Math.max(1, Math.min(want, bars > 1 ? bars - 1 : bars));
+      breakBars = Math.max(1, Math.min(want, room));
+      // the same clamp the renderer applies, so the strip draws where it sounds
+      breakBefore = Math.max(
+        0,
+        Math.min(
+          Number.isFinite(ov.before) ? Math.floor(ov.before as number) : 0,
+          Math.max(0, room - breakBars),
+        ),
+      );
     }
-    return passes > 1 || breakBars > 0 ? { passes, bars, breakBars } : null;
+    return passes > 1 || breakBars > 0
+      ? { passes, bars, breakBars, breakBefore, authored }
+      : null;
   }
   function endingOf() {
     const e = arrangementRef.current?.ending;
@@ -3833,7 +3882,6 @@ export default function SongClient({
                 onSelect={() =>
                   setSelectedLoopId((cur) => (cur === part.id ? null : part.id))
                 }
-                hold={holdCycles[part.id]}
                 onHold={(n) => setHold(part.id, n)}
                 onEditCode={() => setCodeEditId(part.id)}
               />
@@ -4073,6 +4121,7 @@ function RepeatStrip({
   passes,
   bars,
   breakBars,
+  breakBefore,
   barSeconds,
   playing,
   paused,
@@ -4080,14 +4129,22 @@ function RepeatStrip({
   passes: number;
   bars: number;
   breakBars: number;
+  breakBefore: number;
   barSeconds: number;
   playing: boolean;
   paused: boolean;
 }) {
   const pct = bars > 0 ? Math.min(100, (breakBars / bars) * 100) : 0;
+  // where the fill sits, measured from the END — so a break that lands early
+  // is drawn early, with the bars that play out after it left clear
+  const rightPct = bars > 0 ? Math.min(100 - pct, (breakBefore / bars) * 100) : 0;
   const label =
     `${passes === 1 ? "plays once" : `plays ${passes}×`}` +
-    (breakBars > 0 ? ` · a ${breakBars}-bar turn at the end` : "");
+    (breakBars > 0
+      ? ` · a ${breakBars}-bar turn${
+          breakBefore > 0 ? `, ending ${breakBefore} ${breakBefore === 1 ? "bar" : "bars"} early` : " at the end"
+        }`
+      : "");
   return (
     <span
       className="relative mt-2 flex h-[3px] w-full items-stretch gap-[3px] overflow-hidden rounded-full"
@@ -4098,12 +4155,12 @@ function RepeatStrip({
       {Array.from({ length: passes }, (_, i) => (
         <span key={i} className="flex-1 rounded-full bg-white/[0.14]" />
       ))}
-      {/* the turn — the closing bars of the SPAN, drawn to scale */}
+      {/* the turn — its real bars, at its real place in the span */}
       {pct > 0 && (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-0 rounded-full bg-accent/55"
-          style={{ width: `${pct}%` }}
+          className="pointer-events-none absolute inset-y-0 rounded-full bg-accent/55"
+          style={{ width: `${pct}%`, right: `${rightPct}%` }}
         />
       )}
       {/* the pass you're in — one sweep across the whole span */}
@@ -6001,8 +6058,9 @@ function BreakPanel({
             value={val(k.field)}
             min={k.min}
             max={k.max}
-            step={(k.max - k.min) / 100}
-            fmt={(v) => `${Math.round(v * 100)}%`}
+            // bars step in bars; feels stay continuous
+            step={"int" in k && k.int ? 1 : (k.max - k.min) / 100}
+            fmt={(v) => breakKnobText(k.field, v)}
             onInput={(v) =>
               onTweak(
                 { [k.field]: v } as Partial<Pick<BreakOverlay, BreakKnobField>>,
@@ -6044,7 +6102,10 @@ function loopCardEqual(
     a.soloedLayer === b.soloedLayer &&
     a.expanded === b.expanded &&
     a.selected === b.selected &&
-    a.hold === b.hold
+    a.span?.passes === b.span?.passes &&
+    a.span?.breakBars === b.span?.breakBars &&
+    a.span?.breakBefore === b.span?.breakBefore &&
+    a.span?.bars === b.span?.bars
   );
 }
 const LoopCard = memo(LoopCardImpl, loopCardEqual);
@@ -6184,7 +6245,6 @@ function LoopCardImpl({
   selected,
   onSelect,
   onEditCode,
-  hold,
   onHold,
 }: {
   part: Part;
@@ -6204,9 +6264,16 @@ function LoopCardImpl({
   busy: boolean;
   /** One bar in seconds — the repeat strip sweeps across the span with it. */
   barSeconds: number;
-  /** What the arrangement decided for this section, or null when it just plays
-   *  once with a bare turn (nothing to draw). See spanOf. */
-  span: { passes: number; bars: number; breakBars: number } | null;
+  /** What this section actually does, or null when it just plays once with a
+   *  bare turn (nothing to draw). `authored` = the arrangement's own count, so
+   *  the dial can offer the way back to as-composed. See spanOf. */
+  span: {
+    passes: number;
+    bars: number;
+    breakBars: number;
+    breakBefore: number;
+    authored: number;
+  } | null;
   onPlay: () => void;
   onChanged: () => Promise<void>;
   onLocalCode: (code: string) => void;
@@ -6222,7 +6289,6 @@ function LoopCardImpl({
   /** Open the loop's code in the hand editor (the ⋯ menu's "Edit the code"). */
   onEditCode: () => void;
   /** This loop's REPEAT latch (2/4/8, undefined = plays once). */
-  hold?: number;
   /** Set/clear the repeat latch — the ⋯ menu's 2×/4×/8× (zero AI). */
   onHold: (n: number | undefined) => void;
 }) {
@@ -6262,6 +6328,21 @@ function LoopCardImpl({
   const generating = part.status === "generating";
   const errored = part.status === "error";
   const hasCode = !!(part.strudel && part.strudel.trim());
+  // HOW MANY TIMES THIS SECTION PLAYS — the one number, wherever it came from
+  // (the arrangement's span, or your own turn of the dial). `authoredPasses` is
+  // what the song was composed with, so the dial can always offer the way back.
+  const passes = span?.passes ?? 1;
+  const authoredPasses = span?.authored ?? 1;
+  // A LADDER, NOT THREE LATCHES (2026-08-02, the user: "maybe you need more
+  // options…so that we are not too limited"). Musical counts, not powers of
+  // two alone — 3 and 6 for the pieces that phrase in threes, 12 and 16 for the
+  // long ones — plus whatever the arrangement or the dial actually holds, so
+  // the true number is never missing from its own control.
+  const repeatChoices = Array.from(
+    new Set([1, 2, 3, 4, 6, 8, 12, 16, authoredPasses, passes]),
+  )
+    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 64)
+    .sort((a, b) => a - b);
 
   // While composing, cycle through the real pipeline stages so the wait feels
   // alive and reassuring (it's genuinely working — curate → draft → judge →
@@ -6599,9 +6680,9 @@ function LoopCardImpl({
               {!expanded && !generating && tracks.length > 0 && (
                 <span className="flex shrink-0 items-center gap-2.5 text-[11.5px] text-muted/40">
                   {tracks.length} {tracks.length === 1 ? "layer" : "layers"}
-                  {Number.isFinite(hold) && (hold as number) > 1 && (
-                    <span className="text-accent/80">{hold}×</span>
-                  )}
+                  {/* the same number the dial holds — the section's real
+                      passes, arranged or dialled, never the stale latch */}
+                  {passes > 1 && <span className="text-accent/80">{passes}×</span>}
                 </span>
               )}
             </span>
@@ -6613,6 +6694,7 @@ function LoopCardImpl({
                 passes={span.passes}
                 bars={span.bars}
                 breakBars={span.breakBars}
+                breakBefore={span.breakBefore}
                 barSeconds={barSeconds}
                 playing={playing}
                 paused={paused}
@@ -6710,27 +6792,40 @@ function LoopCardImpl({
                   </svg>
                   Edit the code
                 </button>
-                {/* REPEAT — hold this loop 2×/4×/8× before the song moves on.
-                    Zero AI, tap the active count again to clear it. */}
+                {/* REPEAT — how many times this loop plays before the song
+                    moves on. ONE NUMBER, ONE MEANING (2026-08-02, the user:
+                    "why not set it at the ×number it is actually looping…as if
+                    it was manually chosen"): the lit chip is what the section
+                    ACTUALLY does — the arrangement's own count until you turn
+                    it — and the arrangement's number is always among the
+                    choices, so putting the song back the way it was composed is
+                    one tap, not a guess. Zero AI either way. */}
                 {hasCode && !generating && (
-                  <div className="flex items-center gap-1 px-3 py-2">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="mr-1 text-foreground/80">
+                  <div className="flex flex-wrap items-center gap-1 px-3 py-2">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="mr-1 shrink-0 text-foreground/80">
                       <path d="m17 2 4 4-4 4" />
                       <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
                       <path d="m7 22-4-4 4-4" />
                       <path d="M21 13v1a4 4 0 0 1-4 4H3" />
                     </svg>
-                    {[2, 4, 8].map((n) => (
+                    {repeatChoices.map((n) => (
                       <button
                         key={n}
-                        onClick={() => onHold(hold === n ? undefined : n)}
+                        // Choosing the arrangement's own count CLEARS the dial
+                        // rather than storing the same answer twice — the
+                        // section goes back to being simply as composed.
+                        onClick={() => onHold(n === authoredPasses ? undefined : n)}
                         title={
-                          hold === n
-                            ? "Back to a single pass"
-                            : `Repeat this loop ${n}×`
+                          n === passes
+                            ? n === authoredPasses
+                              ? "As the song was arranged"
+                              : "Playing this many times"
+                            : n === authoredPasses
+                              ? `Back to ${n}× — the way it was arranged`
+                              : `Play this loop ${n}×`
                         }
                         className={`rounded-full px-2.5 py-1 text-[12px] font-medium leading-none transition active:scale-95 ${
-                          hold === n
+                          n === passes
                             ? "bg-gradient-to-r from-[#ff63c1] to-accent-strong text-white"
                             : "text-muted/60 hover:bg-white/[0.06] hover:text-foreground"
                         }`}

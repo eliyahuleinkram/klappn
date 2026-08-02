@@ -543,11 +543,28 @@ export function buildArrangement(
     const want = Number.isFinite(o.bars as number) ? Math.floor(o.bars as number) : move.bars;
     const room = spanLen > 1 ? spanLen - 1 : spanLen;
     const fill = Math.max(1, Math.min(want, room));
-    const off = spanLen - fill;
+    // WHERE it sits: `before` bars of the section still play after the fill
+    // ends (0 = straight into the turn). Measured from the END, so a section
+    // that gets longer or shorter keeps the gesture in the same place
+    // musically. Clamped so the fill can never be pushed off the front.
+    const early = Math.max(
+      0,
+      Math.min(
+        Number.isFinite(o.before as number) ? Math.floor(o.before as number) : 0,
+        Math.max(0, room - fill),
+      ),
+    );
+    const off = spanLen - fill - early;
     const winStart = a.start + off;
+    // The mask steps one slot per cycle and must cover the WHOLE span: silence
+    // up to the window, the fill, then silence again for the bars that play
+    // out after it (early > 0). A mask shorter than the span would loop and
+    // sound the fill twice.
     const composite =
-      off > 0
-        ? `(${line}).late(${off}).mask("<${("0 ".repeat(off) + "1 ".repeat(fill)).trim()}>")`
+      off > 0 || early > 0
+        ? `(${line}).late(${off}).mask("<${(
+            "0 ".repeat(off) + "1 ".repeat(fill) + "0 ".repeat(early)
+          ).trim()}>")`
         : `(${line})`;
     for (const e of entries) {
       if (e.at >= a.end || e.at + e.cycles <= winStart) continue;

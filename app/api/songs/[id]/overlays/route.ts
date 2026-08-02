@@ -25,6 +25,10 @@ export async function PATCH(
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as {
     id?: string;
+    /** Every knob the panel can send — the whole-bar ones (bars, before) and
+     *  the feels — read generically off BREAK_KNOBS below. */
+    bars?: number;
+    before?: number;
     gain?: number;
     heat?: number;
     tone?: number;
@@ -43,7 +47,11 @@ export async function PATCH(
   const patch: Record<string, unknown> = {};
   for (const k of BREAK_KNOBS) {
     const v = body[k.field];
-    if (Number.isFinite(v)) patch[k.field] = Math.min(k.max, Math.max(k.min, v as number));
+    if (!Number.isFinite(v)) continue;
+    const clamped = Math.min(k.max, Math.max(k.min, v as number));
+    // Length and position are counted in WHOLE bars — a 2.37-bar fill is not a
+    // thing the renderer can place.
+    patch[k.field] = "int" in k && k.int ? Math.round(clamped) : clamped;
   }
   if (typeof body.fromId === "string" && body.fromId) patch.fromId = body.fromId;
   if (typeof body.toId === "string" && body.toId) patch.toId = body.toId;
