@@ -5789,10 +5789,14 @@ export async function playSong(
           if (live && live.length) {
             const at = live.findIndex((s) => s.id === a.anchorId);
             if (at >= 0) {
-              // an ending unit never re-scopes past the list's end (no wrap)
-              const rot = a.ends
-                ? live.slice(at)
-                : [...live.slice(at), ...live.slice(0, at)];
+              // ALWAYS FORWARD, NEVER TURNED — the same law as step()
+              // (2026-08-02). This re-scope still carried the old rotation for
+              // looping units, so a live-list change mid-play could hand the
+              // unit a baseList whose index 0 was the TAP again — resurrecting
+              // exactly the wrap-to-where-you-pressed the anchor change killed.
+              // A unit is a forward slice of the song, whatever the mode; the
+              // wrap to bar one is step()'s job, not this list's shape.
+              const rot = live.slice(at);
               const fresh = nextUnit(rot.map(decorated), 0, {
                 attachVisual: false,
                 ending: songOpts.ending,

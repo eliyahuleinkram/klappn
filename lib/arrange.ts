@@ -655,6 +655,15 @@ export function buildArrangement(
       at += bars;
     }
   }
+  // THE GUARD (2026-08-02, the user: "when it is meant to end, it still loops
+  // back to the beginning of where we hit play from"). arrange() is cyclic and
+  // the terminal stop is a TIMER — if that timer is ever lost or lands late,
+  // the pattern wraps and the first thing you hear is the section you pressed
+  // play on, at full volume. So an ending program carries 32 bars of SILENCE
+  // after its tail, OUTSIDE totalCycles: every timer, progress tick and export
+  // still ends at the audible end, but a wrap now lands in silence — a missed
+  // stop costs quiet, never a relapse into the song.
+  if (ends) entries.push({ cycles: 32, expr: "silence", at });
   const body = entries.map((e) => `[${e.cycles}, ${e.expr}]`).join(",\n");
   // The seek shift rides the WHOLE pattern (normalized into [0, total) —
   // arrange() is cyclic, so late(k) === late(k mod total)).
