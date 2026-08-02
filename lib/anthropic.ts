@@ -369,6 +369,12 @@ export interface SongPlan {
    *  it). Parts carry rendered copies of its blocks; this is what a freshly composed part
    *  attaches when no painted neighbour exists yet. */
   visual?: SongVisual;
+  /** Set by the whole-song birth run's closing sweep (jobs.finishSong): this
+   *  song's effects/breaks/arrangement were authored by the run that made it.
+   *  The song page reads it to keep from offering a sweep that already ran;
+   *  the next generation run clears it as it starts, since a new loop is
+   *  material the shape has never heard. */
+  autoSwept?: boolean;
   /** The model-authored song arrangement (lib/arrange-plan) — per-section layer
    *  moves/sweeps/overlays + the ending, rendered by lib/arrange at play time.
    *  Absent/null = every section plays whole and the song wraps (classic).
@@ -417,10 +423,19 @@ export interface DerivedWorkspace {
   label: string;
   intent: string;
   bars: number;
-  /** THE PIECE'S SECTIONS, in order (2026-07-14 — a journey needs acts): one
-   *  when the request reads like a loop, 2-4 when it reads like a whole track.
-   *  The model decides from the words; every part composes at birth. */
+  /** THE WHOLE PIECE'S SECTIONS, in order (2026-08-02, the user — a hit is a
+   *  SONG: "the hits you should just complete from beginning to end"). The
+   *  derive plans the entire arc, 3-6 sections, and every one composes at
+   *  birth — sequentially, each hearing the finished ones before it, exactly
+   *  as a maker building loop by loop would. (One prompt made ONE loop from
+   *  2026-07-16 until this reversal; Extend is still how a finished song
+   *  grows.) */
   parts: { label: string; intent: string }[];
+  /** THE TRACK'S DIRECTION NOTE — how the piece moves as a whole, in purely
+   *  musical terms (plan.direction, ≤160 chars). Authored here so every section
+   *  after the first is composed against the SAME steer the maker would have
+   *  typed; buildBrief reads it on every later compose/extend/edit. */
+  direction?: string;
   /** True when the derive CALL failed and these are the safe defaults ("Untitled" / 120 /
    *  A minor), not a real derivation. Persisted as plan.underived so a later "Try again"
    *  re-runs the idea call instead of composing off the defaults forever. */
@@ -434,15 +449,19 @@ const clampBpm = (n: unknown, d = 120) => {
 const str = (s: unknown, d = "") =>
   typeof s === "string" && s.trim() ? s.trim().slice(0, 700) : d;
 
-const DERIVE_SYSTEM = `A user is starting an INSTRUMENTAL piece by describing it. From their request, infer the piece's identity AND its material. Whatever they type — even vague or non-musical — return a complete musical vision with real values in every field; translate non-musical text into music, never echo it. A named artist, band or song is a reference to translate: capture its signature faithfully in purely musical terms (genre, groove, instrumentation, harmony, production) — no artist, band or song name appears anywhere in your output. (Inspiration loops, when given: draw on their feel/palette/motifs, never copy them.) Respond with ONLY a JSON object, no markdown:
+const DERIVE_SYSTEM = `A user is starting an INSTRUMENTAL piece by describing it. From their request, infer the piece's identity AND its whole arc — every section, in order. Whatever they type — even vague or non-musical — return a complete musical vision with real values in every field; translate non-musical text into music, never echo it. A named artist, band or song is a reference to translate: capture its signature faithfully in purely musical terms (genre, groove, instrumentation, harmony, production) — no artist, band or song name appears anywhere in your output. (Inspiration loops, when given: draw on their feel/palette/motifs, never copy them.)
+
+THE SECTIONS ARE THE PIECE — 3 to 6 of them, the whole track from its first sound to its last. Each is a DISTINCT musical statement with its own material, character and energy; cohesion comes from the shared genre, key and tempo, never from restating an earlier section's melody or groove, and a returning motif is TRANSFORMED (fragmented, answered, moved to another voice), not repeated. The first section is the way in and arrives light — never the heaviest thing in the piece. The last is its last word. They are composed in order, each hearing the finished ones before it, so plan an arc that goes somewhere.
+
+Respond with ONLY a JSON object, no markdown:
 {
  "title": a 2-4 word track name,
  "genre": the single best-fit genre,
  "bpm": integer tempo,
  "key": "<tonic> major" or "<tonic> minor",
  "timeSignature": "N/D" — almost always "4/4"; an odd or compound meter only when the request clearly implies it,
- "label": a distinctive 1-3 word name for the piece's core material,
- "intent": a faithful 1-2 sentence musical description of it
+ "direction": one sentence, max 160 characters — how the piece moves as a whole; the note every section is composed against,
+ "sections": [{ "label": a distinctive 1-3 word name for this section's material, "intent": a faithful 1-2 sentence musical description of it }]
 }`;
 
 // --- meter conversion -------------------------------------------------------
@@ -547,16 +566,23 @@ export async function deriveWorkspaceFromLoop(
   const tsNum = Number(tsRaw.split("/")[0]);
   const timeSignature =
     /^\d{1,2}\/\d{1,2}$/.test(tsRaw) && tsNum >= 1 && tsNum <= 16 ? tsRaw : "4/4";
-  // The planned SECTIONS (1-4, in order). Older/odd replies that still carry a
-  // single top-level label/intent become a one-part plan.
-  const parts = (Array.isArray(j.parts) ? j.parts : [])
+  // THE PLANNED SECTIONS (3-6, in order) — the whole song, composed at birth.
+  // `sections` is what the prompt asks for; `parts` is read too so a reply in
+  // the older shape still lands, and a reply carrying only a single top-level
+  // label/intent becomes a one-section plan rather than nothing.
+  const listed = Array.isArray(j.sections)
+    ? j.sections
+    : Array.isArray(j.parts)
+      ? j.parts
+      : [];
+  const parts = listed
     .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
     .map((p) => ({
       label: cleanLabel(str(p.label)),
       intent: str(p.intent),
     }))
     .filter((p) => p.intent)
-    .slice(0, 4);
+    .slice(0, 6);
   if (parts.length === 0)
     parts.push({ label: cleanLabel(str(j.label)), intent: str(j.intent, q) });
   return {
@@ -571,6 +597,8 @@ export async function deriveWorkspaceFromLoop(
     // composed loop (lib/loop-length.ts).
     bars: 8,
     parts,
+    // The whole-track steer, held to the same ≤160 chars plan.direction stores.
+    ...(str(j.direction) ? { direction: str(j.direction).slice(0, 160) } : {}),
   };
 }
 

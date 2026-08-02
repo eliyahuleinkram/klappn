@@ -73,6 +73,7 @@ import {
   setPartMessage,
   setPartStatus,
   setPartStrudelOwned,
+  setSongAutoSwept,
   setSongStatus,
   snapshotPartOriginal,
   writePartComposition,
@@ -798,6 +799,51 @@ export async function autoShapeSong(
   // (the piece may want its turns bare).
   await replaceSongOverlays(songId, song.user_id, overlays, sql);
   return "shaped";
+}
+
+/**
+ * THE CLOSING SWEEP OF A WHOLE-SONG RUN (2026-08-02, the user: "we go loop by
+ * loop, and then at the end we perform the sweeping etc.").
+ *
+ * When ONE run composed the entire song, the finish belongs to the run — a hit
+ * arrives shaped and with a last bar, not needing two taps to become a song.
+ * Exactly what a maker does after the last loop lands, in the same order:
+ *   1. the SWEEP — effects across the loops, breaks at the turns (autoShapeSong);
+ *   2. the ARRANGEMENT — per-section unfolds and, above all, an ENDING; without
+ *      one the song wraps forever, and a piece that can't stop isn't finished.
+ * Then `plan.autoSwept` records that this song's shape came from its own run,
+ * so the page doesn't offer a sweep that already happened. Every LATER run
+ * (Extend, retry) clears the flag as it starts and the pill returns — nothing
+ * outside a birth run ever shapes itself (the 2026-07-21 law stands).
+ *
+ * Best-effort throughout: a whiffed sweep or arrangement leaves a playable
+ * song. Neither may fail the run — the music is already made.
+ *
+ * `run` couples a durable step to a connection: the workflow passes its
+ * step-wrapped withSql (one call per step, one connection per step), dev passes
+ * a plain db() runner. Two model calls = two steps; never one that could outrun
+ * a step's wall.
+ */
+export async function finishSong(
+  songId: string,
+  cfg: ClaudeConfig | undefined,
+  run: <T>(name: string, fn: (sql: Sql) => Promise<T>) => Promise<T>,
+): Promise<void> {
+  try {
+    await run("sweep", (sql) => autoShapeSong(songId, cfg, sql));
+  } catch (e) {
+    console.error(`[klappn] closing sweep failed for ${songId}:`, e);
+  }
+  try {
+    // fill mode: write only what has no unfold yet, and the ending only when
+    // absent — anything the user already shaped mid-build stands.
+    await run("arrange", (sql) =>
+      arrangeSong(songId, cfg, sql, undefined, undefined, undefined, true),
+    );
+  } catch (e) {
+    console.error(`[klappn] closing arrange failed for ${songId}:`, e);
+  }
+  await run("swept", (sql) => setSongAutoSwept(songId, true, sql)).catch(() => {});
 }
 
 // ── NATURAL-LANGUAGE LOOP EDIT: route one request → ordered ops → apply, in memory ──

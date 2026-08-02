@@ -2534,6 +2534,12 @@ export default function SongClient({
   const playableCount = playableVisible.filter((p) => p.status === "ready").length;
   const wasBusy = useRef(busy);
   const readyAtRunStart = useRef(playableCount);
+  // The run that made the WHOLE song swept itself on the way out (2026-08-02) —
+  // offering a sweep the song just had would be asking for what's already
+  // there. The server sets plan.autoSwept at the end of a birth run and clears
+  // it the moment any next run starts, so an Extend brings the pill straight
+  // back for the loop the shape has never heard.
+  const autoSwept = (song.plan as { autoSwept?: boolean } | null)?.autoSwept === true;
   useEffect(() => {
     if (busy && !wasBusy.current) {
       readyAtRunStart.current = playableCount;
@@ -2543,10 +2549,16 @@ export default function SongClient({
     // one-loop hit with no way to the sweep but the menu, whose tap the server
     // then threw away): a loop loops around itself, so glides ride it and a
     // fill lands on the way back.
-    if (!busy && wasBusy.current && playableCount > readyAtRunStart.current && playableCount >= 1)
+    if (
+      !busy &&
+      wasBusy.current &&
+      playableCount > readyAtRunStart.current &&
+      playableCount >= 1 &&
+      !autoSwept
+    )
       setSweep((s) => (s === "busy" ? s : "offer"));
     wasBusy.current = busy;
-  }, [busy, playableCount]);
+  }, [busy, playableCount, autoSwept]);
   // A sweep that changed nothing used to look exactly like one that worked: the
   // pill just went away. The route now says what it DID, and a no-op says so in
   // the corner for a beat before the word comes back (2026-07-31).

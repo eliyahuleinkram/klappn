@@ -2,9 +2,12 @@ import {
   applyPartEdit,
   convertSongMeter,
   editLoopDirect,
+  finishSong,
   generateOnePart,
   runEdit,
 } from "./jobs";
+import { db } from "./db";
+import { setSongAutoSwept } from "./songs";
 import type { ModelId } from "./models";
 
 /**
@@ -131,11 +134,16 @@ const EDIT_WORKFLOW = process.env.EDIT_WORKFLOW_NAME || "klappn-edit";
 
 /** Kick off generation for one part — or an ORDERED LIST of parts composed
  *  sequentially in the given order (e.g. a new loop, THEN the bridge that
- *  depends on it). Returns an instance id to store on the song. */
+ *  depends on it). Returns an instance id to store on the song.
+ *
+ *  `finish` marks the run that makes the WHOLE song (the birth run): it closes
+ *  with the sweep the song page otherwise offers in a pill — see the workflow's
+ *  finish steps. Every other run leaves the sweep to the user's tap. */
 export async function triggerGeneration(
   songId: string,
   partId?: string | string[],
   provider?: ModelId,
+  opts?: { finish?: boolean },
 ): Promise<string> {
   const ids = Array.isArray(partId) ? partId : partId ? [partId] : [];
   if (cfConfig()) {
@@ -144,6 +152,7 @@ export async function triggerGeneration(
       ...(ids.length === 1 ? { partId: ids[0] } : {}),
       ...(ids.length > 1 ? { partIds: ids } : {}),
       ...(provider ? { provider } : {}),
+      ...(opts?.finish ? { finish: true } : {}),
     });
   }
   // dev fallback (no Cloudflare): run the same job core in-process, in order.
@@ -154,7 +163,13 @@ export async function triggerGeneration(
     return `dev-gen-${songId}`;
   }
   void (async () => {
+    // Dev parity with the workflow's load step: a run is starting, so the shape
+    // riding now hasn't heard it — the page's sweep pill comes back.
+    await setSongAutoSwept(songId, false).catch(() => {});
     for (const id of ids) await generateOnePart(songId, id, undefined, cfg);
+    // Same closing sweep as the workflow's, so a local run makes the same song
+    // (no durable steps here — each unit just gets a connection).
+    if (opts?.finish) await finishSong(songId, cfg, (_name, fn) => fn(db()));
   })().catch((e) =>
     console.error(`[klappn] dev generation failed for ${songId}:`, e),
   );

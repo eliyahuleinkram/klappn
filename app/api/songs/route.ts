@@ -137,13 +137,19 @@ export async function POST(req: Request) {
     genre: d.genre || undefined,
     timeSignature: d.timeSignature,
     parts: [],
+    // The whole-track steer the derive authored — every section after the first
+    // is composed against it (buildBrief reads plan.direction), the same note a
+    // maker's own steer would have written.
+    ...(d.direction ? { direction: d.direction } : {}),
     // The derive call FAILED and these are the safe defaults — flag it so "Try again"
     // re-runs the idea call (rederiveSongIdentity) instead of composing off them forever.
     ...(d.fallback ? { underived: true } : {}),
   }).catch(() => {});
-  // BORN WITH ACTS (2026-07-14): the derive plans the piece's sections (one for
-  // a loop ask, 2-4 for a song ask) and every one composes now, in order — a
-  // journey needs acts, and acts hidden behind manual Extend taps never happened.
+  // A HIT IS A SONG (2026-08-02, the user): the derive plans the WHOLE arc and
+  // every section is injected now, so the piece's shape is on screen from the
+  // first paint — the loops then fill in under it, in order, each hearing the
+  // finished ones before it. (2026-07-14 born-with-acts, narrowed to one loop
+  // on 07-16, opened back up to the whole song here.)
   const partIds: string[] = [];
   for (let i = 0; i < d.parts.length; i++) {
     const p = await injectPart(song.id, i, d.parts[i].label, d.parts[i].intent, d.bars);
@@ -155,7 +161,11 @@ export async function POST(req: Request) {
   // offers a Generate button.
   await setSongStatus(song.id, "generating");
   try {
-    const wf = await triggerGeneration(song.id, partIds, model);
+    // `finish: true` — this run composes the whole song, so it performs the
+    // closing sweep itself (effects + breaks, then the arrangement's ending)
+    // instead of leaving it to a tap. ONLY the birth run does; every later
+    // Extend still offers the pill.
+    const wf = await triggerGeneration(song.id, partIds, model, { finish: true });
     await setGenerationWorkflowId(song.id, wf);
   } catch (e) {
     console.error(`[klappn] trigger failed for new song ${song.id}:`, e);

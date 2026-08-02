@@ -369,6 +369,24 @@ export async function saveSongDirection(
     where id = ${songId}`;
 }
 
+/** Mark (or unmark) that the song's shape was authored by its OWN run — the
+ *  whole-song birth run's closing sweep (jobs.finishSong). The song page reads
+ *  it to keep from offering a sweep that just ran; every generation run that
+ *  starts afterwards clears it, because a new loop is material the shape has
+ *  never heard. Same targeted-jsonb_set contract as its neighbours. */
+export async function setSongAutoSwept(
+  songId: string,
+  on: boolean,
+  sql: Sql = db(),
+): Promise<void> {
+  // `and plan is not null` — jsonb_set(NULL, …) is NULL, and a flag this small
+  // must never be the thing that blanks a song's plan.
+  await sql`
+    update songs
+    set plan = jsonb_set(plan, '{autoSwept}', ${sql.json(on)})
+    where id = ${songId} and plan is not null`;
+}
+
 // ── CHAPTERS-ERA SONG EFFECTS (plan.effects) ─────────────────────────────────
 // Song-level glides anchored to part ranges (lib/arrange SongFx), written at
 // chapterize time and edited zero-AI from the song page. Array-valued but tiny

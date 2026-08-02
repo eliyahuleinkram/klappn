@@ -21,6 +21,7 @@ import {
   enrichPartTracks,
   convertOnePartMeter,
   editLoopDirect,
+  finishSong,
   flipSongMeterPlan,
   loadSongContext,
   mergeGenWithUserEdits,
@@ -34,6 +35,7 @@ import {
   saveSongVisual,
   setPartMessage,
   setPartStatus,
+  setSongAutoSwept,
   setSongStatus,
   writePartComposition,
 } from "../../lib/songs";
@@ -151,6 +153,7 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
     partId?: string;
     partIds?: string[];
     provider?: string;
+    finish?: boolean;
   }
 > {
   async run(
@@ -159,6 +162,7 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
       partId?: string;
       partIds?: string[];
       provider?: string;
+      finish?: boolean;
     }>,
     step: WorkflowStep,
   ) {
@@ -166,7 +170,9 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
     // those parts IN THE GIVEN ORDER (e.g. a new loop, then the bridge that
     // needs its code); omitted → every not-yet-ready loop (whole-song). Either
     // way, already-ready loops are kept.
-    const { songId, partId, partIds } = event.payload;
+    // `finish` → this run makes the WHOLE song (the birth run), so it closes
+    // with the sweep instead of leaving it to a tap. See finishSong.
+    const { songId, partId, partIds, finish } = event.payload;
     const env = this.env;
     const cfg = cfgOf(env);
 
@@ -174,6 +180,10 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
     const ctx = await step.do("load", () =>
       withSql(env, async (sql) => {
         await setSongStatus(songId, "generating", sql);
+        // A run is starting, so whatever shape rides now hasn't heard what this
+        // run is about to write: the song page's sweep pill comes back. The
+        // birth run re-sets the flag itself when it finishes (finishSong).
+        await setSongAutoSwept(songId, false, sql).catch(() => {});
         const { plan, parts, userId, model } = await loadSongContext(songId, sql);
         return {
           plan,
@@ -427,10 +437,29 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
       }
     }
 
-    // (AUTO-SHAPE at birth lived here for a few hours on 2026-07-21 and was
-    // reversed by the user: the whole-song sweep is a CHOICE now — the song
-    // page offers it in a pill after a new loop lands, and /api/songs/:id/shape
-    // runs it only when tapped. Generation never re-shapes on its own.)
+    // THE FINISH — only for a run that made the WHOLE song (2026-08-02, the
+    // user: "at the end we perform the sweeping etc."). The loops are written;
+    // now the song gets its shape and its last bar, exactly as a maker sweeps
+    // after the last loop lands. Before finalize, deliberately: the client
+    // stops polling the moment the song reads 'ready', so a shape saved after
+    // it would sit unseen until a reload (the same law the visual sweep obeys).
+    //
+    // A partial run still shapes what's there — autoShapeSong reads the READY
+    // loops, so a song with one failed section is swept around it and the
+    // section's own retry re-offers the pill. Never fails the run: the music is
+    // already made and playable.
+    //
+    // (An at-birth auto-shape lived here for a few hours on 2026-07-21 and was
+    // reversed the same day, when a prompt made ONE loop and shaping a
+    // single-loop song unasked was noise. A prompt now makes a whole song, and
+    // an unfinished song is the noise. Every OTHER run still only offers.)
+    if (finish) {
+      await finishSong(songId, cfg, (name, fn) =>
+        runStep(name, () => withSql(env, fn)),
+      );
+      await meter.flush();
+      await trace.flush();
+    }
 
     // Finalize — but never over a SIBLING run's shoulder: with concurrent scoped
     // runs (extend both edges at once), the first to finish must leave the song
