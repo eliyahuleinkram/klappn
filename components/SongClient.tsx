@@ -4441,7 +4441,7 @@ export default function SongClient({
                       <p className="px-1.5 pb-2 text-[10.5px] leading-snug text-muted/50">
                         {endingMoveOf(endShape.tpl ?? "ring")?.hint}
                       </p>
-                      <div className="grid grid-cols-2 gap-x-5 gap-y-3 px-1.5 pb-1.5">
+                      <div className="grid grid-cols-2 gap-x-5 gap-y-3 px-1.5 pb-1.5 [&>*:first-child]:col-span-2">
                         {ENDING_KNOBS.map((k) => (
                           <FxKnob
                             key={k.field}

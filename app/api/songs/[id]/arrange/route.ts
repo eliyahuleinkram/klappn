@@ -126,7 +126,7 @@ export async function PATCH(
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as {
     ending?: string;
-    endingShape?: { tpl?: string; bars?: number; gain?: number; tone?: number; space?: number };
+    endingShape?: { tpl?: string; start?: number; bars?: number; gain?: number; tone?: number; space?: number };
     sectionId?: string;
     moves?: { bar?: number; layers?: number[] }[];
     layerCount?: number;
@@ -166,6 +166,7 @@ export async function PATCH(
     if (!sp) return Response.json({ error: "not found" }, { status: 404 });
     const shape = {
       tpl: move.tpl,
+      start: Math.max(0, Math.min(16, Math.floor(knob(s.start, 0, 16, 0)))),
       bars: Math.max(1, Math.min(16, Math.floor(knob(s.bars, 1, 16, move.bars)))),
       gain: knob(s.gain, 0, 1.2, move.gain),
       tone: knob(s.tone, 0, 1, 1),

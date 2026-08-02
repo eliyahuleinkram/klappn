@@ -150,6 +150,12 @@ export interface SongEnding {
   space?: number;
   /** The key the tail was voiced for — an ending out of key is an accident. */
   key?: string;
+  /** How many bars BEFORE the song's last bar the tail comes in (2026-08-02).
+   *  0 = it waits until the song is over, which is what every ending did
+   *  before this; up to the final section's whole length, which is the song
+   *  resolving into its ending rather than after it. Whatever doesn't fit
+   *  inside the last section extends past the end on its own. */
+  start?: number;
 }
 
 /** The whole song's model-authored arrangement, persisted as plan.arrangement
@@ -609,9 +615,45 @@ export function buildArrangement(
     const authored = built ?? (opts.ending?.code ? bareExpr(opts.ending.code) : "");
     const usable = authored && oneShotOk(authored);
     const endBars = Math.max(1, Math.min(16, Math.floor(opts.ending?.bars ?? 2)));
-    entries.push({ cycles: endBars, expr: usable ? `(${authored}\n)` : `silence`, at });
-    spans.push({ id: "__end", start: at, end: at + endBars, bars: endBars });
-    at += endBars;
+    // WHERE THE TAIL BEGINS (2026-08-02, the user: "the ring-out can start
+    // anywhere in the final loop from the beginning to the end (inclusive),
+    // and then it can extend on its own").
+    //
+    // `start` counts bars from the END of the last section, so 0 means the
+    // tail waits until the song is over (what every ending did before this)
+    // and a larger number reaches back INTO the final loop — the song resolving
+    // into its ending rather than after it. The overlapping part rides the last
+    // section the way a break does (.late + a mask, so it sounds only from its
+    // bar onward), and whatever is left over is appended, re-entered with
+    // .early so the gesture CONTINUES its phase instead of striking twice.
+    const lastSpan = spans[spans.length - 1];
+    const lastLen = lastSpan ? lastSpan.end - lastSpan.start : 0;
+    const reach = Math.max(0, Math.min(Math.floor(opts.ending?.start ?? 0), lastLen));
+    const overlap = Math.min(reach, endBars);
+    const overhang = Math.max(0, endBars - overlap);
+    if (usable && overlap > 0 && lastSpan) {
+      const off = lastLen - overlap; // bars into the last section before it enters
+      const mask = `${"0 ".repeat(off)}${"1 ".repeat(overlap)}`.trim();
+      const rider = off > 0 ? `(${authored}).late(${off}).mask("<${mask}>")` : `(${authored})`;
+      for (const e of entries) {
+        if (e.at >= lastSpan.end || e.at + e.cycles <= lastSpan.start + off) continue;
+        const phase = e.at > lastSpan.start ? `.early(${e.at - lastSpan.start})` : "";
+        e.expr = `stack((${e.expr}), (${rider}${phase}))`;
+      }
+    }
+    if (overhang > 0 || overlap === 0) {
+      const bars = overhang > 0 ? overhang : endBars;
+      // Resume the gesture where the overlap left it, so a decay that began
+      // inside the last loop keeps falling instead of restarting.
+      const tail = usable
+        ? overlap > 0
+          ? `((${authored}).early(${overlap}))`
+          : `(${authored}\n)`
+        : `silence`;
+      entries.push({ cycles: bars, expr: tail, at });
+      spans.push({ id: "__end", start: at, end: at + bars, bars });
+      at += bars;
+    }
   }
   const body = entries.map((e) => `[${e.cycles}, ${e.expr}]`).join(",\n");
   // The seek shift rides the WHOLE pattern (normalized into [0, total) —

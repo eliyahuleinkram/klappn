@@ -26,10 +26,14 @@ import { isKnownBank } from "./sound-palette";
  * a whole lap away, not a cold font, so the pads came back.)
  */
 
-export type EndingKnobField = "bars" | "gain" | "tone" | "space";
+export type EndingKnobField = "start" | "bars" | "gain" | "tone" | "space";
 
 /** The tweak surface — one row per knob, shared by the panel and the API. */
 export const ENDING_KNOBS = [
+  // WHERE it comes in, first and full-width: 0 waits until the song is over,
+  // higher reaches back into the final loop so the song resolves INTO its
+  // ending. The rest are what it sounds like.
+  { field: "start", word: "Comes in", min: 0, max: 16, int: true },
   { field: "bars", word: "Length", min: 1, max: 16, int: true },
   { field: "gain", word: "Level", min: 0, max: 1.2 },
   { field: "tone", word: "Tone", min: 0, max: 1 },
@@ -37,6 +41,10 @@ export const ENDING_KNOBS = [
 ] as const;
 
 export function endingKnobText(field: EndingKnobField, v: number): string {
+  if (field === "start") {
+    const n = Math.round(v);
+    return n === 0 ? "after the last bar" : `${n} ${n === 1 ? "bar" : "bars"} before the end`;
+  }
   if (field === "bars") return `${Math.round(v)} ${Math.round(v) === 1 ? "bar" : "bars"}`;
   return `${Math.round(v * 100)}%`;
 }
@@ -124,6 +132,7 @@ export function endingMoveOf(tpl: string): EndingMove | undefined {
 }
 
 export function endingKnobDefault(move: EndingMove, field: EndingKnobField): number {
+  if (field === "start") return 0; // after the song, as every ending was
   if (field === "bars") return move.bars;
   if (field === "gain") return move.gain;
   return field === "tone" ? 1 : 0.35;

@@ -57,12 +57,12 @@ Respond with ONLY a JSON object, no markdown:
   "moves": [{"bar": 0-based bar within the section, "layers": [1-based layer numbers audible FROM that bar]}] (omit = all layers throughout; [] = silence),
   "sweeps": [{"name": "2-4 words for the MOVE a listener feels, e.g. \"swelling from the dark\"", "param": "<control, e.g. lpf|hpf|gain>", "from": n, "to": n, "bar": start, "bars": length, "curve": "linear"|"sine"}]
  } },
- "ending": {"mode": "stop"|"loop", "tpl": "<ending template>", "bars": n, "gain": 0..1.2, "tone": 0..1, "space": 0..1}
+ "ending": {"mode": "stop"|"loop", "tpl": "<ending template>", "start": bars before the song's last bar that the tail comes in (0 = after the song), "bars": n, "gain": 0..1.2, "tone": 0..1, "space": 0..1}
 }
 
 Name every sweep for what's HEARD, never its parameters. Sweeps ride the whole section's existing sound. Layer numbers refer to the numbering given. A section you omit plays whole for its natural length. "stop" plays the song once and ends; "loop" wraps forever.
 
-HOW IT ENDS — choose a template, never write the tail yourself (it is built in the song's key and always falls to silence): ring (the last chord struck once and left to decay) · fall (the tonic walks down and thins out) · crash (one last hit, ringing until it's gone) · dim (the filter shuts as it fades) · breath (nothing new — the room empties and the tails fall away) · cut (it stops on the beat, nothing after). "bars" is how long the tail takes, "gain" its level, "tone" how open it stays (1 = fully open), "space" how much room it rings into. With "loop" the ending fields are ignored.`;
+HOW IT ENDS — choose a template, never write the tail yourself (it is built in the song's key and always falls to silence): ring (the last chord struck once and left to decay) · fall (the tonic walks down and thins out) · crash (one last hit, ringing until it's gone) · dim (the filter shuts as it fades) · breath (nothing new — the room empties and the tails fall away) · cut (it stops on the beat, nothing after). "start" is where the tail comes in: 0 lets the song finish first, higher reaches back into the final loop so the piece resolves INTO its ending. "bars" is how long the tail takes, "gain" its level, "tone" how open it stays (1 = fully open), "space" how much room it rings into. With "loop" the ending fields are ignored.`;
 
 function sectionBlock(s: ArrangeInputSection, beats: number): string {
   const parts = sectionParts(`${s.strudel}\nsetcpm(120/${beats})`);
@@ -139,6 +139,7 @@ function sanitizeEnding(raw: unknown): SongArrangement["ending"] {
   return {
     mode,
     tpl,
+    start: Math.max(0, Math.min(16, Math.floor(knob(e.start, 0, 16, 0)))),
     bars: Math.max(1, Math.min(16, Math.floor(knob(e.bars, 1, 16, move.bars)))),
     gain: knob(e.gain, 0, 1.2, move.gain),
     tone: knob(e.tone, 0, 1, 1),
