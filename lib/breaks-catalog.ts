@@ -71,11 +71,54 @@ export interface BreakMove {
   word: string;
   hint: string;
   gain: number;
-  /** How many closing bars of the anchor loop the fill occupies. */
+  /** The fill's NATURAL length in bars — the starting point for the Length
+   *  knob, not a limit. */
   bars: number;
-  /** The fill (cycle = bar). Every template carries its OWN .gain envelope —
-   *  the Level knob multiplies it (.mul(gain)) instead of overwriting it. */
-  code: () => string;
+  /** The fill, authored FOR THE LENGTH IT IS GIVEN (cycle = bar).
+   *
+   *  A fill is one gesture, not a bar that repeats (2026-08-02, the user: "if
+   *  we are increasing the intensity in the break that intensity should
+   *  continue to increase, not drop back down to zero because it is a
+   *  repeat"). So every template takes its real length and spreads its whole
+   *  arc across it: densities step once per bar from first to last, and every
+   *  envelope is .slow(bars) so it climbs exactly once, end to end. At the
+   *  natural length these produce what they always did.
+   *
+   *  Each carries its OWN .gain envelope — the Level knob multiplies it
+   *  (.mul(gain)) instead of overwriting it. */
+  code: (bars: number) => string;
+}
+
+/**
+ * `bars` per-bar steps from `lo` to `hi`, as a cycle list ("<4 8 16 32>") —
+ * one step per bar, so a density climbs across the WHOLE fill instead of
+ * restarting every bar. Geometric, because doubling is how drums intensify.
+ */
+function ramp(lo: number, hi: number, bars: number): string {
+  const n = Math.max(1, Math.floor(bars));
+  if (n === 1) return `${hi}`;
+  return Array.from({ length: n }, (_, i) =>
+    Math.max(1, Math.round(lo * Math.pow(hi / lo, i / (n - 1)))),
+  ).join(" ");
+}
+
+/**
+ * A tom cascade over `bars` bars: the voice pair walks DOWN the kit once, one
+ * step per bar, landing on the snare in the last. `hits` sets the density.
+ *
+ * Written per-bar rather than by stretching a two-bar figure with .slow() — a
+ * fractional slow smears the cascade off the barline, and an integer one over
+ * eight bars leaves a hit every other bar, which is not a fill. At the natural
+ * two bars this produces exactly what it always did.
+ */
+function descent(bars: number, hits: number): string {
+  const V = ["ht", "mt", "lt", "sd"];
+  const n = Math.max(1, Math.floor(bars));
+  return Array.from({ length: n }, (_, i) => {
+    const a = n === 1 ? 2 : Math.round((i / (n - 1)) * 2);
+    const last = i === n - 1;
+    return `[${V[a]}*${hits} ${V[a + 1]}*${last ? hits * 2 : hits}]`;
+  }).join(" ");
 }
 
 export const BREAK_MOVES: BreakMove[] = [
@@ -85,7 +128,8 @@ export const BREAK_MOVES: BreakMove[] = [
     hint: "a snare roll that lifts into the turn",
     gain: 0.85,
     bars: 1,
-    code: () => `s("sd*16").bank("RolandTR909").gain(saw.range(0.4,0.95))`,
+    // one unbroken swell, however long it runs
+    code: (b) => `s("sd*16").bank("RolandTR909").gain(saw.range(0.4,0.95).slow(${b}))`,
   },
   {
     tpl: "run",
@@ -93,8 +137,11 @@ export const BREAK_MOVES: BreakMove[] = [
     hint: "toms tumble down into the turn",
     gain: 0.9,
     bars: 1,
-    code: () =>
-      `s("ht [ht mt] [mt lt] [lt sd sd sd]").bank("RolandTR909").gain(0.9)`,
+    // one long tumble down the kit — never the same bar falling twice
+    code: (b) =>
+      b > 1
+        ? `s("<${descent(b, 4)}>").bank("RolandTR909").gain(saw.range(0.7,1).slow(${b}))`
+        : `s("ht [ht mt] [mt lt] [lt sd sd sd]").bank("RolandTR909").gain(0.9)`,
   },
   {
     tpl: "build",
@@ -102,8 +149,9 @@ export const BREAK_MOVES: BreakMove[] = [
     hint: "a roll that doubles as it climbs",
     gain: 0.7,
     bars: 4,
-    code: () =>
-      `s("sd*<4 8 16 32>").bank("RolandTR909").gain(saw.range(0.5,1).slow(4))`,
+    // one step per bar, 4ths up to 32nds across the whole length
+    code: (b) =>
+      `s("sd*<${ramp(4, 32, b)}>").bank("RolandTR909").gain(saw.range(0.5,1).slow(${b}))`,
   },
   {
     tpl: "stutter",
@@ -111,7 +159,10 @@ export const BREAK_MOVES: BreakMove[] = [
     hint: "the kick trips over itself into the turn",
     gain: 0.9,
     bars: 1,
-    code: () => `s("bd*2 bd*3 bd*4 bd*8").bank("RolandTR909").gain(0.9)`,
+    code: (b) =>
+      b > 1
+        ? `s("bd*<${ramp(2, 16, b)}>").bank("RolandTR909").gain(saw.range(0.6,1).slow(${b}))`
+        : `s("bd*2 bd*3 bd*4 bd*8").bank("RolandTR909").gain(0.9)`,
   },
   {
     tpl: "clap",
@@ -119,8 +170,8 @@ export const BREAK_MOVES: BreakMove[] = [
     hint: "claps double up into the turn",
     gain: 0.8,
     bars: 2,
-    code: () =>
-      `s("cp*<4 8>").bank("RolandTR909").gain(saw.range(0.5,0.95).slow(2))`,
+    code: (b) =>
+      `s("cp*<${ramp(4, 8, b)}>").bank("RolandTR909").gain(saw.range(0.5,0.95).slow(${b}))`,
   },
   {
     tpl: "crash",
@@ -128,7 +179,14 @@ export const BREAK_MOVES: BreakMove[] = [
     hint: "one last push, the crash rings over the turn",
     gain: 0.85,
     bars: 1,
-    code: () => `s("~ ~ [sd sd] [sd cr]").bank("RolandTR909").gain(0.9)`,
+    // the crash belongs to the LAST bar — the bars before it push toward it
+    code: (b) =>
+      b > 1
+        ? `s("<${ramp(4, 16, b - 1)
+            .split(" ")
+            .map((n) => `sd*${n}`)
+            .join(" ")} [~ ~ [sd sd] [sd cr]]>").bank("RolandTR909").gain(saw.range(0.6,1).slow(${b}))`
+        : `s("~ ~ [sd sd] [sd cr]").bank("RolandTR909").gain(0.9)`,
   },
   {
     tpl: "tumble",
@@ -136,8 +194,8 @@ export const BREAK_MOVES: BreakMove[] = [
     hint: "toms cascade down the turn",
     gain: 0.9,
     bars: 2,
-    code: () =>
-      `s("<[ht*2 mt*2] [lt*2 sd*4]>").bank("RolandTR909").gain(0.9)`,
+    // the cascade falls once across the fill, never resetting to the top
+    code: (b) => `s("<${descent(b, 2)}>").bank("RolandTR909").gain(0.9)`,
   },
   {
     tpl: "lift",
@@ -145,8 +203,11 @@ export const BREAK_MOVES: BreakMove[] = [
     hint: "hats rise and hang on the turn",
     gain: 0.6,
     bars: 1,
-    code: () =>
-      `s("hh*8 hh*8 hh*16 [hh*16 oh]").bank("RolandTR909").hpf(5000).gain(saw.range(0.4,0.8))`,
+    // hats thicken bar by bar and the filter opens across the whole rise
+    code: (b) =>
+      b > 1
+        ? `s("hh*<${ramp(8, 16, b)}>").bank("RolandTR909").hpf(saw.range(3000,9000).slow(${b})).gain(saw.range(0.4,0.8).slow(${b}))`
+        : `s("hh*8 hh*8 hh*16 [hh*16 oh]").bank("RolandTR909").hpf(5000).gain(saw.range(0.4,0.8))`,
   },
 ];
 
@@ -165,15 +226,23 @@ export function breakExpr(o: {
   heat?: number;
   tone?: number;
   space?: number;
+  /** The fill's REAL length in bars — what the caller is actually going to
+   *  play, after clamping to the section. The template authors its whole arc
+   *  across exactly this many bars. Absent = its natural length. */
+  bars?: number;
 }): string | null {
   const m = breakMoveOf(o.tpl);
   if (!m) return null;
+  const bars = Math.max(
+    1,
+    Math.min(16, Math.floor(Number.isFinite(o.bars as number) ? (o.bars as number) : m.bars)),
+  );
   const g = clamp(o.gain, 0, 1.2, m.gain);
   const heat = clamp(o.heat, 0, 0.6, 0);
   const tone = clamp(o.tone, 0, 1, 1);
   const space = clamp(o.space, 0, 0.8, 0);
   // .mul(gain(g)) rides the template's own envelope; .gain(g) would erase it
-  let x = `${m.code()}.mul(gain(${Math.round(g * 100) / 100}))`;
+  let x = `${m.code(bars)}.mul(gain(${Math.round(g * 100) / 100}))`;
   if (heat > 0.01) x += `.shape(${Math.round(heat * 100) / 100})`;
   // tone: exponential 400 Hz → 12 kHz; fully open = no filter in the line
   if (tone < 0.99) x += `.lpf(${Math.round(400 * Math.pow(30, tone))})`;

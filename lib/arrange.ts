@@ -529,9 +529,8 @@ export function buildArrangement(
   // the music into the next loop. Cycle = bar, so any meter lands.
   for (const o of opts.overlays ?? []) {
     if (!o) continue;
-    const line = breakExpr(o);
     const move = breakMoveOf(o.tpl);
-    if (!line || !move) continue;
+    if (!move) continue;
     const a = spans.find((sp) => sp.id === o.fromId);
     if (!a || a.end <= a.start) continue;
     const spanLen = a.end - a.start;
@@ -543,6 +542,11 @@ export function buildArrangement(
     const want = Number.isFinite(o.bars as number) ? Math.floor(o.bars as number) : move.bars;
     const room = spanLen > 1 ? spanLen - 1 : spanLen;
     const fill = Math.max(1, Math.min(want, room));
+    // The line is authored AFTER the length is known, and for exactly that
+    // length: a fill is one gesture stretched over its bars, never a bar
+    // played `fill` times (which restarted every rise from the bottom).
+    const line = breakExpr({ ...o, bars: fill });
+    if (!line) continue;
     // A break ENDS AT THE TURN — always. Only its length varies, so the window
     // is simply the section's last `fill` bars: silence until it opens (the
     // mask steps one slot per cycle across the whole span), then the fill

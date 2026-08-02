@@ -4983,8 +4983,16 @@ function TrackCard({
           <MuteGlyph muted={muted} />
         </button>
       </div>
+      {/* An odd count would strand the last knob alone in half a row, so it
+          takes the whole width instead — a deliberate last line, never a gap
+          (2026-08-02, the user). The count is the model's, so this has to hold
+          for any of them. */}
       {open && controls.length > 0 && (
-        <div className="mt-3.5 grid grid-cols-1 gap-x-7 gap-y-3.5 sm:grid-cols-2">
+        <div
+          className={`mt-3.5 grid grid-cols-1 gap-x-7 gap-y-3.5 sm:grid-cols-2 ${
+            controls.length % 2 ? "[&>*:last-child]:sm:col-span-2" : ""
+          }`}
+        >
           {controls.map((c) => {
             const live = getLayerMethodArg(code, layer, c.param);
             return (
@@ -6030,7 +6038,13 @@ function BreakPanel({
           {armed ? "sure?" : "✕"}
         </button>
       </div>
-      <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+      {/* TIME ON TOP, FEEL BELOW. Length is the one knob measured in BARS
+          rather than percent, so it takes the full width on its own row — and
+          the four feels fall into a clean 2×2 beneath it. No slider is ever
+          stranded alone in half a row (2026-08-02, the user: "we cannot have an
+          odd number of sliders"), and the split says something true: one of
+          these places the fill in time, the rest colour it. */}
+      <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 [&>*:first-child]:sm:col-span-2">
         {BREAK_KNOBS.map((k) => (
           <FxKnob
             key={k.field}
