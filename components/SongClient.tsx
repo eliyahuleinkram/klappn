@@ -17,7 +17,9 @@ import type { SongArrangement, SongFx, SweepControl } from "@/lib/arrange";
 import { openDeep } from "@/lib/seal";
 import { sentenceLabel } from "@/lib/labels";
 import {
+  BREAK_BANKS,
   BREAK_KNOBS,
+  DEFAULT_BREAK_BANK,
   breakKnobText,
   BREAK_MOVES,
   breakKnobDefault,
@@ -6045,9 +6047,31 @@ function BreakPanel({
           {armed ? "sure?" : "✕"}
         </button>
       </div>
+      {/* THE KIT — a turn is drums, and which drums is the first decision
+          (2026-08-02, the user). Every template used to be a 909 whatever the
+          song was. Ten machines, each with its own century; the tap is instant
+          and free, like every other control on this card. */}
+      <div className="-mx-0.5 flex flex-wrap gap-1">
+        {BREAK_BANKS.map((b) => {
+          const on = (o.bank ?? DEFAULT_BREAK_BANK) === b;
+          return (
+            <button
+              key={b}
+              onClick={() => onTweak({ bank: b } as Partial<BreakOverlay>, true)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium leading-none transition active:scale-95 ${
+                on
+                  ? "bg-gradient-to-r from-[#ff63c1] to-accent-strong text-white"
+                  : "text-muted/55 hover:bg-white/[0.06] hover:text-foreground"
+              }`}
+            >
+              {b.replace(/^Roland|^Akai|^Alesis|^Oberheim|^Emu|^Boss|^Linn/, (m) => `${m} `)}
+            </button>
+          );
+        })}
+      </div>
       {/* TIME ON TOP, FEEL BELOW. Length is the one knob measured in BARS
           rather than percent, so it takes the full width on its own row — and
-          the four feels fall into a clean 2×2 beneath it. No slider is ever
+          the feels fall into a clean grid beneath it. No slider is ever
           stranded alone in half a row (2026-08-02, the user: "we cannot have an
           odd number of sliders"), and the split says something true: one of
           these places the fill in time, the rest colour it. */}

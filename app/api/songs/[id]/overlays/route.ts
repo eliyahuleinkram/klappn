@@ -6,6 +6,7 @@ import {
   removeSongOverlay,
 } from "@/lib/songs";
 import { BREAK_KNOBS, breakMoveOf, type BreakOverlay } from "@/lib/breaks-catalog";
+import { isKnownBank } from "@/lib/sound-palette";
 import { db } from "@/lib/db";
 
 /**
@@ -32,6 +33,9 @@ export async function PATCH(
     heat?: number;
     tone?: number;
     space?: number;
+    tune?: number;
+    pan?: number;
+    bank?: string;
     fromId?: string;
     toId?: string;
     remove?: boolean;
@@ -52,6 +56,9 @@ export async function PATCH(
     // renderer can place.
     patch[k.field] = "int" in k && k.int ? Math.round(clamped) : clamped;
   }
+  // THE KIT — only a verified bank; an unknown name loads nothing and the whole
+  // turn goes silent, so a bad value is refused rather than stored.
+  if (typeof body.bank === "string" && isKnownBank(body.bank)) patch.bank = body.bank;
   if (typeof body.fromId === "string" && body.fromId) patch.fromId = body.fromId;
   if (typeof body.toId === "string" && body.toId) patch.toId = body.toId;
   if (!Object.keys(patch).length)

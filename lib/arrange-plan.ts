@@ -19,6 +19,7 @@
  * and may point somewhere.
  */
 import { complete, ROUTE, type LlmConfig } from "./llm";
+import { BREAK_BANKS } from "./breaks-catalog";
 import { sentenceLabel } from "./labels";
 import {
   sectionParts,
@@ -394,13 +395,14 @@ const TURN_BREAK_SYSTEM = `You decide ONE TURN in an instrumental song: the mome
 Choose the drum fill that breaks the first section into the second, or NOTHING: a bare turn is a real answer, and a long rise often wants one.
 
 Respond with ONLY a JSON object, no markdown:
-{"tpl": "<template key>", "bars": how many CLOSING bars of the outgoing section the fill occupies (1-8), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8}
+{"tpl": "<template key>", "bank": "<kit>", "bars": how many CLOSING bars of the outgoing section the fill occupies (1-8), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8, "tune": -12..12 semitones, "pan": 0..1}
 or exactly {"tpl": null} for a bare turn.
 
 Templates: roll (snare roll) · run (tom run) · build (doubling roll) · stutter (kick stutter) · lift (rising hats) · clap (doubling claps) · crash (push into a ringing crash) · tumble (tom cascade).
 "bars" belongs to the SECTION, not the template: a section playing once wants a single closing bar, while one that runs sixteen or thirty-two bars can carry a four- or eight-bar turn without losing the thread. The outgoing section's span is given — read it before choosing. The fill is ONE GESTURE stretched over the bars you give it — its intensity climbs across the whole length, it does not restart each bar — so ask for the length the turn actually wants.
 The fill always ENDS on the change — that is what makes it a turn. Its length is the only thing you choose.
-Knobs: gain = level, heat = drive, tone = how open the top is (1 = fully open), space = room send. The fill is a point of RELEASE, not a running beat.`;
+THE KIT matters as much as the pattern — a lo-fi turn and a techno turn are not the same drums. Choose one: RolandTR909 (hard techno/house), RolandTR808 (deep, booming, hip-hop), RolandTR707 (dry, plain, pop), RolandTR606 (thin, wiry, punk-electro), LinnDrum (80s, gated), AkaiMPC60 (sampled boom-bap), OberheimDMX (early electro), AlesisHR16 (clean late-80s), EmuSP12 (gritty 12-bit), BossDR550 (soft, polite). Pick the one this song's genre would actually own.
+Knobs: gain = level, heat = drive, tone = how open the top is (1 = fully open), space = room send, tune = the whole kit up or down in semitones (up also shortens the hits — a tighter, snappier fill), pan = where it sits across the stereo (0.5 = centre). The fill is a point of RELEASE, not a running beat.`;
 
 export interface PageBreak {
   tpl: string;
@@ -410,10 +412,14 @@ export interface PageBreak {
    *  bars of one loop earn a longer break than a single pass. Absent = the
    *  template's own length. */
   bars?: number;
+  /** The kit — a verified bank name, or absent for the default. */
+  bank?: string;
   gain: number;
   heat: number;
   tone: number;
   space: number;
+  tune?: number;
+  pan?: number;
 }
 
 const BREAK_TPLS = new Set(["roll", "run", "build", "stutter", "lift", "clap", "crash", "tumble"]);
@@ -438,10 +444,16 @@ function sanitizeTurnBreak(raw: unknown, atLoop: number): PageBreak | null {
     ...(Number.isFinite(Number(e.bars))
       ? { bars: Math.max(1, Math.min(8, Math.floor(Number(e.bars)))) }
       : {}),
+    // Only a kit the palette really has — an unknown bank plays silence.
+    ...(typeof e.bank === "string" && BREAK_BANKS.includes(e.bank as (typeof BREAK_BANKS)[number])
+      ? { bank: e.bank }
+      : {}),
     gain: knob(e.gain, 0, 1.2, 0.8),
     heat: knob(e.heat, 0, 0.6, 0),
     tone: knob(e.tone, 0, 1, 1),
     space: knob(e.space, 0, 0.8, 0),
+    tune: Math.round(knob(e.tune, -12, 12, 0)),
+    pan: knob(e.pan, 0, 1, 0.5),
   };
 }
 
@@ -483,7 +495,7 @@ export async function composeTurnBreak(
      *  them (the 07-22 coupling, kept). */
     crossing?: { name?: string; param: string; from: number; to: number }[];
     /** What rides this turn now — replaced by whatever comes back. */
-    riding?: { tpl: string; bars?: number };
+    riding?: { tpl: string; bars?: number; bank?: string };
   },
   cfg?: LlmConfig,
 ): Promise<PageBreak | null> {
@@ -513,7 +525,7 @@ export async function composeTurnBreak(
           .join(" · ")}`
       : "",
     args.riding
-      ? `RIDING NOW (replaced by your answer): ${args.riding.tpl}${args.riding.bars ? ` over ${args.riding.bars} bars` : ""}`
+      ? `RIDING NOW (replaced by your answer): ${args.riding.tpl}${args.riding.bars ? ` over ${args.riding.bars} bars` : ""}${args.riding.bank ? ` on ${args.riding.bank}` : ""}`
       : "",
     `The turn. JSON only.`,
   ]

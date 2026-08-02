@@ -1,3 +1,5 @@
+import { isKnownBank } from "./sound-palette";
+
 /**
  * BREAKS — deterministic drum FILLS at the turns of a song (2026-07-16, the
  * user: a break is a BREAKING POINT, not a beat — it rides the closing
@@ -26,8 +28,18 @@ export interface BreakOverlay {
    *  of the template. Absent = the template's own length (every break written
    *  before this rides its catalog length, unchanged). */
   bars?: number;
+  /** THE KIT the fill is played on (2026-08-02, the user). Every template used
+   *  to hardcode RolandTR909, so a lo-fi hip-hop turn and a techno turn broke
+   *  on the same snare. A verified bank name (lib/sound-palette PALETTE_BANKS);
+   *  absent = the template's own default. */
+  bank?: string;
   /** Level, 0..1.2 — multiplies the fill's own envelope. */
   gain: number;
+  /** Tune, -12..+12 semitones — the whole kit up or down (sample rate, so it
+   *  shortens as it rises: a tight snare gets tighter). Default 0. */
+  tune?: number;
+  /** Pan, 0..1 — where the fill sits across the stereo field. Default 0.5. */
+  pan?: number;
   /** Heat — drive into the wave, 0..0.6 (.shape). Default 0. */
   heat?: number;
   /** Tone — how open the top is, 0..1 (lpf 400→12k, exp). Default 1 = open. */
@@ -51,20 +63,48 @@ export const BREAK_KNOBS = [
   { field: "heat", word: "Heat", min: 0, max: 0.6 },
   { field: "tone", word: "Tone", min: 0, max: 1 },
   { field: "space", word: "Space", min: 0, max: 0.8 },
+  { field: "tune", word: "Tune", min: -12, max: 12, int: true },
+  { field: "pan", word: "Pan", min: 0, max: 1 },
 ] as const;
 export type BreakKnobField = (typeof BREAK_KNOBS)[number]["field"];
 
 /** How a knob reads on the panel: bars say bars, feels say percent. */
 export function breakKnobText(field: BreakKnobField, v: number): string {
   if (field === "bars") return `${Math.round(v)} ${Math.round(v) === 1 ? "bar" : "bars"}`;
+  if (field === "tune") {
+    const n = Math.round(v);
+    return n === 0 ? "as sampled" : `${n > 0 ? "+" : ""}${n} semitones`;
+  }
+  if (field === "pan") {
+    const n = Math.round(v * 100);
+    return n === 50 ? "centre" : n < 50 ? `${50 - n} left` : `${n - 50} right`;
+  }
   return `${Math.round(v * 100)}%`;
 }
 
 export function breakKnobDefault(move: BreakMove, field: BreakKnobField): number {
   if (field === "gain") return move.gain;
   if (field === "bars") return move.bars;
+  if (field === "pan") return 0.5;
   return field === "tone" ? 1 : 0;
 }
+
+/** The kits a turn may be played on — classic machines whose one-shot names
+ *  (bd sd hh oh cp rim cr rd ht mt lt) the templates rely on. Verified against
+ *  PALETTE_BANKS by the caller; the AI picks one, the panel offers the same. */
+export const DEFAULT_BREAK_BANK = "RolandTR909";
+export const BREAK_BANKS = [
+  "RolandTR909",
+  "RolandTR808",
+  "RolandTR707",
+  "RolandTR606",
+  "LinnDrum",
+  "AkaiMPC60",
+  "OberheimDMX",
+  "AlesisHR16",
+  "EmuSP12",
+  "BossDR550",
+] as const;
 
 export interface BreakMove {
   tpl: string;
@@ -129,7 +169,7 @@ export const BREAK_MOVES: BreakMove[] = [
     gain: 0.85,
     bars: 1,
     // one unbroken swell, however long it runs
-    code: (b) => `s("sd*16").bank("RolandTR909").gain(saw.range(0.4,0.95).slow(${b}))`,
+    code: (b) => `s("sd*16").gain(saw.range(0.4,0.95).slow(${b}))`,
   },
   {
     tpl: "run",
@@ -140,8 +180,8 @@ export const BREAK_MOVES: BreakMove[] = [
     // one long tumble down the kit — never the same bar falling twice
     code: (b) =>
       b > 1
-        ? `s("<${descent(b, 4)}>").bank("RolandTR909").gain(saw.range(0.7,1).slow(${b}))`
-        : `s("ht [ht mt] [mt lt] [lt sd sd sd]").bank("RolandTR909").gain(0.9)`,
+        ? `s("<${descent(b, 4)}>").gain(saw.range(0.7,1).slow(${b}))`
+        : `s("ht [ht mt] [mt lt] [lt sd sd sd]").gain(0.9)`,
   },
   {
     tpl: "build",
@@ -151,7 +191,7 @@ export const BREAK_MOVES: BreakMove[] = [
     bars: 4,
     // one step per bar, 4ths up to 32nds across the whole length
     code: (b) =>
-      `s("sd*<${ramp(4, 32, b)}>").bank("RolandTR909").gain(saw.range(0.5,1).slow(${b}))`,
+      `s("sd*<${ramp(4, 32, b)}>").gain(saw.range(0.5,1).slow(${b}))`,
   },
   {
     tpl: "stutter",
@@ -161,8 +201,8 @@ export const BREAK_MOVES: BreakMove[] = [
     bars: 1,
     code: (b) =>
       b > 1
-        ? `s("bd*<${ramp(2, 16, b)}>").bank("RolandTR909").gain(saw.range(0.6,1).slow(${b}))`
-        : `s("bd*2 bd*3 bd*4 bd*8").bank("RolandTR909").gain(0.9)`,
+        ? `s("bd*<${ramp(2, 16, b)}>").gain(saw.range(0.6,1).slow(${b}))`
+        : `s("bd*2 bd*3 bd*4 bd*8").gain(0.9)`,
   },
   {
     tpl: "clap",
@@ -171,7 +211,7 @@ export const BREAK_MOVES: BreakMove[] = [
     gain: 0.8,
     bars: 2,
     code: (b) =>
-      `s("cp*<${ramp(4, 8, b)}>").bank("RolandTR909").gain(saw.range(0.5,0.95).slow(${b}))`,
+      `s("cp*<${ramp(4, 8, b)}>").gain(saw.range(0.5,0.95).slow(${b}))`,
   },
   {
     tpl: "crash",
@@ -185,8 +225,8 @@ export const BREAK_MOVES: BreakMove[] = [
         ? `s("<${ramp(4, 16, b - 1)
             .split(" ")
             .map((n) => `sd*${n}`)
-            .join(" ")} [~ ~ [sd sd] [sd cr]]>").bank("RolandTR909").gain(saw.range(0.6,1).slow(${b}))`
-        : `s("~ ~ [sd sd] [sd cr]").bank("RolandTR909").gain(0.9)`,
+            .join(" ")} [~ ~ [sd sd] [sd cr]]>").gain(saw.range(0.6,1).slow(${b}))`
+        : `s("~ ~ [sd sd] [sd cr]").gain(0.9)`,
   },
   {
     tpl: "tumble",
@@ -195,7 +235,7 @@ export const BREAK_MOVES: BreakMove[] = [
     gain: 0.9,
     bars: 2,
     // the cascade falls once across the fill, never resetting to the top
-    code: (b) => `s("<${descent(b, 2)}>").bank("RolandTR909").gain(0.9)`,
+    code: (b) => `s("<${descent(b, 2)}>").gain(0.9)`,
   },
   {
     tpl: "lift",
@@ -206,8 +246,8 @@ export const BREAK_MOVES: BreakMove[] = [
     // hats thicken bar by bar and the filter opens across the whole rise
     code: (b) =>
       b > 1
-        ? `s("hh*<${ramp(8, 16, b)}>").bank("RolandTR909").hpf(saw.range(3000,9000).slow(${b})).gain(saw.range(0.4,0.8).slow(${b}))`
-        : `s("hh*8 hh*8 hh*16 [hh*16 oh]").bank("RolandTR909").hpf(5000).gain(saw.range(0.4,0.8))`,
+        ? `s("hh*<${ramp(8, 16, b)}>").hpf(saw.range(3000,9000).slow(${b})).gain(saw.range(0.4,0.8).slow(${b}))`
+        : `s("hh*8 hh*8 hh*16 [hh*16 oh]").hpf(5000).gain(saw.range(0.4,0.8))`,
   },
 ];
 
@@ -226,6 +266,9 @@ export function breakExpr(o: {
   heat?: number;
   tone?: number;
   space?: number;
+  bank?: string;
+  tune?: number;
+  pan?: number;
   /** The fill's REAL length in bars — what the caller is actually going to
    *  play, after clamping to the section. The template authors its whole arc
    *  across exactly this many bars. Absent = its natural length. */
@@ -241,11 +284,21 @@ export function breakExpr(o: {
   const heat = clamp(o.heat, 0, 0.6, 0);
   const tone = clamp(o.tone, 0, 1, 1);
   const space = clamp(o.space, 0, 0.8, 0);
+  const tune = Math.round(clamp(o.tune, -12, 12, 0));
+  const pan = clamp(o.pan, 0, 1, 0.5);
+  // THE KIT (2026-08-02). Unverified names are ignored rather than written —
+  // a bank that doesn't exist loads nothing and the whole turn goes silent.
+  const bank = o.bank && isKnownBank(o.bank) ? o.bank : DEFAULT_BREAK_BANK;
+  let x = `${m.code(bars)}.bank("${bank}")`;
   // .mul(gain(g)) rides the template's own envelope; .gain(g) would erase it
-  let x = `${m.code(bars)}.mul(gain(${Math.round(g * 100) / 100}))`;
+  x += `.mul(gain(${Math.round(g * 100) / 100}))`;
+  // tune rides the sample rate — 12 semitones up is double speed (and half as
+  // long, which is exactly how a pitched-up fill should behave)
+  if (tune !== 0) x += `.speed(${(Math.pow(2, tune / 12)).toFixed(4)})`;
   if (heat > 0.01) x += `.shape(${Math.round(heat * 100) / 100})`;
   // tone: exponential 400 Hz → 12 kHz; fully open = no filter in the line
   if (tone < 0.99) x += `.lpf(${Math.round(400 * Math.pow(30, tone))})`;
   if (space > 0.01) x += `.room(${Math.round(space * 100) / 100})`;
+  if (Math.abs(pan - 0.5) > 0.01) x += `.pan(${Math.round(pan * 100) / 100})`;
   return x;
 }
