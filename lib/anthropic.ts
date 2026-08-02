@@ -70,6 +70,9 @@ export async function composeLayerStaged(
   prior: PriorLayer[],
   cfg?: LlmConfig,
   insist = false,
+  /** The render gate's complaint about the previous attempt — a retry that
+   *  isn't told why is a Fable call spent repeating itself. */
+  rejected?: string,
 ): Promise<StagedLayer | null> {
   if (mockEnabled(cfg?.mock))
     return prior.length >= 4
@@ -80,7 +83,7 @@ export async function composeLayerStaged(
           role: "a voice",
           notation: `note("c3 e3 g3").sound("sawtooth")`,
         };
-  return composeStagedStrudelLayer(brief, prior, cfg, insist);
+  return composeStagedStrudelLayer(brief, prior, cfg, insist, rejected);
 }
 
 export type EnrichPanel = {

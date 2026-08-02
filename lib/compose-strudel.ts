@@ -169,8 +169,15 @@ export async function composeStagedStrudelLayer(
   prior: PriorLayer[],
   cfg?: LlmConfig,
   insist = false,
+  /** Why the PREVIOUS attempt at this layer was rejected by the render gate.
+   *  Without it the retry is blind — it re-rolls a FABLE call at high effort
+   *  knowing nothing, writes the same unplayable line, and the layer is dropped
+   *  anyway: two of the most expensive calls in the product spent to repeat a
+   *  mistake (2026-08-02, a section span-locked on one bad sound name). */
+  rejected?: string,
 ): Promise<StagedLayer | null> {
-  if (!insist && (await loopComplete(brief, prior, cfg))) return null;
+  // A retry is a layer we already decided to write — never re-ask "are we done?".
+  if (!insist && !rejected && (await loopComplete(brief, prior, cfg))) return null;
   const system = STRUDEL_TRACK_SYSTEM;
   // The brief is the STABLE prefix across the whole loop's layer calls — it
   // rides as cacheStable so every layer/retry hits [system + brief] in the
@@ -179,6 +186,10 @@ export async function composeStagedStrudelLayer(
   let user =
     `TRACKS ALREADY PLACED (their Strudel — lock to them):\n${priorContext(prior)}\n\n` +
     `Write the next $: line now (name its sound in the line) — the part the loop most needs next.`;
+  if (rejected)
+    user +=
+      `\n\nYour previous line for this layer could not be rendered and was thrown away:\n${rejected}\n` +
+      `Write the layer again, fixing exactly that. Keep the musical idea — change only what the error names.`;
   for (let attempt = 0; attempt < 3; attempt++) {
     // ROUTE.compose — FABLE 5 at high effort: this is the call that INVENTS music, and its output
     // is judged by ear with no cheap second chance. It ALWAYS writes a layer (the "are we done?"

@@ -264,12 +264,61 @@ function stripLineComment(line: string): string {
   return line;
 }
 
+/**
+ * GM NAMES THE MODEL ACTUALLY KNOWS → the names Strudel actually loads.
+ *
+ * General MIDI's own program names are what any musician (or model) reaches for
+ * — "Acoustic Grand Piano" — while Strudel's font map calls that `gm_piano`.
+ * The gate rightly refuses an unknown `gm_*` (it loads NOTHING and the layer is
+ * silent), and the retry is a fresh FABLE call, so a synonym used to cost two
+ * of the most expensive calls in the product and still get dropped. Open Field
+ * on song c0782458 span-locked on exactly this: six drops, ~12 Fable calls,
+ * nothing composed (2026-08-02).
+ *
+ * This is spelling, not taste — the same class as lowercasing sample names, and
+ * emphatically NOT post-processing the model's musical choices: the instrument
+ * it asked for is the instrument it gets.
+ */
+const GM_ALIASES: Record<string, string> = {
+  gm_acoustic_grand_piano: "gm_piano",
+  gm_grand_piano: "gm_piano",
+  gm_bright_acoustic_piano: "gm_piano",
+  gm_acoustic_piano: "gm_piano",
+  gm_electric_piano_1: "gm_epiano1",
+  gm_electric_piano_2: "gm_epiano2",
+  gm_electric_piano: "gm_epiano1",
+  gm_rhodes: "gm_epiano1",
+  gm_acoustic_guitar: "gm_acoustic_guitar_nylon",
+  gm_nylon_guitar: "gm_acoustic_guitar_nylon",
+  gm_steel_guitar: "gm_acoustic_guitar_steel",
+  gm_string_ensemble: "gm_string_ensemble_1",
+  gm_strings: "gm_string_ensemble_1",
+  gm_synth_bass: "gm_synth_bass_1",
+  gm_choir: "gm_choir_aahs",
+  gm_voice_oohs: "gm_choir_aahs",
+  gm_pad_2_warm: "gm_pad_warm",
+  gm_pad_1_new_age: "gm_pad_new_age",
+  gm_warm_pad: "gm_pad_warm",
+  gm_synth_strings: "gm_synth_strings_1",
+  gm_upright_bass: "gm_acoustic_bass",
+  gm_double_bass: "gm_acoustic_bass",
+  gm_fretless: "gm_fretless_bass",
+  gm_vibes: "gm_vibraphone",
+};
+
+function aliasGmNames(s: string): string {
+  return s.replace(/\bgm_[a-z0-9_]+/gi, (name) => GM_ALIASES[name.toLowerCase()] ?? name);
+}
+
 function autoFixRender(line: string, bpm: number): string {
   // STRIP any trailing line comment (quote-aware). The composer sometimes labels a line with
   // `// name` — and every method we append later (the Volume `.postgain`, mute/solo `.gain(0)`,
   // `.orbit(N)`) lands AFTER that comment, inside it, silently dead. A real prod bug: a kick's
   // volume knob at 2× sat in the comment moving nothing. Comments are inert — nothing is lost.
   let s = stripLineComment(line);
+  // A GM synonym is a spelling, not a different instrument — fix it here rather
+  // than spend a second Fable call finding out.
+  s = aliasGmNames(s);
   s = s.replace(
     /\.(gain|velocity|clip|lpf|hpf|lpq|bpf|pan|room|roomsize|shape|crush|coarse)\(\s*"([^"]*)"\s*\)/g,
     (_m, ctrl: string, pat: string) =>
@@ -412,7 +461,12 @@ export async function composeLoopByLayers(
     // never crashes the loop — the old one-hit engine wrote valid Strudel directly and skipped this.
     const gateErrs = await layerGateErrors(line, bpm, beats, timeSignature);
     if (gateErrs.length) {
-      const retry = await runStep(`layer-${i + 1}b-${stepKey}`, gen).catch((e) => {
+      // The retry is TOLD what the gate refused. Blind, it just wrote the same
+      // unplayable line again and the layer was dropped — two Fable calls at
+      // high effort to repeat a mistake, over and over on the same section.
+      const retry = await runStep(`layer-${i + 1}b-${stepKey}`, () =>
+        composeLayerStaged(brief, prior, cfg, insist, gateErrs.join("; ")),
+      ).catch((e) => {
         lastLayerErr = e;
         return null;
       });
