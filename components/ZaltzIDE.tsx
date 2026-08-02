@@ -2998,10 +2998,17 @@ export default function ZaltzIDE({
             you can trust" (07-29b), so shrinking the URL away was never an
             option. State gets the width it needs; it only exists while you are
             actually on air, or actually holding a link. */}
-        <div className="hidden min-w-0 shrink items-center gap-2.5 sm:flex">
-          {airCapsule}
-          {shareCapsule}
-        </div>
+        {/* RENDERED ONLY WHEN IT HOLDS SOMETHING. An empty flex wrapper still
+            has a gap on BOTH sides of it, so this sat as a zero-width element
+            in the middle of the icon row and pushed Copilot 20px out while
+            every other glyph was 10px apart — a gap with nothing in it, which
+            is exactly what it looked like. */}
+        {(liveLink || shareUrl) && (
+          <div className="hidden min-w-0 shrink items-center gap-2.5 sm:flex">
+            {airCapsule}
+            {shareCapsule}
+          </div>
+        )}
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
 
