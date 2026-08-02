@@ -9,10 +9,15 @@ import type { BreakOverlay } from "@/lib/breaks-catalog";
 
 /**
  * THE WHOLE-SONG SWEEP — one tap on the pill the song page offers after a new
- * loop lands (2026-07-21, the user; an at-birth auto-run was reversed same
- * day). Runs autoShapeSong: ONE high call authors the whole shape — effect
- * glides AND break fills together, REPLACING both sets (the pill says so
- * before the tap; empty lists clear). Owner-scoped, billed like any
+ * loop lands. (A birth run sweeps ITSELF now — see jobs.finishSong — so this
+ * route is the re-roll and the path for every later loop; the 2026-07-21 law
+ * that nothing else shapes unasked still stands.)
+ *
+ * Runs autoShapeSong, which is two shapes at once: ONE high call for the
+ * effect glides, which span the piece and need the whole arc, then ONE small
+ * call PER TURN, all in parallel, each seeing only the two loops it sits
+ * between and the glides crossing it. Both sets are REPLACED wholesale (the
+ * pill says so before the tap; empty clears). Owner-scoped, billed like any
  * generation. Returns the fresh lists so the page can swap them in without a
  * reload — plus `result`, what the sweep actually DID, so a no-op can say so
  * instead of miming success (2026-07-31).

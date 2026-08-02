@@ -351,7 +351,8 @@ edit     opus   high   14000                rewrite a whole loop
 meter    opus   high   14000                re-bar into a new time signature
 repair   opus   high    8000                fix a loop that threw at playback
 create   opus   high   12000                derive the workspace / adjacent section
-shape    opus   high    8000                the page's effects + breaks
+shape    opus   high    8000                the song's effect glides (whole song)
+turn     sonnet medium  1200                ONE turn's break — two loops of context
 hydra    opus   high    8000                the visual
 ghost    opus   no-think 640                the room's copilot completion
 assist   opus   no-think 1200               ✎ edit, a selected span
@@ -451,17 +452,20 @@ its own try/catch.
 2. Optional inspiration loops (`loopIds`, max 8) are gathered, ownership-scoped,
    with `@hydra` stripped.
 3. `deriveWorkspaceFromLoop()` — one `ROUTE.create` call infers the whole track's
-   identity (title, genre, bpm, key, direction) **and** the first loop's intent.
-   The user's raw words stop here: they are translated into musical terms and
-   never echoed downstream.
-4. The song row + first part are inserted, `triggerGeneration()` fires, the
-   instance id is stored, the reservation is released.
+   identity (title, genre, bpm, key, direction) **and its whole arc**: 3–6
+   sections in order, each a distinct statement. The user's raw words stop here:
+   they are translated into musical terms and never echoed downstream.
+4. The song row and **every** section are inserted before a note is composed, so
+   the piece's shape is on screen from the first paint. `triggerGeneration()`
+   fires with `finish: true` — this run makes the whole song, so it closes with
+   the arrangement and the sweep instead of leaving them to a tap. The instance
+   id is stored and the reservation released.
 
 ### GenerationWorkflow
 
-`workflows/src/index.ts`. Payload is `{ songId, partId? | partIds? }` — one part,
-an ordered list (a new loop *then* the bridge that needs its code), or every
-pending part. Steps:
+`workflows/src/index.ts`. Payload is `{ songId, partId? | partIds?, finish? }` —
+one part, an ordered list (a new loop *then* the bridge that needs its code), or
+every pending part. `finish` marks the run that makes the **whole** song. Steps:
 
 1. **`load`** — flip the song to `generating`, snapshot plan + parts + owner +
    model.
@@ -492,8 +496,16 @@ pending part. Steps:
    the visual blocks across.
 7. **Enrich at birth** — each finished part's tweak panels build in parallel with
    the *next* part's composition, collected before the run ends.
-8. **`finalize`** flips the song `ready` only if no part is still `generating`,
-   so a sibling run isn't cut off.
+8. **The finish** (`finishSong`, `finish` runs only) — the arrangement first
+   (how many bars each section occupies, which *is* its repeat count, plus an
+   ending: a piece that can't stop isn't finished), then the sweep, which is
+   told each section's decided span. Best-effort: neither may fail a run whose
+   music is already made. `plan.stage` names where it is so the page can say so,
+   and `plan.autoSwept` stops it offering a sweep that just ran. Every *other*
+   run still only offers the pill.
+9. **`finalize`** flips the song `ready` only if no part is still `generating`,
+   so a sibling run isn't cut off. It runs **after** the finish — the client
+   stops polling the moment the song reads ready.
 
 Auto-visuals run **in parallel**: the first composing loop's third streamed layer
 is real enough music to sync to (the early layers fix the loop's cycle length),

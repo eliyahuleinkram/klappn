@@ -78,12 +78,19 @@ export function buildHomeSections(parts: HomePart[], plan: HomePlan): SongSectio
   // The section's arrangement — MIRRORS SongClient.arrOf: under a transposed
   // mix the one-way overlay lines are dropped (they'd play in the original key
   // against the shifted song); moves/sweeps/bars are pitch-free and stay.
-  // (Loop repeats are gone — the unfold's bars ARE the span; plan.holdCycles
-  // now only means anything for breaks.)
+  // AND, since 2026-08-02, a dialled repeat count folds INTO the span
+  // (held × the loop's own length) exactly as it does on the song page — a
+  // section turned to 4× has to play four times in the gallery, the dock and
+  // the door too, or the same song plays two different lengths depending on
+  // where you pressed play.
   const arrOf = (p: HomePart) => {
     const a = plan.arrangement?.sections?.[p.id];
     if (!a) return undefined;
-    return transpose !== 0 ? { ...a, overlays: undefined } : a;
+    const held = plan.holdCycles?.[p.id];
+    const nat = Math.max(1, computeLoopBars(p.strudel) || 1);
+    const withHold =
+      Number.isFinite(held) && (held as number) >= 1 ? { ...a, bars: (held as number) * nat } : a;
+    return transpose !== 0 ? { ...withHold, overlays: undefined } : withHold;
   };
   playable.forEach((p, i) => {
     const code = p.strudel as string; // every device plays the original (twin retired)

@@ -2187,6 +2187,8 @@ export async function rederiveSongIdentity(
     key: d.key,
     genre: d.genre || rest.genre,
     timeSignature: d.timeSignature,
+    // The steer the re-derive authored, same as a birth that worked.
+    ...(d.direction ? { direction: d.direction } : {}),
   };
   await sql`
     update songs
@@ -2199,6 +2201,26 @@ export async function rederiveSongIdentity(
         intent = ${d.intent}
     where song_id = ${songId} and position = 0
       and (intent is null or intent = '' or intent = ${raw})`;
+  // THE REST OF THE ARC (2026-08-02). A failed birth derive leaves the safe
+  // one-section fallback; the re-derive comes back with the whole song, so the
+  // missing sections are inserted here — otherwise "Try again" quietly hands
+  // back a single loop where every other song is a piece.
+  // Only when NOTHING has been composed yet and the placeholder is still alone:
+  // a song with music, or one the user has already extended, is theirs.
+  if (d.parts.length > 1) {
+    const existing = await sql<{ n: string }[]>`
+      select count(*) as n from parts
+      where song_id = ${songId} and (strudel is not null and strudel <> '')`;
+    const [{ n: total }] = await sql<{ n: string }[]>`
+      select count(*) as n from parts where song_id = ${songId}`;
+    if (Number(existing[0]?.n ?? 0) === 0 && Number(total) === 1) {
+      for (let i = 1; i < d.parts.length; i++) {
+        await sql`
+          insert into parts (song_id, position, label, intent, bars, status)
+          values (${songId}, ${i}, ${d.parts[i].label}, ${d.parts[i].intent}, ${d.bars}, 'pending')`;
+      }
+    }
+  }
 }
 
 export async function generateOnePart(

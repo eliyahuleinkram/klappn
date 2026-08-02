@@ -1,6 +1,7 @@
 import {
   claimGenerating,
   getSong,
+  getSongWithParts,
   setGenerationWorkflowId,
   setSongStatus,
 } from "@/lib/songs";
@@ -62,11 +63,24 @@ export async function POST(
     await sink.flush();
   }
 
-  // We won the claim; the song is now 'generating'. Walk it BACK to its prior
-  // status if the trigger fails, so the song can't be stranded.
+  // IS THIS A BIRTH? A song with several sections and NO music anywhere has
+  // never been made — whether it just got its arc back from the re-derive above
+  // or its first trigger never landed. Compose the whole thing in order and let
+  // the run finish itself, exactly as creation does; anything else hands back a
+  // single loop where every other song is a piece (2026-08-02). A retry of ONE
+  // loop in a song that already has music stays exactly that.
+  const sp = await getSongWithParts(id, userId);
+  const virgin = !!sp && sp.parts.length > 1 && sp.parts.every((p) => !p.strudel?.trim());
   let workflowId: string;
   try {
-    workflowId = await triggerGeneration(id, partId);
+    workflowId = virgin
+      ? await triggerGeneration(
+          id,
+          sp!.parts.map((p) => p.id),
+          undefined,
+          { finish: true },
+        )
+      : await triggerGeneration(id, partId);
   } catch (e) {
     console.error(`[klappn] trigger failed for song ${id}:`, e);
     await setSongStatus(id, claim.prev).catch(() => {});

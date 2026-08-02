@@ -7,7 +7,7 @@ import {
   runEdit,
 } from "./jobs";
 import { db } from "./db";
-import { setSongAutoSwept } from "./songs";
+import { setSongAutoSwept, setSongStage } from "./songs";
 import type { ModelId } from "./models";
 
 /**
@@ -164,8 +164,10 @@ export async function triggerGeneration(
   }
   void (async () => {
     // Dev parity with the workflow's load step: a run is starting, so the shape
-    // riding now hasn't heard it — the page's sweep pill comes back.
+    // riding now hasn't heard it — the page's sweep pill comes back — and no
+    // stage is owed yet (composing is what the loops themselves say).
     await setSongAutoSwept(songId, false).catch(() => {});
+    await setSongStage(songId, null).catch(() => {});
     for (const id of ids) await generateOnePart(songId, id, undefined, cfg);
     // Same closing sweep as the workflow's, so a local run makes the same song
     // (no durable steps here — each unit just gets a connection).
