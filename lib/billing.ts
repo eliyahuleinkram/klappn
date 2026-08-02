@@ -559,20 +559,17 @@ export async function addCredits(
 }
 
 /**
- * THE SIGN-UP TASTE — REOPENED 2026-07-28 (user: start people off with $1,
- * then raised to $1.20 same day; supersedes the 2026-07-26 pool-closed
- * decision, which this comment keeps for the record). No pool cap anymore:
- * EVERY CLAIMED (email, non-anonymous) account gets one grant of
- * PLANS.free.tokens ($1.20 = 240k weighted units) on its first compose. Anonymous walk-ins never mint one —
- * a walk-in needs no email, so a blanket grant is bot-farmable; the dollar
- * lands the moment a name lands on the door (and a guest's work rides along
- * through the claim merge). The old FREE_TASTE_GRANTS pool constant is gone;
- * the taste_grants schema is unchanged.
+ * THE SIGN-UP TASTE IS GONE (2026-08-02, the user: "Remove tastes. Remove that
+ * entire concept… if you want to use the AI capabilities of the software you
+ * gotta pay"). It ran from 2026-07-21 as a per-account grant and was removed
+ * whole: no pool, no minting, no grant table (taste_grants was dropped). The
+ * free plan grants ZERO, and the gate below reads only that number plus
+ * whatever the account has bought.
  */
 
 /** The tokens a user may spend before the gate closes: the free lifetime
- *  taste (IF they hold / can claim a pool grant) plus every credit they've
- *  bought (free plan), or the legacy monthly subscription allowance (paid
+ *  credits an account has bought (free plan), or the monthly subscription
+ *  allowance (paid
  *  plans, until they cancel), or ∞ (owner). */
 export function allowanceFor(plan: PlanId, credits: number): number {
   // Free buys nothing from the models (2026-08-02) — only bought credits do.

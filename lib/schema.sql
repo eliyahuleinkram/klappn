@@ -56,17 +56,10 @@ create index if not exists songs_featured_idx on songs (featured_at) where featu
 alter table songs add column if not exists share_token text;
 create unique index if not exists songs_share_token_idx on songs (share_token) where share_token is not null;
 
--- DEAD TABLE (2026-08-02) — the free taste was removed outright: "if you want
--- to use the AI capabilities of the software you gotta pay". Nothing reads or
--- writes taste_grants any more (the gate, the meter and the guest merge all
--- dropped it). The table is LEFT IN PLACE rather than dropped: it is a record
--- of who was granted what during the launch era, it costs nothing to keep, and
--- a DROP is the one migration that cannot be undone. Delete it by hand if you
--- ever want the room back.
-create table if not exists taste_grants (
-  user_id    text primary key references "user"(id) on delete cascade,
-  created_at timestamptz not null default now()
-);
+-- (taste_grants was DROPPED 2026-08-02, prod and local. The free taste is gone
+-- entirely — "if you want to use the AI capabilities of the software you gotta
+-- pay" — and nothing read the table any more. The 41 launch-era grant rows were
+-- dumped to ~/klappn-backups/taste_grants-2026-08-02.csv before the drop.)
 
 create table if not exists parts (
   id          uuid primary key default gen_random_uuid(),
