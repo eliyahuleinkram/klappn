@@ -2887,13 +2887,7 @@ export default function SongClient({
    */
   function spanOf(
     p: Part,
-  ): {
-    passes: number;
-    bars: number;
-    breakBars: number;
-    breakBefore: number;
-    authored: number;
-  } | null {
+  ): { passes: number; bars: number; breakBars: number; authored: number } | null {
     const loopBars = Math.max(1, barsOf(p) || 1);
     // arrOf, not the raw spec — so a dialled hold is the span, here and at
     // playback, from one source. `authored` is what the ARRANGEMENT chose,
@@ -2920,23 +2914,13 @@ export default function SongClient({
       (o) => o.fromId === p.id,
     );
     let breakBars = 0;
-    let breakBefore = 0;
     if (ov) {
+      // the same clamp the renderer applies, so the strip draws what sounds
       const room = bars > 1 ? bars - 1 : bars;
       const want = Number.isFinite(ov.bars) ? (ov.bars as number) : breakMoveOf(ov.tpl)?.bars ?? 1;
       breakBars = Math.max(1, Math.min(want, room));
-      // the same clamp the renderer applies, so the strip draws where it sounds
-      breakBefore = Math.max(
-        0,
-        Math.min(
-          Number.isFinite(ov.before) ? Math.floor(ov.before as number) : 0,
-          Math.max(0, room - breakBars),
-        ),
-      );
     }
-    return passes > 1 || breakBars > 0
-      ? { passes, bars, breakBars, breakBefore, authored }
-      : null;
+    return passes > 1 || breakBars > 0 ? { passes, bars, breakBars, authored } : null;
   }
   function endingOf() {
     const e = arrangementRef.current?.ending;
@@ -4121,7 +4105,6 @@ function RepeatStrip({
   passes,
   bars,
   breakBars,
-  breakBefore,
   barSeconds,
   playing,
   paused,
@@ -4129,21 +4112,15 @@ function RepeatStrip({
   passes: number;
   bars: number;
   breakBars: number;
-  breakBefore: number;
   barSeconds: number;
   playing: boolean;
   paused: boolean;
 }) {
   const pct = bars > 0 ? Math.min(100, (breakBars / bars) * 100) : 0;
-  // where the fill sits, measured from the END — so a break that lands early
-  // is drawn early, with the bars that play out after it left clear
-  const rightPct = bars > 0 ? Math.min(100 - pct, (breakBefore / bars) * 100) : 0;
   const label =
     `${passes === 1 ? "plays once" : `plays ${passes}×`}` +
     (breakBars > 0
-      ? ` · a ${breakBars}-bar turn${
-          breakBefore > 0 ? `, ending ${breakBefore} ${breakBefore === 1 ? "bar" : "bars"} early` : " at the end"
-        }`
+      ? ` · a ${breakBars}-bar turn at the end`
       : "");
   return (
     <span
@@ -4155,12 +4132,12 @@ function RepeatStrip({
       {Array.from({ length: passes }, (_, i) => (
         <span key={i} className="flex-1 rounded-full bg-white/[0.14]" />
       ))}
-      {/* the turn — its real bars, at its real place in the span */}
+      {/* the turn — its real bars, always against the change */}
       {pct > 0 && (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 rounded-full bg-accent/55"
-          style={{ width: `${pct}%`, right: `${rightPct}%` }}
+          className="pointer-events-none absolute inset-y-0 right-0 rounded-full bg-accent/55"
+          style={{ width: `${pct}%` }}
         />
       )}
       {/* the pass you're in — one sweep across the whole span */}
@@ -6017,7 +5994,10 @@ function BreakPanel({
     BREAK_KNOBS.some(
       (k) => Math.abs(val(k.field) - breakKnobDefault(move, k.field)) > 0.001,
     );
-  const bars = move?.bars ?? 1;
+  // The fill's REAL length — the Length knob's value, falling back to the
+  // template's own. The header used to quote the template forever, so a break
+  // dialled to 3 bars still read "last 4 bars" (2026-08-02).
+  const bars = Math.round(val("bars")) || move?.bars || 1;
   return (
     <div className="animate-fade-in mt-1.5 space-y-3 rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 backdrop-blur-xl">
       {/* header — what it does, where it lands, revert-to-template, and drop */}
@@ -6104,7 +6084,6 @@ function loopCardEqual(
     a.selected === b.selected &&
     a.span?.passes === b.span?.passes &&
     a.span?.breakBars === b.span?.breakBars &&
-    a.span?.breakBefore === b.span?.breakBefore &&
     a.span?.bars === b.span?.bars
   );
 }
@@ -6267,13 +6246,7 @@ function LoopCardImpl({
   /** What this section actually does, or null when it just plays once with a
    *  bare turn (nothing to draw). `authored` = the arrangement's own count, so
    *  the dial can offer the way back to as-composed. See spanOf. */
-  span: {
-    passes: number;
-    bars: number;
-    breakBars: number;
-    breakBefore: number;
-    authored: number;
-  } | null;
+  span: { passes: number; bars: number; breakBars: number; authored: number } | null;
   onPlay: () => void;
   onChanged: () => Promise<void>;
   onLocalCode: (code: string) => void;
@@ -6694,7 +6667,6 @@ function LoopCardImpl({
                 passes={span.passes}
                 bars={span.bars}
                 breakBars={span.breakBars}
-                breakBefore={span.breakBefore}
                 barSeconds={barSeconds}
                 playing={playing}
                 paused={paused}

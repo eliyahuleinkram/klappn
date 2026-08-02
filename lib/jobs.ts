@@ -754,12 +754,7 @@ export async function autoShapeSong(
   const ridingAt = new Map<number, { tpl: string; bars?: number }>();
   for (const o of (plan as { overlays?: BreakOverlay[] }).overlays ?? []) {
     const at = loopNo(o.fromId);
-    if (at >= 1)
-      ridingAt.set(at, {
-        tpl: o.tpl,
-        ...(o.bars ? { bars: o.bars } : {}),
-        ...(o.before ? { before: o.before } : {}),
-      });
+    if (at >= 1) ridingAt.set(at, { tpl: o.tpl, ...(o.bars ? { bars: o.bars } : {}) });
   }
   const fxContext = (list: SongFx[]) =>
     list.flatMap((e) => {
@@ -845,7 +840,6 @@ export async function autoShapeSong(
         tpl: b.tpl,
         name: move.word,
         ...(b.bars ? { bars: b.bars } : {}),
-        ...(b.before ? { before: b.before } : {}),
         gain: b.gain,
         heat: b.heat,
         tone: b.tone,

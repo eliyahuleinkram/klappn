@@ -2,12 +2,17 @@
  * BREAKS — deterministic drum FILLS at the turns of a song (2026-07-16, the
  * user: a break is a BREAKING POINT, not a beat — it rides the closing
  * bar(s) of one loop so the music breaks seamlessly into the next). No AI at
- * add time: each template is a fixed fill for its last `bars` bars; arrange
- * masks it to the very end of the loop it's anchored to. The song's own
- * setcpm carries the tempo, and cycle = bar, so the fills land in any meter.
+ * add time: each template is a fixed fill, and arrange masks it to the very
+ * end of the loop it's anchored to. The song's own setcpm carries the tempo,
+ * and cycle = bar, so the fills land in any meter.
  *
- * The knobs (Level / Heat / Tone / Space) are pure math too — clamped ranges
- * baked straight into the line at arrange time. Zero AI, live-slideable.
+ * HOW LONG it runs belongs to the SECTION, not the template (2026-08-02): the
+ * catalog `bars` is only a starting point, and `BreakOverlay.bars` — authored
+ * per turn, dialled by the Length knob — is what actually plays. Where it sits
+ * is never a question: a break ends ON the change, or it isn't a turn.
+ *
+ * The knobs (Length / Level / Heat / Tone / Space) are pure math too — clamped
+ * ranges baked straight into the line at arrange time. Zero AI, live-slideable.
  */
 
 export interface BreakOverlay {
@@ -21,13 +26,6 @@ export interface BreakOverlay {
    *  of the template. Absent = the template's own length (every break written
    *  before this rides its catalog length, unchanged). */
   bars?: number;
-  /** How many bars of the section still play AFTER the fill finishes
-   *  (2026-08-02, the user: a break should be able to start "a few bars before
-   *  the last bar"). 0 = the fill runs straight into the turn, which is what
-   *  every break did before this. Anything higher lands it early and lets the
-   *  groove breathe back before the change. Measured from the END so it
-   *  survives a section being lengthened or shortened. */
-  before?: number;
   /** Level, 0..1.2 — multiplies the fill's own envelope. */
   gain: number;
   /** Heat — drive into the wave, 0..0.6 (.shape). Default 0. */
@@ -43,11 +41,12 @@ export interface BreakOverlay {
 }
 
 /** The tweak surface — one row per knob, shared by panel + API clamps.
- *  `bars` and `before` are counted in WHOLE BARS (int), not percentages: they
- *  place the fill in time rather than colour it. Everything else is a feel. */
+ *  A break ENDS AT THE TURN — that's what makes it a turn (2026-08-02, the
+ *  user, after a short-lived "Early" knob: "there should be no early parameter,
+ *  just length"). So the only thing in time is how LONG it is, counted in whole
+ *  bars; everything else is a feel, in percent. */
 export const BREAK_KNOBS = [
   { field: "bars", word: "Length", min: 1, max: 8, int: true },
-  { field: "before", word: "Early", min: 0, max: 8, int: true },
   { field: "gain", word: "Level", min: 0, max: 1.2 },
   { field: "heat", word: "Heat", min: 0, max: 0.6 },
   { field: "tone", word: "Tone", min: 0, max: 1 },
@@ -58,8 +57,6 @@ export type BreakKnobField = (typeof BREAK_KNOBS)[number]["field"];
 /** How a knob reads on the panel: bars say bars, feels say percent. */
 export function breakKnobText(field: BreakKnobField, v: number): string {
   if (field === "bars") return `${Math.round(v)} ${Math.round(v) === 1 ? "bar" : "bars"}`;
-  if (field === "before")
-    return Math.round(v) === 0 ? "on the turn" : `${Math.round(v)} early`;
   return `${Math.round(v * 100)}%`;
 }
 
@@ -85,7 +82,7 @@ export const BREAK_MOVES: BreakMove[] = [
   {
     tpl: "roll",
     word: "Snare roll",
-    hint: "a roll that lifts the last bar into the turn",
+    hint: "a snare roll that lifts into the turn",
     gain: 0.85,
     bars: 1,
     code: () => `s("sd*16").bank("RolandTR909").gain(saw.range(0.4,0.95))`,
@@ -93,7 +90,7 @@ export const BREAK_MOVES: BreakMove[] = [
   {
     tpl: "run",
     word: "Tom run",
-    hint: "toms tumble down through the last bar",
+    hint: "toms tumble down into the turn",
     gain: 0.9,
     bars: 1,
     code: () =>
@@ -102,7 +99,7 @@ export const BREAK_MOVES: BreakMove[] = [
   {
     tpl: "build",
     word: "Rising build",
-    hint: "a roll that doubles as it climbs, four bars",
+    hint: "a roll that doubles as it climbs",
     gain: 0.7,
     bars: 4,
     code: () =>
@@ -119,7 +116,7 @@ export const BREAK_MOVES: BreakMove[] = [
   {
     tpl: "clap",
     word: "Clap build",
-    hint: "claps double across the last two bars",
+    hint: "claps double up into the turn",
     gain: 0.8,
     bars: 2,
     code: () =>
@@ -136,7 +133,7 @@ export const BREAK_MOVES: BreakMove[] = [
   {
     tpl: "tumble",
     word: "Tom fall",
-    hint: "toms cascade down the last two bars",
+    hint: "toms cascade down the turn",
     gain: 0.9,
     bars: 2,
     code: () =>
