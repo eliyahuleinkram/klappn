@@ -2124,7 +2124,21 @@ export default function SongClient({
   const buildRotated = (anchor: string) => {
     const secs = buildSections(partsRef.current, breaksRef.current);
     const at = secs.findIndex((s) => s.id === anchor);
-    return at > 0 ? [...secs.slice(at), ...secs.slice(0, at)] : secs;
+    if (at <= 0) return secs;
+    // A SONG THAT ENDS, ENDS AT ITS END (2026-08-02, the user: "I press play on
+    // the final loop… once everything is finished it then goes and starts
+    // playing from the first loop").
+    //
+    // Starting mid-song ROTATES the list so the music continues from where you
+    // tapped and wraps around — right for a piece that loops forever, wrong for
+    // one with an ending, because the ending belongs to the last unit of the
+    // list and rotation moves a different section there. Press play on the last
+    // loop and the ring-out was scheduled a whole lap away, after every earlier
+    // loop had played again. So when the song ENDS, starting anywhere plays to
+    // the end and stops there: no wrap, and the tail lands where it belongs.
+    const endsHere =
+      (arrangementRef.current?.ending?.mode ?? "loop") === "stop";
+    return endsHere ? secs.slice(at) : [...secs.slice(at), ...secs.slice(0, at)];
   };
 
   // What the dock whispers while this section sounds.
