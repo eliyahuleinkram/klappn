@@ -369,6 +369,46 @@ export async function saveSongDirection(
     where id = ${songId}`;
 }
 
+/**
+ * THE SHARE LINK (2026-08-02, the user: "we also need to be able to share a
+ * song… and the person can change whatever they want for themselves").
+ *
+ * Mint a token (idempotent — an existing link keeps working, so re-tapping
+ * Share never invalidates a link already sent) or revoke with `on: false`,
+ * which kills every copy of it at once. Owner-scoped both ways.
+ */
+export async function setSongShared(
+  songId: string,
+  userId: string,
+  on: boolean,
+  sql: Sql = db(),
+): Promise<string | null> {
+  if (!on) {
+    await sql`update songs set share_token = null where id = ${songId} and user_id = ${userId}`;
+    return null;
+  }
+  const [row] = await sql<{ share_token: string | null }[]>`
+    update songs set share_token = coalesce(share_token, ${crypto.randomUUID().replace(/-/g, "")})
+    where id = ${songId} and user_id = ${userId}
+    returning share_token`;
+  return row?.share_token ?? null;
+}
+
+/** The shared song + its parts, by token — NO user scope: holding the token is
+ *  the permission. Read-only by construction; nothing here can write. */
+export async function getSharedSong(
+  token: string,
+  sql: Sql = db(),
+): Promise<{ song: SongRow; parts: PartRow[] } | null> {
+  if (!token || !/^[a-z0-9]{16,64}$/i.test(token)) return null;
+  const [song] = await sql<SongRow[]>`
+    select * from songs where share_token = ${token}`;
+  if (!song) return null;
+  const parts = await sql<PartRow[]>`
+    select * from parts where song_id = ${song.id} order by position asc`;
+  return { song, parts };
+}
+
 /** WHAT THE RUN IS DOING RIGHT NOW (2026-08-02, the user: "make clear in the
  *  UI when every stage is happening"). Composing is legible from the parts
  *  themselves — a loop says it is generating — but the finish is not: every

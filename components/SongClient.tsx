@@ -191,19 +191,92 @@ function origBpmOf(parts: Part[], fallback: number, beats = 4): number {
   return fallback;
 }
 
+/**
+ * A VISITOR'S OWN COPY of a shared song, in their own browser.
+ *
+ * The whole point of a share (2026-08-02, the user): "the person can change
+ * whatever they want for themselves… so long as they are not trying to make any
+ * AI changes". So every deterministic move a visitor makes — knobs, kits,
+ * mutes, repeats, tempo, key, the arrangement — is kept HERE, under the share
+ * token, and the owner's song never hears about it. Quota-free, account-free,
+ * and gone the moment they clear their browser, which is the right lifetime for
+ * someone else's toy.
+ */
+const sharedKey = (token: string) => `klappn:shared:${token}`;
+
+function readSharedCopy(token: string): { song: Song; parts: Part[] } | null {
+  try {
+    const raw = localStorage.getItem(sharedKey(token));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { song?: Song; parts?: Part[] };
+    return v?.song && Array.isArray(v.parts) ? { song: v.song, parts: v.parts } : null;
+  } catch {
+    return null; // private mode, quota, a shape from an older build — start fresh
+  }
+}
+
+function writeSharedCopy(token: string, song: Song, parts: Part[]) {
+  try {
+    localStorage.setItem(sharedKey(token), JSON.stringify({ song, parts }));
+  } catch {
+    /* a full or blocked store must never break playback */
+  }
+}
+
 export default function SongClient({
   songId,
   initialSong,
   initialParts,
+  shared,
 }: {
   songId: string;
   initialSong: Song;
   initialParts: Part[];
+  /** THE SHARE TOKEN — set only on /s/<token>, where the visitor may have no
+   *  account at all (2026-08-02, the user). Everything deterministic works;
+   *  every change is THEIRS, kept in their browser under this token and never
+   *  sent anywhere; every AI door is shut. See sharedMode below. */
+  shared?: string;
 }) {
+  const visiting = !!shared;
   // Code arrives SEALED from the server (lib/seal.ts) — open it once on entry;
   // openDeep is pass-through for anything unsealed, so this is always safe.
-  const [song, setSong] = useState<Song>(() => openDeep(initialSong));
-  const [parts, setParts] = useState<Part[]>(() => openDeep(initialParts));
+  // A VISITOR'S OWN COPY WINS: if they've played with this share before, their
+  // version is what opens — the owner's song is only ever the starting point.
+  const [song, setSong] = useState<Song>(() => {
+    const mine = shared ? readSharedCopy(shared) : null;
+    return mine?.song ?? openDeep(initialSong);
+  });
+  const [parts, setParts] = useState<Part[]>(() => {
+    const mine = shared ? readSharedCopy(shared) : null;
+    return mine?.parts ?? openDeep(initialParts);
+  });
+  // THE WALL (2026-08-02). A visitor's page is full of controls that were
+  // written to persist — thirty-odd fetches scattered through this file, every
+  // one of them optimistic-then-save. Rather than teach each site about
+  // sharing (and miss one), the visitor's tab simply cannot send a mutation:
+  // any non-GET to our API is answered locally with a success it never made.
+  // The optimistic state the control already applied is the change, and it's
+  // theirs. Belt and braces — every mutating route is session-scoped anyway, so
+  // a crafted request from a visitor has nothing to authenticate with; this
+  // wall is what keeps the UI honest and instant rather than erroring.
+  useEffect(() => {
+    if (!visiting) return;
+    const real = window.fetch.bind(window);
+    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      if (method !== "GET" && /\/api\//.test(url))
+        return new Response(JSON.stringify({ ok: true, shared: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      return real(input as RequestInfo, init);
+    }) as typeof window.fetch;
+    return () => {
+      window.fetch = real;
+    };
+  }, [visiting]);
   const [playing, setPlaying] = useState<string | null>(null);
   // The loop the bottom command bar edits — you SELECT a loop (tap it) and the field applies to it.
   const [selectedLoopId, setSelectedLoopId] = useState<string | null>(null);
@@ -974,6 +1047,10 @@ export default function SongClient({
   );
 
   const renderAddPart = (side: "before" | "after") => {
+    // Extending writes NEW MUSIC — the one thing a shared song can't do. It
+    // isn't disabled with an excuse, it's simply not part of a visitor's page:
+    // this is someone else's song to play with, not to grow.
+    if (visiting) return null;
     const sideBusy = side === "before" ? frontBusy : backBusy;
     if (addOpen === side) return renderComposer(side);
     // an effect can begin at the song's very first bar — the before-edge owns
@@ -1678,6 +1755,11 @@ export default function SongClient({
   );
 
   const refresh = useCallback(async () => {
+    // A VISITOR NEVER REFETCHES. The song on screen is their copy now; pulling
+    // the owner's version back over it would quietly undo everything they'd
+    // touched. Nothing is generating for them either — there is no AI here — so
+    // there is nothing to poll for.
+    if (visiting) return;
     // Driven by a 2s poll — a network-level rejection here would be an unhandled
     // rejection every tick while offline; swallow it and let the next tick retry.
     let data: { song: Song; parts: Part[] };
@@ -1907,11 +1989,36 @@ export default function SongClient({
   // INIT FROM THE PLAN: rehydrate the saved repeat latches on mount (decode -1 → Infinity).
   const [holdCycles, setHoldCycles] = useState<Record<string, number>>(() =>
     decodeHolds(
-      (initialSong.plan as { holdCycles?: Record<string, number> })?.holdCycles,
+      // A VISITOR'S OWN LATCHES WIN — read from the copy in their browser, the
+      // same source `song` hydrates from, not the owner's version off the wire.
+      // (Missing this was the one thing that didn't survive a reload.)
+      (((shared ? readSharedCopy(shared)?.song : null) ?? initialSong).plan as {
+        holdCycles?: Record<string, number>;
+      })?.holdCycles,
     ),
   );
   const holdCyclesRef = useRef(holdCycles);
   holdCyclesRef.current = holdCycles;
+  // Their copy, kept as they play with it. Debounced by React's own batching —
+  // a slider drag lands one write per committed value, not one per pixel.
+  //
+  // Repeat latches ride in their own state rather than the plan, so they are
+  // folded back INTO the saved plan (encoded, ∞ → -1) — which is exactly where
+  // this component reads them from on the next visit, so hydration needs no
+  // special case. Everything else a visitor can touch — knobs, kits, mutes,
+  // effects, breaks, the arrangement, tempo and key — already lives on the song
+  // or its parts.
+  useEffect(() => {
+    if (!visiting || !shared) return;
+    const holds: Record<string, number> = {};
+    for (const [k, v] of Object.entries(holdCycles))
+      if (Number.isFinite(v) || v === Infinity) holds[k] = v === Infinity ? -1 : v;
+    const withHolds = {
+      ...song,
+      plan: { ...(song.plan as Record<string, unknown>), holdCycles: holds },
+    } as unknown as Song;
+    writeSharedCopy(shared, withHolds, parts);
+  }, [visiting, shared, song, parts, holdCycles]);
   // A just-saved holdCycles write is in flight — keep the local map over a stale refetch
   // for a short window so the poll can't revert a just-toggled repeat latch.
   const holdPendingUntil = useRef(0);
@@ -2533,6 +2640,40 @@ export default function SongClient({
   // (effects across the loops, breaks at the turns, replacing what rides;
   // the pill's own words carry that consequence). ✕ declines; the next loop
   // offers again. Nothing ever runs unasked.
+  // THE SHARE LINK — minted once and reused, so a link already sent to someone
+  // never dies under them. Copying is the SECOND tap, never the first: the
+  // clipboard is not taken without a hand on it ([[link-waits-for-your-hand]]).
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  async function onShare() {
+    if (shareBusy) return;
+    if (shareUrl) {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2400);
+      } catch {
+        setError("Couldn’t reach the clipboard — the link is in the address of this menu.");
+      }
+      return;
+    }
+    setShareBusy(true);
+    try {
+      const res = await fetch(`/api/songs/${songId}/share`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ on: true }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { path?: string | null };
+      if (d.path) setShareUrl(`${window.location.origin}${d.path}`);
+      else setError("Couldn’t make a link this time — try again.");
+    } catch {
+      setError("Couldn’t make a link this time — try again.");
+    } finally {
+      setShareBusy(false);
+    }
+  }
   const [sweep, setSweep] = useState<"idle" | "offer" | "busy">("idle");
   const playableCount = playableVisible.filter((p) => p.status === "ready").length;
   const wasBusy = useRef(busy);
@@ -2575,7 +2716,8 @@ export default function SongClient({
       wasBusy.current &&
       playableCount > readyAtRunStart.current &&
       playableCount >= 1 &&
-      !autoSwept
+      !autoSwept &&
+      !visiting // a visitor is never offered a call they can't make
     )
       setSweep((s) => (s === "busy" ? s : "offer"));
     wasBusy.current = busy;
@@ -3418,11 +3560,13 @@ export default function SongClient({
                         <MenuRow
                           word="Visuals"
                           line={
-                            playableCount > 0
-                              ? "One living look across the whole piece"
-                              : "Once the first loop has landed"
+                            visiting
+                              ? "The look is the maker's — yours to watch, not to repaint"
+                              : playableCount > 0
+                                ? "One living look across the whole piece"
+                                : "Once the first loop has landed"
                           }
-                          disabled={playableCount === 0}
+                          disabled={visiting || playableCount === 0}
                           onClick={() => {
                             setShapeOpen(false);
                             setVisualsOpen(true);
@@ -3431,13 +3575,15 @@ export default function SongClient({
                         <MenuRow
                           word="Effects & breaks"
                           line={
-                            busy
-                              ? "The song is still being built"
-                              : playableCount > 0
-                                ? "The AI sweeps the whole song — replacing what rides"
-                                : "Once a loop is ready to sweep"
+                            visiting
+                              ? "Sweeping is the maker's — but every knob here is yours"
+                              : busy
+                                ? "The song is still being built"
+                                : playableCount > 0
+                                  ? "The AI sweeps the whole song — replacing what rides"
+                                  : "Once a loop is ready to sweep"
                           }
-                          disabled={busy || playableCount === 0}
+                          disabled={visiting || busy || playableCount === 0}
                           onClick={() => {
                             setShapeOpen(false);
                             setSweep("offer");
@@ -3451,6 +3597,26 @@ export default function SongClient({
                             setArrange(true);
                           }}
                         />
+                        {/* THE SHARE LINK (2026-08-02, the user). One tap mints
+                            it, the next tap copies it, and the line says the
+                            whole deal before you send it to anyone: they can
+                            take it apart, they can't spend your tokens, and
+                            what they change is theirs. Owners only — a visitor
+                            can't re-share what isn't theirs. */}
+                        {!visiting && (
+                          <MenuRow
+                            word={shareBusy ? "Making a link…" : shareUrl ? "Copy the link" : "Share"}
+                            line={
+                              shareCopied
+                                ? "Copied — anyone with it can play and tinker"
+                                : shareUrl
+                                  ? "Anyone can open it, take it apart, keep their version"
+                                  : "A link that needs no account — they play, they can't spend"
+                            }
+                            disabled={shareBusy || playableCount === 0}
+                            onClick={() => void onShare()}
+                          />
+                        )}
                       </div>
                     </>
                   )}
@@ -3838,6 +4004,7 @@ export default function SongClient({
                 playhead={playhead}
                 songId={songId}
                 busy={busy}
+                visiting={visiting}
                 barSeconds={barSeconds}
                 span={spanOf(part)}
                 laterUnmade={
@@ -6255,6 +6422,7 @@ function LoopCardImpl({
   playhead,
   songId,
   busy,
+  visiting,
   barSeconds,
   span,
   laterUnmade,
@@ -6288,6 +6456,8 @@ function LoopCardImpl({
   playhead: { loopSec: number; delay: number; key: number } | null;
   songId: string;
   busy: boolean;
+  /** Shared-link mode: no AI control is offered. */
+  visiting: boolean;
   /** One bar in seconds — the repeat strip sweeps across the span with it. */
   barSeconds: number;
   /** What this section actually does, or null when it just plays once with a
@@ -6734,7 +6904,7 @@ function LoopCardImpl({
               </span>
             )}
           </button>
-          {(pending || errored) && !generating && (
+          {(pending || errored) && !generating && !visiting && (
             <div className="mt-3">
               <button
                 onClick={() =>

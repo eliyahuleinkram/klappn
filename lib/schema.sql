@@ -23,6 +23,12 @@ create table if not exists songs (
   status        text not null default 'draft'
                 check (status in ('draft','overview','generating','ready','error')),
   generation_workflow_id text,
+  -- THE SHARE TOKEN (2026-08-02). Minted by the owner, revocable, and the token
+  -- IS the permission: anyone holding the link can open the song at /s/<token>
+  -- with no account at all. What they change, they change for THEMSELVES — the
+  -- visitor's copy lives in their own browser and never touches this row (see
+  -- SongClient's shared mode), and every AI door is shut to them.
+  share_token   text unique,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
@@ -42,6 +48,13 @@ alter table songs add column if not exists model text not null default 'anthropi
 -- hand, owner only; the timestamp is the display order, newest first).
 alter table songs add column if not exists featured_at timestamptz;
 create index if not exists songs_featured_idx on songs (featured_at) where featured_at is not null;
+
+-- THE SHARE LINK (2026-08-02) — the token IS the permission. Anyone with the
+-- link opens the song at /s/<token> without an account and can play with every
+-- deterministic control; their changes live in their own browser and never
+-- reach this row. Revoking is setting it back to null, which kills every link.
+alter table songs add column if not exists share_token text;
+create unique index if not exists songs_share_token_idx on songs (share_token) where share_token is not null;
 
 -- THE FREE POOL — the lifetime free taste is claimed from a FIXED global pool
 -- of grants (lib/billing.ts FREE_TASTE_GRANTS). A grant is claimed the first
