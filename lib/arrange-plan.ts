@@ -369,26 +369,46 @@ export function sanitizeUnfoldFx(
     )
     .slice(0, 8); // safety net only — the model decides how much motion the piece wants
 }
-// ── PAGE SHAPE — the whole song's motion AND its turns, in ONE call ──────────
-// The Sweep: effect glides and break fills are one gesture — the glide and the
-// fill at the same turn are one decision — so a single call authors BOTH
-// complete sets, told plainly that everything riding (both kinds) is replaced.
-// (The old shape ran two sequential calls, each told the other category
-// "stays": the effects argued around fills that the very next call deleted.
-// Merged 2026-07-22 — the user: let it do whatever it thinks best.)
+// ── THE SWEEP, IN TWO SHAPES (2026-08-02, the user) ──────────────────────────
+// An EFFECT spans the piece — it needs the whole arc, so it stays ONE call over
+// every loop. A BREAK is LOCAL: it lives at one turn, between two loops, and
+// nothing three sections away changes what belongs there. So the turns are
+// authored ONE CALL EACH, in parallel, each seeing only its two loops, their
+// spans, and the glide crossing it — small context, decisive answer, and a
+// cheaper tier (ROUTE.turn: Sonnet 5, a closed catalog and four knobs).
+//
+// The 2026-07-22 merge is honoured, not undone: it fixed two WHOLE-SONG calls
+// that each held the other's category fixed and argued over material the next
+// call deleted. Here the effects land FIRST and every turn call is told what
+// glides through it — the coupling survives at a fraction of the context.
 
-const PAGE_SHAPE_SYSTEM = `You shape a finished instrumental piece: its EFFECTS — parameter glides living OUTSIDE its loops, each spanning a range of them — and its BREAKS — short drum fills at its turns. You're given the song's identity and its loops in play order, each with its layers. Author BOTH complete sets together, as one gesture: a glide and a fill at the same turn are one decision — a long rise may want its turn bare, a hard cut may want the fill to carry it alone.
+const PAGE_EFFECTS_SYSTEM = `You shape a finished instrumental piece's EFFECTS — parameter glides living OUTSIDE its loops, each spanning a range of them. You're given the song's identity and its loops in play order, each with its layers and how long it runs.
 
 Respond with ONLY a JSON object, no markdown:
-{"effects": [{"name": "2-4 words for the MOVE a listener feels", "param": "<control>", "from": n, "to": n, "curve": "linear"|"sine", "fromLoop": first loop it rides (1-based), "toLoop": last loop it rides}, …],
- "breaks": [{"tpl": "<template key>", "atLoop": the loop whose ending it rides (1-based), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8}, …]}
+{"effects": [{"name": "2-4 words for the MOVE a listener feels", "param": "<control>", "from": n, "to": n, "curve": "linear"|"sine", "fromLoop": first loop it rides (1-based), "toLoop": last loop it rides}, …]}
 
-Each glide runs ONCE across its whole range — from the first bar of fromLoop to the last bar of toLoop. Loop numbers refer to the play order given. Glidable params: lpf, hpf, gain, room, delay, delayfeedback, resonance, shape, phaserrate. Params that rebuild a shared bus (roomsize, delaytime) cannot glide.
-A break rides the closing bar(s) of one loop so the music breaks into the next: a point of release, not a running beat. Templates: roll (snare roll, last bar) · run (tom run, last bar) · build (doubling roll, last four bars) · stutter (kick stutter, last bar) · lift (rising hats, last bar) · clap (doubling claps, last two bars) · crash (push into a ringing crash, last bar) · tumble (tom cascade, last two bars). Knobs: gain = level, heat = drive, tone = how open the top is (1 = fully open), space = room send. At most one break per turn. An empty list is a valid answer for either.`;
+Each glide runs ONCE across its whole range — from the first bar of fromLoop to the last bar of toLoop. Loop numbers refer to the play order given. Glidable params: lpf, hpf, gain, room, delay, delayfeedback, resonance, shape, phaserrate. Params that rebuild a shared bus (roomsize, delaytime) cannot glide. An empty list is a valid answer — a piece can want no glides at all.`;
+
+const TURN_BREAK_SYSTEM = `You decide ONE TURN in an instrumental song: the moment the music leaves one section and arrives in the next. You're given both sections — what they are, what layers they carry, how long each runs — and anything already gliding across the turn.
+
+Choose the drum fill that breaks the first section into the second, or NOTHING: a bare turn is a real answer, and a long rise often wants one.
+
+Respond with ONLY a JSON object, no markdown:
+{"tpl": "<template key>", "bars": how many CLOSING bars of the outgoing section the fill occupies (1-4), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8}
+or exactly {"tpl": null} for a bare turn.
+
+Templates: roll (snare roll) · run (tom run) · build (doubling roll) · stutter (kick stutter) · lift (rising hats) · clap (doubling claps) · crash (push into a ringing crash) · tumble (tom cascade).
+"bars" belongs to the SECTION, not the template: a section playing once wants a single closing bar, while one that runs sixteen or thirty-two bars can carry a three- or four-bar turn without losing the thread. The outgoing section's span is given — read it before choosing.
+Knobs: gain = level, heat = drive, tone = how open the top is (1 = fully open), space = room send. The fill is a point of RELEASE, not a running beat.`;
 
 export interface PageBreak {
   tpl: string;
   atLoop: number;
+  /** How many CLOSING bars of the loop the fill occupies (2026-08-02). A turn
+   *  is a proportion of the section, not a property of the template: sixteen
+   *  bars of one loop earn a longer break than a single pass. Absent = the
+   *  template's own length. */
+  bars?: number;
   gain: number;
   heat: number;
   tone: number;
@@ -397,95 +417,176 @@ export interface PageBreak {
 
 const BREAK_TPLS = new Set(["roll", "run", "build", "stutter", "lift", "clap", "crash", "tumble"]);
 
-function sanitizePageBreaks(list: unknown[], loopCount: number): PageBreak[] {
+/** One turn's answer, sanitized. null = a bare turn (the model's real answer,
+ *  or an unusable reply — both leave the turn empty, which is safe). */
+function sanitizeTurnBreak(raw: unknown, atLoop: number): PageBreak | null {
+  if (!raw || typeof raw !== "object") return null;
+  const e = raw as Record<string, unknown>;
+  const tpl = String(e.tpl ?? "");
+  if (!BREAK_TPLS.has(tpl)) return null; // includes the explicit {"tpl": null}
   const knob = (v: unknown, min: number, max: number, def: number) =>
     Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Number(v))) : def;
-  return list
-    .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
-    .map((e) => ({
-      tpl: String(e.tpl ?? ""),
-      atLoop: Math.max(1, Math.min(loopCount, Math.floor(Number(e.atLoop)) || 1)),
-      gain: knob(e.gain, 0, 1.2, 0.8),
-      heat: knob(e.heat, 0, 0.6, 0),
-      tone: knob(e.tone, 0, 1, 1),
-      space: knob(e.space, 0, 0.8, 0),
-    }))
-    .filter((e) => BREAK_TPLS.has(e.tpl))
-    // one break per turn — the first placement at a loop wins
-    .filter((e, i, all) => all.findIndex((x) => x.atLoop === e.atLoop) === i)
-    .slice(0, 8);
+  return {
+    tpl,
+    atLoop,
+    // 1-4 closing bars; omitted (or unusable) = the template's own length.
+    // The renderer clamps again to the section's real span.
+    ...(Number.isFinite(Number(e.bars))
+      ? { bars: Math.max(1, Math.min(4, Math.floor(Number(e.bars)))) }
+      : {}),
+    gain: knob(e.gain, 0, 1.2, 0.8),
+    heat: knob(e.heat, 0, 0.6, 0),
+    tone: knob(e.tone, 0, 1, 1),
+    space: knob(e.space, 0, 0.8, 0),
+  };
 }
 
-/** The Sweep's one call: the complete shape — effects AND breaks — for the
- *  piece. null = the model whiffed (caller changes nothing); a successful
- *  parse REPLACES both sets, and an empty list is a real answer (a piece can
- *  want bare turns), not a failure. */
-export async function composePageShape(
+/** One loop as a turn call sees it. */
+export interface TurnLoop {
+  name: string;
+  intent?: string;
+  layers: string[];
+  /** The section's SPAN — how long it actually runs. */
+  bars?: number;
+  /** Its natural loop length, so a repeat reads as a repeat. */
+  loopBars?: number;
+}
+
+/**
+ * ONE TURN — the fill (or the bare turn) between two sections.
+ *
+ * Local by nature, so local in context: two loops, their spans, and whatever
+ * glides across the seam. Runs on ROUTE.turn (Sonnet 5, medium) — a closed
+ * catalog of eight templates, four knobs and a length is a decision, not an
+ * invention. Callers run these CONCURRENTLY: no turn depends on another.
+ *
+ * null = leave this turn bare (a real answer, and the safe failure).
+ */
+export async function composeTurnBreak(
+  args: {
+    genre?: string;
+    key: string;
+    bpm: number;
+    timeSignature: string;
+    /** The section the music is LEAVING — the fill rides its closing bars. */
+    from: TurnLoop;
+    /** What it arrives in. null = the song's ending (the last turn of a piece
+     *  that stops rather than wraps). */
+    to: TurnLoop | null;
+    /** 1-based index of the outgoing loop, echoed back on the result. */
+    atLoop: number;
+    /** Glides crossing this turn — the fill is chosen with them, not against
+     *  them (the 07-22 coupling, kept). */
+    crossing?: { name?: string; param: string; from: number; to: number }[];
+    /** What rides this turn now — replaced by whatever comes back. */
+    riding?: { tpl: string; bars?: number };
+  },
+  cfg?: LlmConfig,
+): Promise<PageBreak | null> {
+  const line = (l: TurnLoop, role: string) => {
+    const reps = l.bars && l.loopBars ? Math.round(l.bars / l.loopBars) : 1;
+    const span = l.bars
+      ? reps > 1
+        ? ` — ${l.bars} bars (its ${l.loopBars}-bar loop ×${reps})`
+        : ` — ${l.bars} bars`
+      : "";
+    return [
+      `${role}: "${l.name}"${span}${l.intent?.trim() ? ` — ${l.intent.trim()}` : ""}`,
+      l.layers.length ? `  layers: ${l.layers.join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  };
+  const user = [
+    `${args.genre ? `${args.genre} — ` : ""}key of ${args.key}, ${args.bpm} BPM, ${args.timeSignature}.`,
+    line(args.from, "LEAVING"),
+    args.to
+      ? line(args.to, "ARRIVING IN")
+      : `ARRIVING IN: the song's ending — this is the last turn the piece takes.`,
+    args.crossing?.length
+      ? `CROSSING THIS TURN: ${args.crossing
+          .map((c) => `${c.name ? `"${c.name}" — ` : ""}${c.param} ${c.from}→${c.to}`)
+          .join(" · ")}`
+      : "",
+    args.riding ? `RIDING NOW (replaced by your answer): ${args.riding.tpl}${args.riding.bars ? ` over ${args.riding.bars} bars` : ""}` : "",
+    `The turn. JSON only.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const reply = (
+    await complete(TURN_BREAK_SYSTEM, user, cfg, {
+      ...ROUTE.turn,
+      trace: { kind: "turn-break" },
+    })
+  ).trim();
+  return sanitizeTurnBreak(firstJsonObject(reply), args.atLoop);
+}
+
+/** THE WHOLE-SONG HALF OF THE SWEEP: the effect glides, which span loops and
+ *  so need the whole arc. null = the model whiffed (the caller changes
+ *  nothing); an empty list is a real answer (a piece can want no glides), not
+ *  a failure. The turns are authored separately — see composeTurnBreak. */
+export async function composePageEffects(
   args: {
     genre?: string;
     key: string;
     bpm: number;
     timeSignature: string;
     summary?: string;
-    /** Every loop on the page, in play order. */
-    loops: { name: string; intent?: string; layers: string[]; bars?: number }[];
+    /** Every loop on the page, in play order. `bars` is the section's SPAN —
+     *  how long it actually runs — and `loopBars` its natural loop length, so
+     *  the model can see a repeat for what it is (32 bars = an 8-bar loop four
+     *  times) and size the turn to it. */
+    loops: { name: string; intent?: string; layers: string[]; bars?: number; loopBars?: number }[];
     /** The effects riding NOW — replaced wholesale. */
     ridingEffects?: { name?: string; param: string; from: number; to: number; fromLoop: number; toLoop: number }[];
-    /** The break fills riding NOW — replaced wholesale. */
-    ridingBreaks?: { tpl: string; atLoop: number; gain?: number; heat?: number; tone?: number; space?: number }[];
   },
   cfg?: LlmConfig,
-): Promise<{ effects: UnfoldFx[]; breaks: PageBreak[] } | null> {
+): Promise<UnfoldFx[] | null> {
   if (!args.loops.length) return null;
-  const riding = [
-    ...(args.ridingEffects ?? []).map(
-      (r) => `- effect: ${r.name ? `"${r.name}" — ` : ""}${r.param} ${r.from}→${r.to}, loops ${r.fromLoop}–${r.toLoop}`,
-    ),
-    ...(args.ridingBreaks ?? []).map(
-      (r) => `- break: ${r.tpl}, the turn out of loop ${r.atLoop} (gain ${r.gain ?? 0.8}, heat ${r.heat ?? 0}, tone ${r.tone ?? 1}, space ${r.space ?? 0})`,
-    ),
-  ];
+  const riding = (args.ridingEffects ?? []).map(
+    (r) => `- ${r.name ? `"${r.name}" — ` : ""}${r.param} ${r.from}→${r.to}, loops ${r.fromLoop}–${r.toLoop}`,
+  );
   let user = [
     `${args.genre ? `${args.genre} — ` : ""}key of ${args.key}, ${args.bpm} BPM, ${args.timeSignature}.`,
     args.summary ? `The song: ${args.summary}` : "",
     "THE LOOPS (in play order):",
-    ...args.loops.map(
-      (c, i) =>
-        `${i + 1}. "${c.name}"${c.bars ? ` (${c.bars} bars)` : ""}${c.intent?.trim() ? ` — ${c.intent.trim()}` : ""}${
-          c.layers.length ? ` [layers: ${c.layers.join(", ")}]` : ""
-        }`,
-    ),
-    // One loop still has motion and still has a turn — it turns back into
-    // itself. Say so, or the model reads "no next section" as "no shape".
+    ...args.loops.map((c, i) => {
+      // "(32 bars — its 8-bar loop ×4)" when the section repeats; plain bars
+      // otherwise. The turn's length is chosen against THIS number.
+      const reps = c.bars && c.loopBars ? Math.round(c.bars / c.loopBars) : 1;
+      const span = c.bars
+        ? reps > 1
+          ? ` (${c.bars} bars — its ${c.loopBars}-bar loop ×${reps})`
+          : ` (${c.bars} bars)`
+        : "";
+      return `${i + 1}. "${c.name}"${span}${c.intent?.trim() ? ` — ${c.intent.trim()}` : ""}${
+        c.layers.length ? ` [layers: ${c.layers.join(", ")}]` : ""
+      }`;
+    }),
+    // One loop still has motion — it glides across itself. Say so, or the
+    // model reads "no next section" as "no shape".
     args.loops.length === 1
-      ? "This piece is ONE loop that repeats: a glide rides once across it, and a fill on its closing bar breaks it back into itself."
+      ? "This piece is ONE loop that repeats: a glide rides once across it."
       : "",
     riding.length
-      ? ["RIDING NOW (your sets replace ALL of this — both kinds):", ...riding].join("\n")
+      ? ["RIDING NOW (your set replaces ALL of this):", ...riding].join("\n")
       : "Nothing rides yet.",
-    `The complete shape — effects and breaks. JSON only.`,
+    `The effects. JSON only.`,
   ]
     .filter(Boolean)
     .join("\n");
   for (let attempt = 0; attempt < 2; attempt++) {
     const reply = (
-      await complete(PAGE_SHAPE_SYSTEM, user, cfg, {
+      await complete(PAGE_EFFECTS_SYSTEM, user, cfg, {
         ...ROUTE.shape,
-        trace: { kind: "page-shape", attempt },
+        trace: { kind: "page-effects", attempt },
       })
     ).trim();
-    const raw = firstJsonObject(reply) as { effects?: unknown; breaks?: unknown } | null;
-    const fxList = raw && Array.isArray(raw.effects) ? raw.effects : null;
-    const brList = raw && Array.isArray(raw.breaks) ? raw.breaks : null;
-    // At least one array must be present to count as an answer; a missing
-    // sibling reads as an intentional empty (the contract asks for both).
-    if (fxList || brList) {
-      return {
-        effects: fxList ? sanitizeUnfoldFx({ effects: fxList }, args.loops.length) : [],
-        breaks: brList ? sanitizePageBreaks(brList, args.loops.length) : [],
-      };
-    }
-    user += `\n\nThat reply was not usable. Resend ONLY the JSON object with "effects" and "breaks" arrays.`;
+    const raw = firstJsonObject(reply) as { effects?: unknown } | null;
+    if (raw && Array.isArray(raw.effects))
+      return sanitizeUnfoldFx({ effects: raw.effects }, args.loops.length);
+    user += `\n\nThat reply was not usable. Resend ONLY the JSON object with an "effects" array.`;
   }
   return null;
 }

@@ -15,6 +15,12 @@ export interface BreakOverlay {
   /** Template key from BREAK_MOVES — the code re-expands from this. */
   tpl: string;
   name?: string;
+  /** How many CLOSING bars of the anchor loop the fill occupies (2026-08-02,
+   *  the user: "what if a loop repeats itself 16 times… the break should be on
+   *  the last 3 bars"). A turn is a proportion of the SECTION, not a property
+   *  of the template. Absent = the template's own length (every break written
+   *  before this rides its catalog length, unchanged). */
+  bars?: number;
   /** Level, 0..1.2 — multiplies the fill's own envelope. */
   gain: number;
   /** Heat — drive into the wave, 0..0.6 (.shape). Default 0. */

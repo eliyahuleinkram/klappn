@@ -369,6 +369,24 @@ export async function saveSongDirection(
     where id = ${songId}`;
 }
 
+/** WHAT THE RUN IS DOING RIGHT NOW (2026-08-02, the user: "make clear in the
+ *  UI when every stage is happening"). Composing is legible from the parts
+ *  themselves — a loop says it is generating — but the finish is not: every
+ *  loop reads ready while the arrangement and the sweep are still being
+ *  written, so the page looked idle for minutes. The stage is a plain word the
+ *  page can speak. null clears it; the client only trusts it while the song is
+ *  generating, so a run that dies mid-stage leaves nothing stale to show. */
+export async function setSongStage(
+  songId: string,
+  stage: "arranging" | "shaping" | null,
+  sql: Sql = db(),
+): Promise<void> {
+  await sql`
+    update songs
+    set plan = jsonb_set(plan, '{stage}', ${sql.json(stage)})
+    where id = ${songId} and plan is not null`;
+}
+
 /** Mark (or unmark) that the song's shape was authored by its OWN run — the
  *  whole-song birth run's closing sweep (jobs.finishSong). The song page reads
  *  it to keep from offering a sweep that just ran; every generation run that

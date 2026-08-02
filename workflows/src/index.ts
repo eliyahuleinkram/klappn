@@ -36,6 +36,7 @@ import {
   setPartMessage,
   setPartStatus,
   setSongAutoSwept,
+  setSongStage,
   setSongStatus,
   writePartComposition,
 } from "../../lib/songs";
@@ -184,6 +185,8 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
         // run is about to write: the song page's sweep pill comes back. The
         // birth run re-sets the flag itself when it finishes (finishSong).
         await setSongAutoSwept(songId, false, sql).catch(() => {});
+        // No stage yet — this run is composing, which the loops say themselves.
+        await setSongStage(songId, null, sql).catch(() => {});
         const { plan, parts, userId, model } = await loadSongContext(songId, sql);
         return {
           plan,

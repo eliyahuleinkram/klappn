@@ -2540,6 +2540,24 @@ export default function SongClient({
   // it the moment any next run starts, so an Extend brings the pill straight
   // back for the loop the shape has never heard.
   const autoSwept = (song.plan as { autoSwept?: boolean } | null)?.autoSwept === true;
+  // WHERE THE RUN IS, in the fewest true words. A composing loop counts itself
+  // ("Loop 3 of 5" — the wait becomes finite the moment it has a denominator);
+  // after the last one lands the server's plan.stage speaks for the finish,
+  // which is otherwise invisible (every loop ready, the song still building).
+  // Only ever shown while busy, so a run that dies mid-stage leaves no ghost.
+  const stageWord = ((): string | null => {
+    if (!busy) return null;
+    const at = visibleParts.findIndex(
+      (p) => p.status === "generating" || p.status === "pending",
+    );
+    if (at >= 0 && visibleParts.length > 1)
+      return `Loop ${at + 1} of ${visibleParts.length}`;
+    if (at >= 0) return "Composing the loop";
+    const stage = (song.plan as { stage?: string | null } | null)?.stage;
+    if (stage === "arranging") return "Arranging the song";
+    if (stage === "shaping") return "Effects and turns";
+    return "Finishing the song";
+  })();
   useEffect(() => {
     if (busy && !wasBusy.current) {
       readyAtRunStart.current = playableCount;
@@ -2838,6 +2856,38 @@ export default function SongClient({
     const a = arrangementRef.current?.sections?.[id];
     if (!a) return undefined;
     return (transposeRef.current ?? 0) !== 0 ? { ...a, overlays: undefined } : a;
+  }
+  /**
+   * WHAT A SECTION ACTUALLY DOES, as three numbers the card can draw
+   * (2026-08-02, the user: "once the arrange has determined how many times a
+   * loop should repeat, how come we cannot see it visually").
+   *
+   * `loopBars` — the loop itself. `bars` — the span the arrangement gave it, so
+   * `passes` is simply how many times you hear it. `breakBars` — how much of
+   * that span's END the fill eats, which is the same arithmetic the renderer
+   * does (lib/arrange: the fill rides the closing bars of the WHOLE span, never
+   * of one pass, and never the whole of a multi-bar section).
+   *
+   * null when the loop just plays once with nothing at its end — nothing to
+   * draw, and a strip of one bead would be noise.
+   */
+  function spanOf(p: Part): { passes: number; bars: number; breakBars: number } | null {
+    const loopBars = Math.max(1, barsOf(p) || 1);
+    const spec = arrangementRef.current?.sections?.[p.id];
+    const bars = Math.max(
+      loopBars,
+      Number.isFinite(spec?.bars) ? Math.floor(spec!.bars as number) : loopBars,
+    );
+    const passes = Math.max(1, Math.round(bars / loopBars));
+    const ov = (plan as { overlays?: BreakOverlay[] } | null)?.overlays?.find(
+      (o) => o.fromId === p.id,
+    );
+    let breakBars = 0;
+    if (ov) {
+      const want = Number.isFinite(ov.bars) ? (ov.bars as number) : breakMoveOf(ov.tpl)?.bars ?? 1;
+      breakBars = Math.max(1, Math.min(want, bars > 1 ? bars - 1 : bars));
+    }
+    return passes > 1 || breakBars > 0 ? { passes, bars, breakBars } : null;
   }
   function endingOf() {
     const e = arrangementRef.current?.ending;
@@ -3214,7 +3264,14 @@ export default function SongClient({
             onSettingsSaved={onSettingsSaved}
           />
           )}
-          {playableVisible.length > 0 && !exporting && (
+          {/* THE ROW IS THERE FROM THE FIRST PAINT (2026-08-02, the user):
+              controls that materialise once the music lands teach nothing and
+              make the build feel like a locked door. While the song is still
+              being made the row already carries the stage and the Shape menu —
+              whose rows say for themselves what can't run yet. Export is the
+              one thing that waits: there is nothing to hand over until a loop
+              is ready, and a button that downloads silence is a lie. */}
+          {(playableVisible.length > 0 || busy) && !exporting && (
             // Quiet, borderless utilities — a floating capsule read as clutter
             // (especially on phones, where it wrapped below the meta line).
             // ml-auto keeps them right-aligned even when the row wraps.
@@ -3230,6 +3287,17 @@ export default function SongClient({
                   pill takes the corner whole when a new loop lands (or the
                   menu row summons it) — its words ARE the consequence, the
                   orb'd word spends, ✕ declines. */}
+              {/* THE STAGE, SAID OUT LOUD (2026-08-02, the user). A whole song
+                  arrives in one go, and the minutes after the last loop —
+                  arranging, then writing the effects and the turns — used to
+                  look like nothing at all: every loop ready, the page still
+                  busy, no word anywhere. Now the corner names where the run is,
+                  and the count makes the wait finite. */}
+              {stageWord && (
+                <span className="shimmer-text mr-0.5 text-[12px] leading-none">
+                  {stageWord}
+                </span>
+              )}
               {arrange ? (
                 <button
                   onClick={() => setArrange(false)}
@@ -3270,14 +3338,6 @@ export default function SongClient({
                 <span className="animate-fade-in flex h-8 items-center px-3 text-[12.5px] leading-none text-muted/70">
                   {sweepNote}
                 </span>
-              ) : busy ? (
-                <button
-                  onClick={() => setArrange(true)}
-                  title="Move anything anywhere — no AI, just your hands"
-                  className="flex h-8 items-center rounded-full px-3 text-[12.5px] font-medium leading-none text-muted/80 transition duration-200 hover:bg-white/[0.06] hover:text-foreground active:scale-95"
-                >
-                  Arrange
-                </button>
               ) : (
                 <div className="relative">
                   <button
@@ -3313,53 +3373,49 @@ export default function SongClient({
                         aria-hidden
                       />
                       <div className="animate-fade-in absolute right-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.05] p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
-                        <button
+                        {/* EVERY ROW IS ALWAYS HERE (2026-08-02, the user).
+                            Controls that appear and vanish teach nothing: the
+                            menu shows the same three from the first paint, and
+                            a row that can't run yet says so IN ITS OWN LINE —
+                            no hover, no guessing, the consequence on the card.
+                            Arrange stays live the whole time: moving loops
+                            never touches the AI. */}
+                        <MenuRow
+                          word="Visuals"
+                          line={
+                            playableCount > 0
+                              ? "One living look across the whole piece"
+                              : "Once the first loop has landed"
+                          }
+                          disabled={playableCount === 0}
                           onClick={() => {
                             setShapeOpen(false);
                             setVisualsOpen(true);
                           }}
-                          className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-white/[0.06]"
-                        >
-                          <span className="block text-[13px] font-medium text-foreground">
-                            Visuals
-                          </span>
-                          <span className="mt-0.5 block text-[10.5px] leading-snug text-muted/60">
-                            One living look across the whole piece
-                          </span>
-                        </button>
-                        {/* Offered only once a loop is READY to sweep — the row
-                            used to summon the pill over a song with nothing
-                            playable, and the tap died on the server. */}
-                        {playableCount > 0 && (
-                          <button
-                            onClick={() => {
-                              setShapeOpen(false);
-                              setSweep("offer");
-                            }}
-                            className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-white/[0.06]"
-                          >
-                            <span className="block text-[13px] font-medium text-foreground">
-                              Effects &amp; breaks
-                            </span>
-                            <span className="mt-0.5 block text-[10.5px] leading-snug text-muted/60">
-                              The AI sweeps the whole song — replacing what rides
-                            </span>
-                          </button>
-                        )}
-                        <button
+                        />
+                        <MenuRow
+                          word="Effects & breaks"
+                          line={
+                            busy
+                              ? "The song is still being built"
+                              : playableCount > 0
+                                ? "The AI sweeps the whole song — replacing what rides"
+                                : "Once a loop is ready to sweep"
+                          }
+                          disabled={busy || playableCount === 0}
+                          onClick={() => {
+                            setShapeOpen(false);
+                            setSweep("offer");
+                          }}
+                        />
+                        <MenuRow
+                          word="Arrange"
+                          line="Move anything anywhere — just your hands"
                           onClick={() => {
                             setShapeOpen(false);
                             setArrange(true);
                           }}
-                          className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-white/[0.06]"
-                        >
-                          <span className="block text-[13px] font-medium text-foreground">
-                            Arrange
-                          </span>
-                          <span className="mt-0.5 block text-[10.5px] leading-snug text-muted/60">
-                            Move anything anywhere — just your hands
-                          </span>
-                        </button>
+                        />
                       </div>
                     </>
                   )}
@@ -3374,11 +3430,15 @@ export default function SongClient({
                 </IconBtn>
               )}
               {/* EVERY song exports as a menu — Audio always, Video when it has
-                  visuals, and Code · Strudel always (the code IS the song). */}
+                  visuals, and Code · Strudel always (the code IS the song).
+                  It stays present but QUIET until a loop is ready: there is
+                  nothing to hand over yet, and the disabled glyph says that
+                  without the control moving. */}
               <div className="relative">
                 <IconBtn
                   onClick={() => setExportMenu((m) => !m)}
-                  title="Export"
+                  disabled={playableCount === 0}
+                  title={playableCount === 0 ? "Export — once a loop has landed" : "Export"}
                 >
                   <DownloadIcon />
                 </IconBtn>
@@ -3743,6 +3803,8 @@ export default function SongClient({
                 playhead={playhead}
                 songId={songId}
                 busy={busy}
+                barSeconds={barSeconds}
+                span={spanOf(part)}
                 onPlay={() => onPlay(part)}
                 onChanged={refresh}
                 onLocalCode={(code) => {
@@ -3992,6 +4054,103 @@ export default function SongClient({
 /* ----------------------------------------------------------------- shared */
 
 /* --------------------------------------------------------------- icon buttons */
+
+/**
+ * THE REPEAT STRIP — what the arrangement decided, as an object you can read
+ * without a number (2026-08-02, the user).
+ *
+ * One bead per PASS: four beads means you hear this loop four times. The turn
+ * is drawn where it actually happens — an accent segment eating the closing
+ * bars of the whole span, so a three-bar fill at the end of thirty-two bars
+ * looks exactly like what it is. While the section plays, a quiet accent fill
+ * sweeps the strip once across the full span (the same keyframes the bar
+ * playhead uses), so the beads become a progress bar for free.
+ *
+ * Pure derivation — no state, no AI, nothing stored. The beads ARE the repeat
+ * count and the segment IS the break's length; there is nothing else to say.
+ */
+function RepeatStrip({
+  passes,
+  bars,
+  breakBars,
+  barSeconds,
+  playing,
+  paused,
+}: {
+  passes: number;
+  bars: number;
+  breakBars: number;
+  barSeconds: number;
+  playing: boolean;
+  paused: boolean;
+}) {
+  const pct = bars > 0 ? Math.min(100, (breakBars / bars) * 100) : 0;
+  const label =
+    `${passes === 1 ? "plays once" : `plays ${passes}×`}` +
+    (breakBars > 0 ? ` · a ${breakBars}-bar turn at the end` : "");
+  return (
+    <span
+      className="relative mt-2 flex h-[3px] w-full items-stretch gap-[3px] overflow-hidden rounded-full"
+      title={label}
+      aria-label={label}
+      role="img"
+    >
+      {Array.from({ length: passes }, (_, i) => (
+        <span key={i} className="flex-1 rounded-full bg-white/[0.14]" />
+      ))}
+      {/* the turn — the closing bars of the SPAN, drawn to scale */}
+      {pct > 0 && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 rounded-full bg-accent/55"
+          style={{ width: `${pct}%` }}
+        />
+      )}
+      {/* the pass you're in — one sweep across the whole span */}
+      {playing && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-0 w-full origin-left rounded-full bg-accent/25"
+          style={{
+            animation: `playhead-sweep ${Math.max(1, bars * barSeconds)}s linear infinite`,
+            animationPlayState: paused ? "paused" : "running",
+          }}
+        />
+      )}
+    </span>
+  );
+}
+
+/** ONE ROW OF THE SHAPE MENU — a word and the one line that says what the tap
+ *  does. A row never disappears: when it can't run yet, the LINE carries the
+ *  reason and the row goes quiet (touch has no hover — the consequence has to
+ *  be on the card, not in a title). */
+function MenuRow({
+  word,
+  line,
+  disabled,
+  onClick,
+}: {
+  word: string;
+  line: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-disabled={disabled || undefined}
+      className={`block w-full rounded-lg px-3 py-2 text-left transition ${
+        disabled ? "cursor-default opacity-45" : "hover:bg-white/[0.06]"
+      }`}
+    >
+      <span className="block text-[13px] font-medium text-foreground">{word}</span>
+      <span className="mt-0.5 block text-[10.5px] leading-snug text-muted/60">{line}</span>
+    </button>
+  );
+}
 
 function IconBtn({
   onClick,
@@ -6010,6 +6169,8 @@ function LoopCardImpl({
   playhead,
   songId,
   busy,
+  barSeconds,
+  span,
   onPlay,
   onChanged,
   onLocalCode,
@@ -6041,6 +6202,11 @@ function LoopCardImpl({
   playhead: { loopSec: number; delay: number; key: number } | null;
   songId: string;
   busy: boolean;
+  /** One bar in seconds — the repeat strip sweeps across the span with it. */
+  barSeconds: number;
+  /** What the arrangement decided for this section, or null when it just plays
+   *  once with a bare turn (nothing to draw). See spanOf. */
+  span: { passes: number; bars: number; breakBars: number } | null;
   onPlay: () => void;
   onChanged: () => Promise<void>;
   onLocalCode: (code: string) => void;
@@ -6439,6 +6605,19 @@ function LoopCardImpl({
                 </span>
               )}
             </span>
+            {/* what the arrangement decided — beads for the passes, the turn
+                drawn to scale at the end. Never while the loop is still being
+                composed: there is no span until there's music. */}
+            {!generating && span && (
+              <RepeatStrip
+                passes={span.passes}
+                bars={span.bars}
+                breakBars={span.breakBars}
+                barSeconds={barSeconds}
+                playing={playing}
+                paused={paused}
+              />
+            )}
             {/* composing status — shown open or closed so a building loop reads clearly */}
             {generating && (
               <span

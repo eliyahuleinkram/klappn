@@ -369,6 +369,11 @@ export interface SongPlan {
    *  it). Parts carry rendered copies of its blocks; this is what a freshly composed part
    *  attaches when no painted neighbour exists yet. */
   visual?: SongVisual;
+  /** What the run is doing RIGHT NOW, when it isn't composing a loop (the loops
+   *  say that themselves): "arranging" = deciding how long each section runs,
+   *  "shaping" = writing the effects and the turns. Cleared when the finish is
+   *  done. Only meaningful while the song is generating. */
+  stage?: "arranging" | "shaping" | null;
   /** Set by the whole-song birth run's closing sweep (jobs.finishSong): this
    *  song's effects/breaks/arrangement were authored by the run that made it.
    *  The song page reads it to keep from offering a sweep that already ran;

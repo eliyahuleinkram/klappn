@@ -535,7 +535,14 @@ export function buildArrangement(
     const a = spans.find((sp) => sp.id === o.fromId);
     if (!a || a.end <= a.start) continue;
     const spanLen = a.end - a.start;
-    const fill = Math.max(1, Math.min(move.bars, spanLen));
+    // THE TURN IS A PROPORTION OF THE SECTION (2026-08-02). A one-bar roll at
+    // the end of a section that ran thirty-two bars is a rumour, not a turn —
+    // so the fill's length is authored per break (o.bars) and only falls back
+    // to the template's own. Never longer than the section itself, and never
+    // the WHOLE of a multi-bar section: a break has to break something.
+    const want = Number.isFinite(o.bars as number) ? Math.floor(o.bars as number) : move.bars;
+    const room = spanLen > 1 ? spanLen - 1 : spanLen;
+    const fill = Math.max(1, Math.min(want, room));
     const off = spanLen - fill;
     const winStart = a.start + off;
     const composite =

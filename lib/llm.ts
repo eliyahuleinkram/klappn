@@ -298,6 +298,14 @@ export const ROUTE = {
   steer: { provider: "anthropic", model: "sonnet", thinking: false, maxTokens: 600 } as CompleteOpts, // the section brief + the track's direction note
   explain: { provider: "anthropic", model: "sonnet", thinking: false, maxTokens: 350 } as CompleteOpts, // ✦ teach the selection
   setOrder: { provider: "anthropic", model: "sonnet", effort: "medium", maxTokens: 3000 } as CompleteOpts, // order a Set's songs (real key/tempo reasoning, tiny)
+  // ONE TURN of a song: which fill breaks section A into section B, how many
+  // closing bars it takes, four knobs — or nothing at all (2026-08-02, the
+  // user split the sweep: effects need the whole arc, a turn needs only its
+  // two loops). Same band as setOrder — real musical reasoning, tiny closed
+  // answer — and N of these run CONCURRENTLY, one per turn, so the tier has to
+  // be cheap enough to spend per seam. If the turns come out bland, this line
+  // is the one thing that moves.
+  turn: { provider: "anthropic", model: "sonnet", effort: "medium", maxTokens: 1200 } as CompleteOpts,
 };
 
 export async function complete(

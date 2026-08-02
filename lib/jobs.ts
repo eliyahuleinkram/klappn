@@ -74,6 +74,7 @@ import {
   setPartStatus,
   setPartStrudelOwned,
   setSongAutoSwept,
+  setSongStage,
   setSongStatus,
   snapshotPartOriginal,
   writePartComposition,
@@ -89,7 +90,8 @@ import { DEFAULT_MODEL } from "./models";
 import type { ModelId } from "./models";
 import {
   composeSongArrangement,
-  composePageShape,
+  composePageEffects,
+  composeTurnBreak,
   enrichSweepControls,
 } from "./arrange-plan";
 import type { SectionArrange, SectionSweep, SectionTake, SongArrangement, SongFx } from "./arrange";
@@ -736,6 +738,7 @@ export async function autoShapeSong(
         name: p.label ?? "untitled",
         intent: p.intent ?? undefined,
         bars: Number.isFinite(span) && (span as number) >= natural ? (span as number) : natural,
+        loopBars: natural,
         layers: (p.tracks ?? []).map((t) => t.label ?? "").filter(Boolean),
       };
     });
@@ -748,12 +751,11 @@ export async function autoShapeSong(
     summary: plan.summary,
   };
   const loopNo = (id: string): number => loops.findIndex((l) => l.id === id) + 1;
-  const overlaysNow = ((plan as { overlays?: BreakOverlay[] }).overlays ?? []).flatMap((o) => {
+  const ridingAt = new Map<number, { tpl: string; bars?: number }>();
+  for (const o of (plan as { overlays?: BreakOverlay[] }).overlays ?? []) {
     const at = loopNo(o.fromId);
-    return at >= 1
-      ? [{ tpl: o.tpl, atLoop: at, gain: o.gain, heat: o.heat, tone: o.tone, space: o.space }]
-      : [];
-  });
+    if (at >= 1) ridingAt.set(at, { tpl: o.tpl, ...(o.bars ? { bars: o.bars } : {}) });
+  }
   const fxContext = (list: SongFx[]) =>
     list.flatMap((e) => {
       const fl = loopNo(e.fromId);
@@ -761,24 +763,20 @@ export async function autoShapeSong(
       if (fl < 1 || tl < 1) return [];
       return [{ name: e.name, param: e.param, from: e.from, to: e.to, fromLoop: fl, toLoop: tl }];
     });
-  // ONE call authors the whole shape — glides AND fills together, both told
-  // "replaced wholesale" (merged 2026-07-22, the user: two sequential calls
-  // each held the other category fixed, and the effects argued around fills
-  // the next call deleted). null = the model whiffed → leave what rides.
-  // A successful answer REPLACES both sets even when a list is empty — bare
-  // turns are a real answer, not a failure.
+  // THE EFFECTS — one call over the whole song, because a glide spans loops and
+  // can only be judged against the arc. null = whiffed → nothing changes at all
+  // (we don't rewrite the turns off the back of a failed half).
   const effectsNow = ((plan.effects ?? []) as SongFx[]);
-  const shape = await composePageShape(
+  const authored = await composePageEffects(
     {
       ...identity,
-      loops: loops.map(({ name, intent, layers, bars }) => ({ name, intent, layers, bars })),
+      loops: loops.map(({ name, intent, layers, bars, loopBars }) => ({ name, intent, layers, bars, loopBars })),
       ridingEffects: fxContext(effectsNow),
-      ridingBreaks: overlaysNow,
     },
     cfg,
   ).catch(() => null);
-  if (!shape) return "whiffed";
-  const effects = shape.effects.map((e) => ({
+  if (!authored) return "whiffed";
+  const effects = authored.map((e) => ({
     id: crypto.randomUUID(),
     param: e.param,
     from: e.from,
@@ -790,7 +788,49 @@ export async function autoShapeSong(
     toId: loops[Math.min(loops.length, Math.max(1, e.toLoop)) - 1].id,
   }));
   await replaceSongEffects(songId, song.user_id, effects, sql);
-  const overlays = shape.breaks.flatMap((b) => {
+  // THE TURNS — ONE CALL EACH, ALL AT ONCE (2026-08-02, the user). A fill is a
+  // local decision: the two loops it sits between are the whole context, so
+  // each turn gets its own small call on a cheap tier instead of a share of one
+  // big one. They run CONCURRENTLY — no turn depends on another — and each is
+  // told the glides that just landed across it, which is the 07-22 coupling
+  // (glide and fill at one turn are one decision) preserved at 1/N the context.
+  // A turn that throws or whiffs is simply BARE; one bad seam never costs the
+  // others. The last loop turns into the ending when the song stops, or back
+  // into the first when it wraps — a one-loop piece turns into itself.
+  const ending = (plan as { arrangement?: SongArrangement | null }).arrangement?.ending;
+  const wraps = ending?.mode !== "stop";
+  const fxCrossing = (at: number) =>
+    effects.flatMap((e) => {
+      const fl = loopNo(e.fromId);
+      const tl = loopNo(e.toId);
+      return fl >= 1 && tl >= 1 && fl <= at && tl >= at
+        ? [{ name: e.name, param: e.param, from: e.from, to: e.to }]
+        : [];
+    });
+  const turns = await Promise.all(
+    loops.map((l, i) => {
+      const last = i === loops.length - 1;
+      const next = last ? (wraps ? loops[0] : null) : loops[i + 1];
+      return composeTurnBreak(
+        {
+          ...identity,
+          from: { name: l.name, intent: l.intent, layers: l.layers, bars: l.bars, loopBars: l.loopBars },
+          to: next
+            ? { name: next.name, intent: next.intent, layers: next.layers, bars: next.bars, loopBars: next.loopBars }
+            : null,
+          atLoop: i + 1,
+          crossing: fxCrossing(i + 1),
+          riding: ridingAt.get(i + 1),
+        },
+        cfg,
+      ).catch((e) => {
+        console.error(`[klappn] turn ${i + 1} of ${songId} failed:`, e);
+        return null;
+      });
+    }),
+  );
+  const overlays = turns.flatMap((b) => {
+    if (!b) return [];
     const move = breakMoveOf(b.tpl);
     if (!move) return [];
     const anchor = loops[b.atLoop - 1].id;
@@ -799,6 +839,7 @@ export async function autoShapeSong(
         id: crypto.randomUUID(),
         tpl: b.tpl,
         name: move.word,
+        ...(b.bars ? { bars: b.bars } : {}),
         gain: b.gain,
         heat: b.heat,
         tone: b.tone,
@@ -853,6 +894,7 @@ export async function finishSong(
   try {
     // fill mode: write only what has no unfold yet, and the ending only when
     // absent — anything the user already shaped mid-build stands.
+    await run("stage-arranging", (sql) => setSongStage(songId, "arranging", sql)).catch(() => {});
     await run("arrange", (sql) =>
       arrangeSong(songId, cfg, sql, undefined, undefined, undefined, true),
     );
@@ -860,11 +902,15 @@ export async function finishSong(
     console.error(`[klappn] closing arrange failed for ${songId}:`, e);
   }
   try {
+    await run("stage-shaping", (sql) => setSongStage(songId, "shaping", sql)).catch(() => {});
     await run("sweep", (sql) => autoShapeSong(songId, cfg, sql));
   } catch (e) {
     console.error(`[klappn] closing sweep failed for ${songId}:`, e);
   }
-  await run("swept", (sql) => setSongAutoSwept(songId, true, sql)).catch(() => {});
+  await run("swept", async (sql) => {
+    await setSongAutoSwept(songId, true, sql);
+    await setSongStage(songId, null, sql);
+  }).catch(() => {});
 }
 
 // ── NATURAL-LANGUAGE LOOP EDIT: route one request → ordered ops → apply, in memory ──
