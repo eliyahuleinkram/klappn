@@ -874,6 +874,18 @@ export default function SongClient({
     return move ? endingKnobDefault(move, field) : 0;
   };
 
+  /** WHAT THE PERSON DID (2026-08-02, the user: "save as much data as
+   *  possible"). Fire-and-forget — never awaited, never blocks a control, and
+   *  a visitor on a shared link writes nothing (their tab can't send). */
+  const noteGesture = (kind: string, data: Record<string, unknown> = {}) => {
+    if (visiting) return;
+    void fetch(`/api/songs/${songId}/gesture`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, data }),
+    }).catch(() => {});
+  };
+
   /** Change HOW the song ends — its template or a knob. Optimistic like every
    *  other deterministic control, then persisted; the tail is rebuilt from
    *  these numbers at play time, so the change is heard on the next pass. */
@@ -2471,6 +2483,17 @@ export default function SongClient({
   async function onPlay(part: Part) {
     if (!part.strudel) return;
     if (exporting) return; // the render owns the engine — nothing else plays
+    // WHERE THEY PRESSED FROM — the section, its place in the song, and whether
+    // the song ends or loops, because those decide what happens after it.
+    if (playing !== part.id)
+      noteGesture("play", {
+        partId: part.id,
+        label: part.label ?? null,
+        at: parts.findIndex((p) => p.id === part.id),
+        of: parts.length,
+        ending: (plan.arrangement?.ending?.mode ?? "loop"),
+        tpl: plan.arrangement?.ending?.tpl ?? null,
+      });
     try {
       if (playing === part.id) {
         // Tap on the playing loop = PAUSE; tap again = RESUME, same phrase.

@@ -1560,3 +1560,32 @@ export async function replacePartIntent(
     returning *`;
   return row ?? null;
 }
+
+/**
+ * A GESTURE — one deterministic thing a person did to a song (2026-08-02, the
+ * user: "we should probably save all that data as well, like where we pressed
+ * from… save as much data as possible").
+ *
+ * `model_calls` already keeps everything the AI wrote. This is the other half:
+ * what the HUMAN chose — where they pressed play, which ending they picked and
+ * what they tuned it to, a kit, a repeat count. Together they say what someone
+ * actually did with a hit, which is the part no trajectory can tell you.
+ *
+ * Append-only, never awaited by the UI, and it must NEVER throw: a lost
+ * gesture is a lost row, while a thrown one would break a control that works.
+ */
+export async function recordGesture(
+  songId: string,
+  userId: string | null,
+  kind: string,
+  data: Record<string, unknown> = {},
+  sql: Sql = db(),
+): Promise<void> {
+  try {
+    await sql`
+      insert into gestures (song_id, user_id, kind, data)
+      values (${songId}, ${userId}, ${kind.slice(0, 40)}, ${sql.json(data as Parameters<typeof sql.json>[0])})`;
+  } catch {
+    /* telemetry never breaks the room */
+  }
+}

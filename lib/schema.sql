@@ -519,3 +519,20 @@ create table if not exists room_shares (
   created_at timestamptz not null default now()
 );
 create index if not exists room_shares_user_idx on room_shares (user_id, created_at);
+
+-- GESTURES (2026-08-02, the user: "we should probably save all that data as
+-- well, like where we pressed from… save as much data as possible"). Every
+-- DETERMINISTIC move a maker makes on a song — where they pressed play, which
+-- ending they chose and what they tuned it to, a kit, a repeat count. The AI
+-- trajectories already live in model_calls; this is the other half, the part
+-- no model wrote, and together they say what a person actually did with a hit.
+-- Append-only and cheap: one small insert, never awaited by the UI.
+create table if not exists gestures (
+  id         bigserial primary key,
+  song_id    uuid not null references songs(id) on delete cascade,
+  user_id    text references "user"(id) on delete set null,
+  kind       text not null,
+  data       jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+create index if not exists gestures_song_idx on gestures (song_id, created_at desc);
