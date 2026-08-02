@@ -286,12 +286,18 @@ function HitsMark({ on }: { on: boolean }) {
  *  (the same ✦ that fronts the fix chip). Gradient id is per-instance
  *  (useId — the shared-id/display:none trap left the mobile twin
  *  unpainted once). */
-function CopilotMark({ on }: { on: boolean }) {
+function CopilotMark({
+  on,
+  className = "h-[14px] w-[14px]",
+}: {
+  on: boolean;
+  className?: string;
+}) {
   const uid = useId();
   const grad = `copilot-${uid.replace(/[^a-zA-Z0-9]/g, "")}`;
   const fill = on ? `url(#${grad})` : "currentColor";
   return (
-    <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] shrink-0" aria-hidden>
+    <svg viewBox="0 0 24 24" className={`${className} shrink-0`} aria-hidden>
       <defs>
         <linearGradient id={grad} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#ff63c1" />
@@ -1575,8 +1581,6 @@ export default function ZaltzIDE({
   const pouredVisualRef = useRef<string>("");
   const [lineupIdx, setLineupIdx] = useState<number | null>(null);
   const [lineupOpen, setLineupOpen] = useState(false);
-  /** The ⋯ menu — the doors touched once a night (live, share). */
-  const [roomMenu, setRoomMenu] = useState(false);
   const [lineupHits, setLineupHits] = useState<LineupHit[] | null>(null);
   const [arranging, setArranging] = useState(false);
   const hitsMetaRef = useRef(
@@ -2629,6 +2633,95 @@ export default function ZaltzIDE({
     </button>
   );
 
+  const airCapsule = liveLink && (
+          <div className="flex shrink-0 items-center gap-2.5 rounded-full border border-accent/40 bg-accent/[0.08] px-3 py-1.5 text-[12.5px]">
+            <span className="relative flex h-2 w-2" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-strong" />
+            </span>
+            <span className="hidden text-accent-strong sm:inline">on air</span>
+            <button
+              onClick={copyLive}
+              title="Copy the listener link"
+              className="text-muted/80 transition hover:text-foreground"
+            >
+              {liveCopied ? "copied" : "copy link"}
+            </button>
+            <button
+              onClick={endLivePress}
+              title={endArmed ? "Yes — end the broadcast" : "End the broadcast"}
+              className={
+                endArmed
+                  ? "rounded-full bg-red-400/[0.12] px-2 text-red-300"
+                  : "text-muted/60 transition hover:text-foreground"
+              }
+            >
+              {endArmed ? "sure?" : "end"}
+            </button>
+          </div>
+        );
+        {/* THE SHARE LINK — the live door's quiet twin. ◉ hands someone the
+            SOUND while it lasts; this hands them the CODE, frozen, theirs to
+            play and change. One tap mints the link and it lands here; a second
+            tap — yours, never ours — puts it on the clipboard. */}
+  const shareCapsule = shareUrl && (
+          /* ONE machined capsule (the seam law): the link itself, then the
+             copy glyph behind a hairline, then ✕ to put it away. The URL is
+             selectable text — if the clipboard is ever blocked, the link is
+             still right there to grab by hand. */
+          /* AT EVERY WIDTH NOW. This was `hidden sm:flex` while the ⋯ menu
+             carried a "Copy the share link" row for phones; with the menu gone
+             that row went with it, and a phone could mint a link with nowhere
+             to get it. The URL cell shrinks instead of disappearing. */
+          <div className="flex shrink items-stretch overflow-hidden rounded-full border border-white/[0.12] bg-white/[0.05] text-[12.5px]">
+            <button
+              onClick={() => void copyShare(shareUrl)}
+              title={shareUrl}
+              className="min-w-0 max-w-[13rem] truncate px-3 py-2 text-left text-muted/70 transition hover:text-foreground sm:max-w-[16rem]"
+            >
+              {shareUrl.replace(/^https?:\/\//, "")}
+            </button>
+            <span className="w-px bg-black/30" aria-hidden />
+            <button
+              onClick={() => void copyShare(shareUrl)}
+              title="Copy the link"
+              className={`flex items-center gap-1.5 px-3 py-2 transition active:scale-[.96] ${
+                shareCopied
+                  ? "bg-accent/[0.14] text-accent-strong"
+                  : "text-muted/70 hover:bg-white/[0.06] hover:text-foreground"
+              }`}
+            >
+              {shareCopied ? (
+                <svg viewBox="0 0 14 14" className="h-[13px] w-[13px]" aria-hidden>
+                  <path
+                    d="M2.5 7.5 L5.5 10.5 L11.5 3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              ) : (
+                /* the universal copy mark: one sheet behind another */
+                <svg viewBox="0 0 14 14" className="h-[13px] w-[13px]" aria-hidden>
+                  <rect x="1.6" y="1.6" width="7.6" height="7.6" rx="1.7" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                  <rect x="4.8" y="4.8" width="7.6" height="7.6" rx="1.7" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                </svg>
+              )}
+              <span className="hidden sm:inline">{shareCopied ? "copied" : "copy"}</span>
+            </button>
+            <span className="w-px bg-black/30" aria-hidden />
+            <button
+              onClick={() => setShareUrl(null)}
+              title="Put the link away"
+              className="px-2.5 py-2 text-muted/50 transition hover:text-foreground"
+            >
+              ✕
+            </button>
+          </div>
+        );
+
   return (
     <main
       className={`ide-safe ide-root relative flex h-dvh flex-col overflow-hidden ${
@@ -2839,204 +2932,76 @@ export default function ZaltzIDE({
             arranging={arranging}
           />
         </div>
-        {/* THE LIVE DOOR — ◉ streams the room to anyone with the link (the
-            Sets contract, worn here unchanged: one DJ flow to learn). */}
-        {/* THE ROOM'S OCCASIONAL DOORS — going live and handing someone the
-            code are things you do once in a night, and they were taking a full
-            pill each in a bar you touch every few seconds (primacy follows
-            frequency, the house law). They live behind one ⋯ now.
-            THE RULE: doors hide, STATE never does — the moment you are on air
-            or holding a link, that capsule comes back onto the bar, because
-            "am I broadcasting?" must be answerable without opening anything. */}
-        <div className="relative shrink-0">
+        {/* THE OCCASIONAL DOORS — going live, and handing someone the code.
+            They spent a day behind a ⋯ because each was a full WORDED PILL in a
+            bar you touch every few seconds (primacy follows frequency). The
+            user's fix is better than the menu was: keep them out here, as BARE
+            GLYPHS in the same family as ☰ and the chat mark. A glyph costs a
+            third of a pill, so the width problem that built the menu is gone —
+            and a door you can see beats a door you have to find.
+            THE RULE IS UNCHANGED: doors hide, STATE never does — the moment you
+            are on air or holding a link, that capsule comes onto the bar,
+            because "am I broadcasting?" must be answerable at a glance. */}
+        {!liveLink && (
           <button
-            onClick={() => setRoomMenu((v) => !v)}
-            aria-label="Live and share"
-            aria-expanded={roomMenu}
-            title="Go live · Share"
-            className={`grid h-9 w-9 place-items-center rounded-full transition active:scale-[.94] ${
-              roomMenu ? "text-foreground" : "text-muted/55 hover:text-foreground"
-            }`}
+            onClick={() => void openLive()}
+            disabled={liveBusy}
+            aria-label="Go live"
+            title="Go live — stream this room to anyone with the link"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted/55 transition hover:text-accent-strong active:scale-[.94] disabled:opacity-50"
           >
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <circle cx="5" cy="12" r="1.7" />
-              <circle cx="12" cy="12" r="1.7" />
-              <circle cx="19" cy="12" r="1.7" />
-            </svg>
+            {liveBusy ? (
+              <span className="h-2 w-2 animate-ping rounded-full bg-accent" />
+            ) : (
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <circle cx="12" cy="12" r="2.6" fill="currentColor" />
+                <path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 16.2a6 6 0 0 0 0-8.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="M4.9 4.9a10 10 0 0 0 0 14.2M19.1 19.1a10 10 0 0 0 0-14.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity=".55" />
+              </svg>
+            )}
           </button>
-          {roomMenu && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setRoomMenu(false)} aria-hidden />
-              <div className="absolute right-0 top-full z-20 mt-2 w-52 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
-                {!liveLink && (
-                  <button
-                    onClick={() => {
-                      setRoomMenu(false);
-                      void openLive();
-                    }}
-                    disabled={liveBusy}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-foreground/85 transition hover:bg-white/[0.06] disabled:opacity-60"
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="shrink-0 text-accent-strong/80" aria-hidden>
-                      <circle cx="12" cy="12" r="2.6" fill="currentColor" />
-                      <path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 16.2a6 6 0 0 0 0-8.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                      <path d="M4.9 4.9a10 10 0 0 0 0 14.2M19.1 19.1a10 10 0 0 0 0-14.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity=".55" />
-                    </svg>
-                    {liveBusy ? "opening…" : "Go live"}
-                  </button>
-                )}
-                {shareUrl ? (
-                  /* THE HAND TAKES IT. Minting never touches the clipboard, so
-                     the menu keeps the only door a phone has — the header
-                     capsule is desktop-only. The tap that copies is a real
-                     gesture, which is the one kind every browser honours. */
-                  <button
-                    onClick={() => void copyShare(shareUrl)}
-                    className="flex w-full items-start gap-2.5 rounded-xl px-3 py-2 text-left transition hover:bg-white/[0.06]"
-                  >
-                    <svg viewBox="0 0 14 14" className="mt-[3px] h-[14px] w-[14px] shrink-0 text-muted/70" aria-hidden>
-                      {shareCopied ? (
-                        <path
-                          d="M2.5 7.5 L5.5 10.5 L11.5 3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.6"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      ) : (
-                        <>
-                          <rect x="1.6" y="1.6" width="7.6" height="7.6" rx="1.7" fill="none" stroke="currentColor" strokeWidth="1.3" />
-                          <rect x="4.8" y="4.8" width="7.6" height="7.6" rx="1.7" fill="none" stroke="currentColor" strokeWidth="1.3" />
-                        </>
-                      )}
-                    </svg>
-                    <span className="min-w-0">
-                      <span className={`block text-[13px] ${shareCopied ? "text-accent-strong" : "text-foreground/85"}`}>
-                        {shareCopied ? "Copied" : "Copy the share link"}
-                      </span>
-                      <span className="block truncate text-[11.5px] text-muted/55">
-                        {shareUrl.replace(/^https?:\/\//, "")}
-                      </span>
-                    </span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      setRoomMenu(false);
-                      void shareRoom();
-                    }}
-                    disabled={shareBusy}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-foreground/85 transition hover:bg-white/[0.06] disabled:opacity-60"
-                  >
-                    {/* A LINK, drawn: two rounded capsules interlocking on one
-                        axis. The ▸ that stood here read as PLAY, which is the
-                        one thing sharing is not. */}
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="shrink-0 text-muted/70" aria-hidden>
-                      <path
-                        d="M10 13.6a4 4 0 0 0 5.7.3l2.6-2.6a4 4 0 0 0-5.66-5.66l-1.3 1.3"
-                        stroke="currentColor"
-                        strokeWidth="1.9"
-                        strokeLinecap="round"
-                      />
-                      <path
-                        d="M14 10.4a4 4 0 0 0-5.7-.3l-2.6 2.6a4 4 0 1 0 5.66 5.66l1.3-1.3"
-                        stroke="currentColor"
-                        strokeWidth="1.9"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    {shareBusy ? "minting…" : "Share this code"}
-                  </button>
-                )}
-              </div>
-            </>
-          )}
+        )}
+        {!shareUrl && (
+          <button
+            onClick={() => void shareRoom()}
+            disabled={shareBusy}
+            aria-label="Share this code"
+            title="Share this code — mint a link to both panes, frozen as they are"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted/55 transition hover:text-foreground active:scale-[.94] disabled:opacity-50"
+          >
+            {shareBusy ? (
+              <span className="h-2 w-2 animate-ping rounded-full bg-white/70" />
+            ) : (
+              /* A LINK, drawn: two rounded capsules interlocking on one axis.
+                 The ▸ that stood here once read as PLAY, which is the one
+                 thing sharing is not. */
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M10 13.6a4 4 0 0 0 5.7.3l2.6-2.6a4 4 0 0 0-5.66-5.66l-1.3 1.3"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M14 10.4a4 4 0 0 0-5.7-.3l-2.6 2.6a4 4 0 1 0 5.66 5.66l1.3-1.3"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
+          </button>
+        )}
+        {/* THE STATE CAPSULES sit in the bar on a desk, and on THEIR OWN ROW
+            on a phone (just under the pill row). At 375px the minted link was
+            being pushed off the right edge — and "a link you can SEE is a link
+            you can trust" (07-29b), so shrinking the URL away was never an
+            option. State gets the width it needs; it only exists while you are
+            actually on air, or actually holding a link. */}
+        <div className="hidden min-w-0 shrink items-center gap-2.5 sm:flex">
+          {airCapsule}
+          {shareCapsule}
         </div>
-        {liveLink && (
-          <div className="flex shrink-0 items-center gap-2.5 rounded-full border border-accent/40 bg-accent/[0.08] px-3 py-1.5 text-[12.5px]">
-            <span className="relative flex h-2 w-2" aria-hidden>
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-strong" />
-            </span>
-            <span className="hidden text-accent-strong sm:inline">on air</span>
-            <button
-              onClick={copyLive}
-              title="Copy the listener link"
-              className="text-muted/80 transition hover:text-foreground"
-            >
-              {liveCopied ? "copied" : "copy link"}
-            </button>
-            <button
-              onClick={endLivePress}
-              title={endArmed ? "Yes — end the broadcast" : "End the broadcast"}
-              className={
-                endArmed
-                  ? "rounded-full bg-red-400/[0.12] px-2 text-red-300"
-                  : "text-muted/60 transition hover:text-foreground"
-              }
-            >
-              {endArmed ? "sure?" : "end"}
-            </button>
-          </div>
-        )}
-        {/* THE SHARE LINK — the live door's quiet twin. ◉ hands someone the
-            SOUND while it lasts; this hands them the CODE, frozen, theirs to
-            play and change. One tap mints the link and it lands here; a second
-            tap — yours, never ours — puts it on the clipboard. */}
-        {shareUrl && (
-          /* ONE machined capsule (the seam law): the link itself, then the
-             copy glyph behind a hairline, then ✕ to put it away. The URL is
-             selectable text — if the clipboard is ever blocked, the link is
-             still right there to grab by hand. */
-          <div className="hidden shrink-0 items-stretch overflow-hidden rounded-full border border-white/[0.12] bg-white/[0.05] text-[12.5px] sm:flex">
-            <button
-              onClick={() => void copyShare(shareUrl)}
-              title={shareUrl}
-              className="max-w-[16rem] truncate px-3 py-2 text-left text-muted/70 transition hover:text-foreground"
-            >
-              {shareUrl.replace(/^https?:\/\//, "")}
-            </button>
-            <span className="w-px bg-black/30" aria-hidden />
-            <button
-              onClick={() => void copyShare(shareUrl)}
-              title="Copy the link"
-              className={`flex items-center gap-1.5 px-3 py-2 transition active:scale-[.96] ${
-                shareCopied
-                  ? "bg-accent/[0.14] text-accent-strong"
-                  : "text-muted/70 hover:bg-white/[0.06] hover:text-foreground"
-              }`}
-            >
-              {shareCopied ? (
-                <svg viewBox="0 0 14 14" className="h-[13px] w-[13px]" aria-hidden>
-                  <path
-                    d="M2.5 7.5 L5.5 10.5 L11.5 3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              ) : (
-                /* the universal copy mark: one sheet behind another */
-                <svg viewBox="0 0 14 14" className="h-[13px] w-[13px]" aria-hidden>
-                  <rect x="1.6" y="1.6" width="7.6" height="7.6" rx="1.7" fill="none" stroke="currentColor" strokeWidth="1.3" />
-                  <rect x="4.8" y="4.8" width="7.6" height="7.6" rx="1.7" fill="none" stroke="currentColor" strokeWidth="1.3" />
-                </svg>
-              )}
-              {shareCopied ? "copied" : "copy"}
-            </button>
-            <span className="w-px bg-black/30" aria-hidden />
-            <button
-              onClick={() => setShareUrl(null)}
-              title="Put the link away"
-              className="px-2.5 py-2 text-muted/50 transition hover:text-foreground"
-            >
-              ✕
-            </button>
-          </div>
-        )}
         {/* No Save button, no save INDICATOR (user 07-27: "kept" confused —
             less is more): the work simply keeps itself, silently. */}
 
@@ -3066,16 +3031,23 @@ export default function ZaltzIDE({
           </span>
         )}
 
+        {/* COPILOT — THE MARK IS THE WHOLE CONTROL (2026-08-02, the user:
+            "instead of writing copilot we just have the icon"). It is a switch,
+            not a door, and a switch only has to say which way it is thrown: the
+            spark burns in the house gradient when it whispers and sits grey
+            when it does not. The word was costing ~70px of a bar that has a
+            transport to fit. */}
         <button
           onClick={toggleCopilot}
-          className={`hidden shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] transition active:scale-[.97] sm:inline-flex ${
-            copilot
-              ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
-              : "bg-white/[0.05] text-muted/60 hover:text-foreground"
+          aria-label="Copilot"
+          aria-pressed={copilot}
+          className={`hidden h-9 w-9 shrink-0 place-items-center rounded-full transition active:scale-[.94] sm:grid ${
+            copilot ? "text-accent-strong" : "text-muted/50 hover:text-foreground"
           }`}
           title="Copilot — it whispers as you type: ⇥ takes it, ⌥\ summons one, Esc hushes it"
         >
-          <CopilotMark on={copilot} />Copilot</button>
+          <CopilotMark on={copilot} className="h-[17px] w-[17px]" />
+        </button>
         {/* NO AVATAR (user 07-28): no other feature page wears one — the
             person's door lives at home. The paying moment still speaks here
             (the tokens-dry notice + the sign-in sheet the machine opens). */}
@@ -3124,14 +3096,25 @@ export default function ZaltzIDE({
         )}
         <button
           onClick={toggleCopilot}
-          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] transition active:scale-[.97] ${
-            copilot
-              ? "bg-accent/[0.14] text-accent-strong ring-1 ring-inset ring-accent/30"
-              : "bg-white/[0.05] text-muted/60"
+          aria-label="Copilot"
+          aria-pressed={copilot}
+          className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition active:scale-[.94] ${
+            copilot ? "text-accent-strong" : "text-muted/50"
           }`}
         >
-          <CopilotMark on={copilot} />Copilot</button>
+          <CopilotMark on={copilot} className="h-[16px] w-[16px]" />
+        </button>
       </div>
+
+      {/* STATE, ON A PHONE — its own row, and only when there IS state. The
+          bar has no width left for a link you can read at 375px, and a link
+          you cannot read is one you cannot trust. */}
+      {(liveLink || shareUrl) && (
+        <div className="mb-2 flex min-w-0 items-center gap-2 sm:hidden">
+          {airCapsule}
+          {shareCapsule}
+        </div>
+      )}
 
       {/* ── the panes (all gone in solo — the picture alone) ────────────── */}
       <div className="flex min-h-0 flex-1 gap-3">
