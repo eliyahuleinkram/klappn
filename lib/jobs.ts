@@ -2261,12 +2261,16 @@ export async function arrangeSong(
       written[id] = withTakes(id, spec);
     }),
   );
+  // The tail is BUILT from its template at play time, and a chord out of the
+  // song's key is an accident — so the key rides with the ending (2026-08-02).
+  const inKey = (e: SongArrangement["ending"]): SongArrangement["ending"] =>
+    e && e.mode === "stop" && e.tpl ? { ...e, key: e.key ?? plan.key } : e;
   const merged: SongArrangement = fill
     ? {
         sections: { ...(existing?.sections ?? {}), ...written },
-        ending: existing?.ending ?? arrangement.ending,
+        ending: inKey(existing?.ending ?? arrangement.ending),
       }
-    : { sections: written, ending: arrangement.ending };
+    : { sections: written, ending: inKey(arrangement.ending) };
   await withDb("write", (sql) => saveSongArrangement(songId, merged, sql));
   return merged;
 }

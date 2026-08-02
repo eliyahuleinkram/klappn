@@ -20,6 +20,7 @@
  */
 import { complete, ROUTE, type LlmConfig } from "./llm";
 import { BREAK_BANKS } from "./breaks-catalog";
+import { endingMoveOf } from "./endings-catalog";
 import { sentenceLabel } from "./labels";
 import {
   sectionParts,
@@ -56,10 +57,12 @@ Respond with ONLY a JSON object, no markdown:
   "moves": [{"bar": 0-based bar within the section, "layers": [1-based layer numbers audible FROM that bar]}] (omit = all layers throughout; [] = silence),
   "sweeps": [{"name": "2-4 words for the MOVE a listener feels, e.g. \"swelling from the dark\"", "param": "<control, e.g. lpf|hpf|gain>", "from": n, "to": n, "bar": start, "bars": length, "curve": "linear"|"sine"}]
  } },
- "ending": {"mode": "stop"|"loop", "bars": n, "code": "$: <one Strudel line>"}
+ "ending": {"mode": "stop"|"loop", "tpl": "<ending template>", "bars": n, "gain": 0..1.2, "tone": 0..1, "space": 0..1}
 }
 
-Name every sweep for what's HEARD, never its parameters. Sweeps ride the whole section's existing sound. The ending line follows the layer rules (in key, name a sound in the line, no setcpm/orbit) but plays ONCE and may ring past the last section. Layer numbers refer to the numbering given. A section you omit plays whole for its natural length. "stop" plays the song once and ends; "loop" wraps forever.`;
+Name every sweep for what's HEARD, never its parameters. Sweeps ride the whole section's existing sound. Layer numbers refer to the numbering given. A section you omit plays whole for its natural length. "stop" plays the song once and ends; "loop" wraps forever.
+
+HOW IT ENDS — choose a template, never write the tail yourself (it is built in the song's key and always falls to silence): ring (the last chord struck once and left to decay) · fall (the tonic walks down and thins out) · crash (one last hit, ringing until it's gone) · dim (the filter shuts as it fades) · breath (nothing new — the room empties and the tails fall away) · cut (it stops on the beat, nothing after). "bars" is how long the tail takes, "gain" its level, "tone" how open it stays (1 = fully open), "space" how much room it rings into. With "loop" the ending fields are ignored.`;
 
 function sectionBlock(s: ArrangeInputSection, beats: number): string {
   const parts = sectionParts(`${s.strudel}\nsetcpm(120/${beats})`);
@@ -116,6 +119,33 @@ function firstJsonObject(reply: string): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * The ending, kept honest (2026-08-02). The model picks a TEMPLATE and its
+ * knobs — it no longer writes the tail, because when it did it wrote a chord
+ * with `sustain(0.7)` that held at one level and then stopped dead, which is
+ * not a ring-out. An unknown template falls back to `ring` rather than leaving
+ * the song to cut: "stop" promises a tail, so a tail is what it gets.
+ */
+function sanitizeEnding(raw: unknown): SongArrangement["ending"] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const e = raw as Record<string, unknown>;
+  const mode = e.mode === "stop" ? "stop" : e.mode === "loop" ? "loop" : undefined;
+  if (!mode) return undefined;
+  if (mode === "loop") return { mode };
+  const knob = (v: unknown, min: number, max: number, def: number) =>
+    Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Number(v))) : def;
+  const tpl = endingMoveOf(String(e.tpl ?? "")) ? String(e.tpl) : "ring";
+  const move = endingMoveOf(tpl)!;
+  return {
+    mode,
+    tpl,
+    bars: Math.max(1, Math.min(16, Math.floor(knob(e.bars, 1, 16, move.bars)))),
+    gain: knob(e.gain, 0, 1.2, move.gain),
+    tone: knob(e.tone, 0, 1, 1),
+    space: knob(e.space, 0, 1, 0.35),
+  };
+}
+
 /** Pull the JSON object out of a reply (fences stripped, first {...} balanced). */
 export function parseArrangementReply(reply: string): SongArrangement | null {
   const obj = firstJsonObject(reply);
@@ -124,10 +154,7 @@ export function parseArrangementReply(reply: string): SongArrangement | null {
     obj.sections && typeof obj.sections === "object" && !Array.isArray(obj.sections)
       ? (obj.sections as Record<string, SectionArrange>)
       : undefined;
-  const ending =
-    obj.ending && typeof obj.ending === "object" && !Array.isArray(obj.ending)
-      ? (obj.ending as SongArrangement["ending"])
-      : undefined;
+  const ending = sanitizeEnding(obj.ending);
   if (!sections && !ending) return null;
   return { sections, ending };
 }

@@ -17,6 +17,7 @@
 
 import { attachHydraBlock, extractHydra, stripHydraBlock } from "./hydra-embed";
 import { breakExpr, breakMoveOf, type BreakOverlay } from './breaks-catalog';
+import { endingExpr } from "./endings-catalog";
 import { rebusArrangement } from "./reverb-orbits";
 
 /** One playable section going into the arrangement. */
@@ -139,6 +140,16 @@ export interface SongEnding {
   mode?: "stop" | "loop";
   code?: string;
   bars?: number;
+  /** THE ENDING TEMPLATE (2026-08-02) — lib/endings-catalog. When set, the tail
+   *  is BUILT from it and its knobs, so it is guaranteed to arrive at silence;
+   *  freehand `code` (every song written before this) still renders as it did.
+   *  The model picks one at birth; the same knobs are the user's afterwards. */
+  tpl?: string;
+  gain?: number;
+  tone?: number;
+  space?: number;
+  /** The key the tail was voiced for — an ending out of key is an accident. */
+  key?: string;
 }
 
 /** The whole song's model-authored arrangement, persisted as plan.arrangement
@@ -580,7 +591,22 @@ export function buildArrangement(
     // transport running for those bars, which is exactly what lets the last
     // chord decay instead of being guillotined. Deterministic, no AI, and it
     // makes the words on the button true for every song.
-    const authored = opts.ending?.code ? bareExpr(opts.ending.code) : "";
+    // A TEMPLATE WINS OVER FREEHAND (2026-08-02). The catalog's tails are shaped
+    // to reach zero; a hand-written line is whatever it was — and what the
+    // arrangement model wrote freehand was a chord with `sustain(0.7)`, which
+    // held at one level for the whole tail and then simply stopped. That is the
+    // "it doesn't ring out" the user heard.
+    const built = opts.ending?.tpl
+      ? endingExpr({
+          tpl: opts.ending.tpl,
+          key: opts.ending.key,
+          bars: opts.ending.bars,
+          gain: opts.ending.gain,
+          tone: opts.ending.tone,
+          space: opts.ending.space,
+        })
+      : null;
+    const authored = built ?? (opts.ending?.code ? bareExpr(opts.ending.code) : "");
     const usable = authored && oneShotOk(authored);
     const endBars = Math.max(1, Math.min(16, Math.floor(opts.ending?.bars ?? 2)));
     entries.push({ cycles: endBars, expr: usable ? `(${authored}\n)` : `silence`, at });

@@ -436,6 +436,33 @@ export async function setSongStage(
     where id = ${songId} and plan is not null`;
 }
 
+/** THE ENDING'S SHAPE by hand (2026-08-02) — its template and knobs, merged
+ *  into plan.arrangement.ending exactly like the mode toggle does, so a song
+ *  with no arrangement yet still gets one. Zero AI: the tail is built from
+ *  these at play time (lib/endings-catalog). Setting a shape also means the
+ *  song ENDS — you don't choose a ring-out for a song that loops forever. */
+export async function setSongEndingShape(
+  songId: string,
+  userId: string,
+  shape: Record<string, unknown>,
+  sql: Sql = db(),
+): Promise<boolean> {
+  const rows = await sql<{ id: string }[]>`
+    update songs
+    set plan = plan || jsonb_build_object(
+      'arrangement',
+      coalesce(plan->'arrangement', '{}'::jsonb) || jsonb_build_object(
+        'ending',
+        coalesce(plan->'arrangement'->'ending', '{}'::jsonb)
+          || ${sql.json(shape as Parameters<typeof sql.json>[0])}
+          || jsonb_build_object('mode', 'stop'::text)
+      )
+    )
+    where id = ${songId} and user_id = ${userId}
+    returning id`;
+  return rows.length > 0;
+}
+
 /** Mark (or unmark) that the song's shape was authored by its OWN run — the
  *  whole-song birth run's closing sweep (jobs.finishSong). The song page reads
  *  it to keep from offering a sweep that just ran; every generation run that

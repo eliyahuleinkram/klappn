@@ -16,6 +16,7 @@ import type { PartRow, SongRow } from "@/lib/songs";
 import type { SongArrangement, SongFx, SweepControl } from "@/lib/arrange";
 import { openDeep } from "@/lib/seal";
 import { sentenceLabel } from "@/lib/labels";
+import { ENDING_MOVES, endingMoveOf } from "@/lib/endings-catalog";
 import {
   BREAK_BANKS,
   BREAK_KNOBS,
@@ -848,6 +849,54 @@ export default function SongClient({
 
   // The ending capsule's tap: stop ⟷ loop, zero AI. Optimistic — the capsule
   // answers the tap NOW; the PATCH is the fact-write (re-sync on failure).
+  /** Change HOW the song ends — its template or a knob. Optimistic like every
+   *  other deterministic control, then persisted; the tail is rebuilt from
+   *  these numbers at play time, so the change is heard on the next pass. */
+  async function setEndingShape(patch: {
+    tpl?: string;
+    bars?: number;
+    gain?: number;
+    tone?: number;
+    space?: number;
+  }) {
+    const move = endingMoveOf(patch.tpl ?? "");
+    setSong((s) => {
+      const pl = s.plan as { arrangement?: SongArrangement | null; key?: string } & Record<string, unknown>;
+      const prev = pl?.arrangement?.ending ?? {};
+      return {
+        ...s,
+        plan: {
+          ...pl,
+          arrangement: {
+            ...(pl?.arrangement ?? {}),
+            ending: {
+              ...prev,
+              mode: "stop",
+              key: pl?.key,
+              // A fresh template brings its own natural length and level.
+              ...(move ? { bars: move.bars, gain: move.gain } : {}),
+              ...patch,
+            },
+          },
+        } as unknown as Song["plan"],
+      };
+    });
+    refreshArrangement();
+    await fetch(`/api/songs/${songId}/arrange`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        endingShape: {
+          tpl: patch.tpl ?? plan.arrangement?.ending?.tpl ?? "ring",
+          bars: patch.bars ?? move?.bars ?? plan.arrangement?.ending?.bars,
+          gain: patch.gain ?? move?.gain ?? plan.arrangement?.ending?.gain,
+          tone: patch.tone ?? plan.arrangement?.ending?.tone,
+          space: patch.space ?? plan.arrangement?.ending?.space,
+        },
+      }),
+    }).catch(() => void refresh());
+  }
+
   async function flipEnding(mode: "stop" | "loop") {
     setSong((s) => {
       const pl = s.plan as { arrangement?: SongArrangement | null } & Record<string, unknown>;
@@ -4278,7 +4327,8 @@ export default function SongClient({
               >
                 {plan.arrangement?.ending?.mode === "stop" ? (
                   <>
-                    <span className="text-[10px]">■</span> Ends here — rings out
+                    <span className="text-[10px]">■</span>{" "}
+                    {endingMoveOf(plan.arrangement?.ending?.tpl ?? "")?.word ?? "Ends here"}
                   </>
                 ) : (
                   <>
@@ -4286,6 +4336,38 @@ export default function SongClient({
                   </>
                 )}
               </button>
+              {/* HOW IT ENDS — six ways, and the knobs under them (2026-08-02,
+                  the user: "we should have a few options for how to end a song…
+                  the AI can choose it… and it also can be fiddled with manually
+                  and tweaked"). Every one is built to reach silence, which the
+                  freehand line never promised. Zero AI to change: the tail is
+                  rebuilt from these numbers at play time, like a break's. */}
+              {!visiting && plan.arrangement?.ending?.mode === "stop" && (
+                <div className="mt-3 w-full max-w-md">
+                  <div className="flex flex-wrap justify-center gap-1">
+                    {ENDING_MOVES.map((m) => {
+                      const on = (plan.arrangement?.ending?.tpl ?? "ring") === m.tpl;
+                      return (
+                        <button
+                          key={m.tpl}
+                          title={m.hint}
+                          onClick={() => void setEndingShape({ tpl: m.tpl })}
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-medium leading-none transition active:scale-95 ${
+                            on
+                              ? "bg-gradient-to-r from-[#ff63c1] to-accent-strong text-white"
+                              : "text-muted/55 hover:bg-white/[0.06] hover:text-foreground"
+                          }`}
+                        >
+                          {m.word}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1.5 text-center text-[10.5px] leading-snug text-muted/45">
+                    {endingMoveOf(plan.arrangement?.ending?.tpl ?? "ring")?.hint}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

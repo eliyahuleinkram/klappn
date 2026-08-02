@@ -1,10 +1,12 @@
 import { arrangeSong, dressSectionSweeps } from "@/lib/jobs";
+import { endingMoveOf } from "@/lib/endings-catalog";
 import { db } from "@/lib/db";
 import { getUserId, unauthorized } from "@/lib/session";
 import {
   getSongWithParts,
   removeSongSectionListItem,
   setSongEndingMode,
+  setSongEndingShape,
   setSongSectionMoves,
   setSongSectionSweepTake,
   applySongSectionTake,
@@ -124,6 +126,7 @@ export async function PATCH(
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as {
     ending?: string;
+    endingShape?: { tpl?: string; bars?: number; gain?: number; tone?: number; space?: number };
     sectionId?: string;
     moves?: { bar?: number; layers?: number[] }[];
     layerCount?: number;
@@ -148,6 +151,30 @@ export async function PATCH(
     const ok = await setSongEndingMode(id, userId, body.ending);
     if (!ok) return Response.json({ error: "nothing to edit yet" }, { status: 409 });
     return Response.json({ ok: true, ending: body.ending });
+  }
+
+  // THE ENDING'S SHAPE — its template and knobs, by hand (2026-08-02, the user:
+  // "it also can be fiddled with manually and tweaked"). Zero AI: the tail is
+  // built deterministically from these, exactly like a break's.
+  if (body.endingShape && typeof body.endingShape === "object") {
+    const s = body.endingShape;
+    const move = endingMoveOf(String(s.tpl ?? ""));
+    if (!move) return Response.json({ error: "unknown ending" }, { status: 400 });
+    const knob = (v: unknown, min: number, max: number, def: number) =>
+      Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Number(v))) : def;
+    const sp = await getSongWithParts(id, userId);
+    if (!sp) return Response.json({ error: "not found" }, { status: 404 });
+    const shape = {
+      tpl: move.tpl,
+      bars: Math.max(1, Math.min(16, Math.floor(knob(s.bars, 1, 16, move.bars)))),
+      gain: knob(s.gain, 0, 1.2, move.gain),
+      tone: knob(s.tone, 0, 1, 1),
+      space: knob(s.space, 0, 1, 0.35),
+      key: (sp.song.plan as { key?: string })?.key,
+    };
+    const ok = await setSongEndingShape(id, userId, shape);
+    if (!ok) return Response.json({ error: "nothing to edit yet" }, { status: 409 });
+    return Response.json({ ok: true, ending: shape });
   }
 
   const sectionId = typeof body.sectionId === "string" ? body.sectionId : "";
