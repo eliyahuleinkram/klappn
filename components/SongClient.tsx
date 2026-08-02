@@ -2159,25 +2159,21 @@ export default function SongClient({
   // The ordered, rotated section list — rebuilt ON DEMAND from CURRENT parts + breaks, so
   // a break toggled/re-rolled/removed mid-play changes WHICH sections play (not just their
   // code). Anchored on the loop we started from (a stable part id) so rebuilds don't jump.
-  const buildRotated = (anchor: string) => {
-    const secs = buildSections(partsRef.current, breaksRef.current);
-    const at = secs.findIndex((s) => s.id === anchor);
-    if (at <= 0) return secs;
-    // A SONG THAT ENDS, ENDS AT ITS END (2026-08-02, the user: "I press play on
-    // the final loop… once everything is finished it then goes and starts
-    // playing from the first loop").
-    //
-    // Starting mid-song ROTATES the list so the music continues from where you
-    // tapped and wraps around — right for a piece that loops forever, wrong for
-    // one with an ending, because the ending belongs to the last unit of the
-    // list and rotation moves a different section there. Press play on the last
-    // loop and the ring-out was scheduled a whole lap away, after every earlier
-    // loop had played again. So when the song ENDS, starting anywhere plays to
-    // the end and stops there: no wrap, and the tail lands where it belongs.
-    const endsHere =
-      (arrangementRef.current?.ending?.mode ?? "loop") === "stop";
-    return endsHere ? secs.slice(at) : [...secs.slice(at), ...secs.slice(0, at)];
-  };
+  /**
+   * THE SONG'S OWN ORDER — never turned (2026-08-02).
+   *
+   * This used to rotate the list so the tapped section sat first. That starts
+   * in the right place, but it makes the pattern's index 0 your tap: an ending
+   * belonged to whatever landed last (so pressing play on the final loop
+   * scheduled the ring-out a whole lap away), and a looping song came back to
+   * where you pressed instead of to its beginning.
+   *
+   * The engine is told the anchor by NAME now (SongPlayOpts.anchorId) and walks
+   * forward from it, so an ending song plays to its end and stops, and a
+   * looping one wraps to bar one — which is where a song begins.
+   */
+  const buildRotated = (_anchor: string) =>
+    buildSections(partsRef.current, breaksRef.current);
 
   // What the dock whispers while this section sounds.
   const sectionLabelOf = (id: string | null): string | null => {
@@ -2198,6 +2194,9 @@ export default function SongClient({
       owner: songId,
       // LIVE section list: re-read every step so add/remove/re-roll of a break applies
       // without restarting the transport. Anchored on the loop we started from.
+      // The section you tapped, named rather than rotated into first place —
+      // the engine walks forward from it and wraps to the song's beginning.
+      anchorId: startId,
       sectionsFor: () => buildRotated(lastPlayedRef.current ?? startId),
       onSection: (id: string | null) => {
         sweepDelayRef.current = 0;

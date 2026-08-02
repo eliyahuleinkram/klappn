@@ -5292,6 +5292,18 @@ export interface SongPlayOpts {
    *  (or missing) owner cuts the old sound at the tap instead of letting it
    *  spill under the new downbeat. */
   owner?: string;
+  /** WHERE THE WALK STARTS — the section you tapped (2026-08-02, the user: a
+   *  looping song must "go back to the beginning of the song, not from where we
+   *  pressed from").
+   *
+   *  Anchoring used to be done by ROTATION: the caller handed us a list already
+   *  turned so the tapped section sat first. That starts in the right place but
+   *  makes the song wrap back to the TAP, because the pattern's index 0 is your
+   *  start point rather than the song's. With the anchor named instead, the
+   *  list stays in the song's true order: the first pass runs from here to the
+   *  end, and the wrap that follows lands on bar one, where a song's beginning
+   *  actually is. Absent = start at the top, as before. */
+  anchorId?: string;
   onSection?: (id: string | null) => void;
   /** Applied to each section's code at the moment it starts (receives the
    *  section id) — lets the caller substitute FRESH code and live dial
@@ -5515,7 +5527,13 @@ export async function playSong(
       const at = list.findIndex((s) => s.id === lastPlayedId);
       from = at >= 0 ? at + 1 : i;
     } else {
-      from = i;
+      // FIRST PASS: start at the section that was tapped. The list arrives in
+      // the song's own order now, so the anchor is named rather than rotated
+      // into place — which is what lets the wrap afterwards land on bar one.
+      const at = songOpts.anchorId
+        ? list.findIndex((s) => s.id === songOpts.anchorId)
+        : -1;
+      from = at >= 0 ? at : i;
     }
     // An ending song plays THROUGH the list's end and stops — it never wraps
     // past it (starting mid-song still means "play to the end, then stop").
@@ -5524,9 +5542,17 @@ export async function playSong(
       return;
     }
     from = from % list.length;
-    const rotated = endsStop
-      ? list.slice(from)
-      : [...list.slice(from), ...list.slice(0, from)];
+    // ALWAYS FORWARD, NEVER TURNED. Both kinds of song now play from here to
+    // the end of the list and no further:
+    //  · an ending song stops there (endSong above);
+    //  · a looping song's slice is SHORTER than the whole list, so it isn't a
+    //    `wholeList` unit — `unitEnd` is armed, and when it fires `step()` runs
+    //    again with `from` past the end, `% list.length` lands on 0, and THAT
+    //    unit is the whole song from bar one, which loops forever where a song
+    //    is meant to loop.
+    // The old rotation made index 0 the tap point, so a looping song came back
+    // to where you pressed play instead of to its beginning.
+    const rotated = list.slice(from);
     const unit = nextUnit(rotated.map(decorated), 0, {
       ending: songOpts.ending,
       effects: songOpts.effectsFor?.() ?? null, overlays: songOpts.overlaysFor?.() ?? null,
