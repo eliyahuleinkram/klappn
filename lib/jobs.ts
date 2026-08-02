@@ -676,17 +676,65 @@ export async function enrichPartTracks(
   songId: string,
   partId: string,
   cfg: ClaudeConfig | undefined,
-  sql: Sql,
+  /** One unit of DB work, connection released on the way out. This sweep used
+   *  to hold ONE connection while running a model call PER LAYER in parallel —
+   *  a minute of pinned slot per finished part, overlapping the next part's
+   *  composition, on a 25-connection database (2026-08-02). Now it reads, lets
+   *  go, calls, and takes a connection back to write. */
+  withDb: <T>(name: string, fn: (sql: Sql) => Promise<T>) => Promise<T>,
 ): Promise<void> {
-  const [part] = await sql<{ tracks: LoopTrack[] | null }[]>`
-    select tracks from parts where id = ${partId} and song_id = ${songId}`;
-  const tracks = (part?.tracks ?? []) as LoopTrack[];
-  const jobs: Promise<unknown>[] = [];
-  for (let i = 0; i < tracks.length; i++) {
-    if (tracks[i]?.enriched) continue;
-    jobs.push(enrichPartLayer(songId, partId, i, cfg, sql).catch(() => null));
-  }
-  await Promise.allSettled(jobs);
+  const tracks = await withDb("read", async (sql) => {
+    const [part] = await sql<{ tracks: LoopTrack[] | null }[]>`
+      select tracks from parts where id = ${partId} and song_id = ${songId}`;
+    return (part?.tracks ?? []) as LoopTrack[];
+  });
+  const todo = tracks
+    .map((t, i) => ({ t, i }))
+    .filter(({ t }) => t && !t.enriched);
+  if (!todo.length) return;
+  // Every layer's panel at once, holding nothing.
+  const panels = await Promise.all(
+    todo.map(({ t, i }) =>
+      enrichTrack(t.notation ?? t.code, t.code, cfg)
+        .then((panel) => ({ i, panel }))
+        .catch(() => ({ i, panel: null })),
+    ),
+  );
+  const useful = panels.filter(
+    (x) =>
+      x.panel &&
+      (x.panel.label || x.panel.controls.length || x.panel.pills.length || x.panel.swap),
+  );
+  if (!useful.length) return;
+  await withDb("write", async (sql) => {
+    // Re-read inside the write: the DB line is canonical for `code` (it may
+    // carry knob tweaks made while we were calling), and a layer may have been
+    // enriched by another tab in the meantime.
+    const [part] = await sql<PartRow[]>`
+      select * from parts where id = ${partId} and song_id = ${songId}`;
+    const live = (part?.tracks as LoopTrack[] | null) ?? [];
+    for (const { i, panel } of useful) {
+      const t = live[i];
+      if (!t || t.enriched || !panel) continue;
+      const next = {
+        ...ensureVolumeKnob({
+          ...t,
+          label: panel.label || t.label,
+          signature: panel.signature || t.signature,
+          controls: panel.controls,
+          pills: panel.pills,
+          swap: panel.swap,
+          enriched: true,
+        }),
+        code: t.code, // panels are metadata only — never write code from here
+      };
+      await sql`
+        update parts
+        set tracks = jsonb_set(tracks, array[${String(i)}], ${sql.json(next as unknown as Parameters<typeof sql.json>[0])})
+        where id = ${partId} and song_id = ${songId}
+          and jsonb_array_length(tracks) > ${i}`;
+    }
+  });
 }
 
 /** What one sweep actually DID — so the pill can speak instead of miming success:
@@ -2315,7 +2363,7 @@ export async function generateOnePart(
     // ENRICH AT BIRTH, dev parity — every layer's tweak panel right after the
     // ready write (idempotent per layer; best-effort like the visual below).
     try {
-      await enrichPartTracks(songId, partId, cfg, sql);
+      await enrichPartTracks(songId, partId, cfg, (_n, fn) => fn(sql));
     } catch (e) {
       console.error("[klappn] dev enrich sweep failed", e);
     }

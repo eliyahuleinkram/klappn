@@ -77,9 +77,35 @@ async function withSql<T>(
   env: Env,
   fn: (sql: ReturnType<typeof getSql>) => Promise<T>,
 ): Promise<T> {
-  const sql = getSql(env.HYPERDRIVE.connectionString);
+  // A FULL POOL IS A WAIT, NOT A DEATH (2026-08-02, after a prod song stalled).
+  // max_connections is 25 and most of those belong to the database's own roles,
+  // so under two or three concurrent runs an open can simply lose the race.
+  // That used to kill the part outright — and then the step that would have
+  // recorded the error couldn't get a connection either, so the loop sat frozen
+  // at "generating" with nothing to explain it. Now the ACQUISITION backs off
+  // and tries again: seconds of patience instead of a dead loop.
+  //
+  // Only the open+warm is retried. Once `fn` has run we never repeat it — it
+  // may have written something, and a retried write is a different bug.
+  let sql: ReturnType<typeof getSql> | null = null;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 5 && !sql; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 400 * 2 ** (attempt - 1)));
+    const candidate = getSql(env.HYPERDRIVE.connectionString);
+    try {
+      await candidate`select 1`; // warm the connection before any transaction
+      sql = candidate;
+    } catch (e) {
+      lastErr = e;
+      try {
+        await candidate.end({ timeout: 5 });
+      } catch {
+        /* the client never opened — nothing to close cleanly */
+      }
+    }
+  }
+  if (!sql) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   try {
-    await sql`select 1`; // warm the connection before any transaction
     return await fn(sql);
   } finally {
     try {
@@ -404,7 +430,7 @@ export class GenerationWorkflow extends WorkflowEntrypoint<
         // ENRICH AT BIRTH: every layer's tweak panel, in parallel with the next
         // part's composition — a card is live before anyone can tap it.
         enrichRuns.push(
-          withSql(env, (sql) => enrichPartTracks(songId, p.id, cfg, sql)).catch(
+          enrichPartTracks(songId, p.id, cfg, (_n, fn) => withSql(env, fn)).catch(
             (e) => console.error(`[klappn] enrich sweep for part ${p.id} failed`, e),
           ),
         );
