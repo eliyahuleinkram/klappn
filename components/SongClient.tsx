@@ -2652,9 +2652,11 @@ export default function SongClient({
       try {
         await navigator.clipboard.writeText(shareUrl);
         setShareCopied(true);
+        // The corner speaks — the glyph can't, and there is no hover on a phone.
+        noteSweep("Link copied — anyone can open it, no account");
         setTimeout(() => setShareCopied(false), 2400);
       } catch {
-        setError("Couldn’t reach the clipboard — the link is in the address of this menu.");
+        setError("Couldn’t reach the clipboard — try again, or long-press the link.");
       }
       return;
     }
@@ -2666,6 +2668,11 @@ export default function SongClient({
         body: JSON.stringify({ on: true }),
       });
       const d = (await res.json().catch(() => ({}))) as { path?: string | null };
+      // Minting and copying are two taps on purpose — the clipboard is never
+      // taken without a hand on it. No note here: the glyph LIGHTS and its word
+      // becomes "Copy the link", which says it without borrowing the corner
+      // (that slot hides the Shape control while it speaks, so it's spent only
+      // on things that have no other way to be seen).
       if (d.path) setShareUrl(`${window.location.origin}${d.path}`);
       else setError("Couldn’t make a link this time — try again.");
     } catch {
@@ -3650,26 +3657,11 @@ export default function SongClient({
                             setArrange(true);
                           }}
                         />
-                        {/* THE SHARE LINK (2026-08-02, the user). One tap mints
-                            it, the next tap copies it, and the line says the
-                            whole deal before you send it to anyone: they can
-                            take it apart, they can't spend your tokens, and
-                            what they change is theirs. Owners only — a visitor
-                            can't re-share what isn't theirs. */}
-                        {!visiting && (
-                          <MenuRow
-                            word={shareBusy ? "Making a link…" : shareUrl ? "Copy the link" : "Share"}
-                            line={
-                              shareCopied
-                                ? "Copied — anyone with it can play and tinker"
-                                : shareUrl
-                                  ? "Anyone can open it, take it apart, keep their version"
-                                  : "A link that needs no account — they play, they can't spend"
-                            }
-                            disabled={shareBusy || playableCount === 0}
-                            onClick={() => void onShare()}
-                          />
-                        )}
+                        {/* (Share is NOT here — 2026-08-02, the user: "why is
+                            the share button inside the shape, that makes no
+                            sense". Shape is what you do TO the song; a link is
+                            how you hand it over. It sits beside Export, which
+                            is the same family: getting the song out of here.) */}
                       </div>
                     </>
                   )}
@@ -3681,6 +3673,34 @@ export default function SongClient({
                   title="Immerse — full-screen visuals"
                 >
                   <ExpandIcon />
+                </IconBtn>
+              )}
+              {/* SHARE — a link, beside Export because they answer the same
+                  question: how do I get this song out of here? (Export hands
+                  over a copy; this hands over the living song.) It is NOT in
+                  Shape, which is what you do TO the music. Owner only — a
+                  visitor can't re-share what isn't theirs. One tap mints,
+                  the next copies; the corner says which just happened, because
+                  a glyph alone can't and touch has no hover. */}
+              {!visiting && (
+                <IconBtn
+                  onClick={() => void onShare()}
+                  disabled={shareBusy || playableCount === 0}
+                  active={!!shareUrl}
+                  title={
+                    playableCount === 0
+                      ? "Share — once a loop has landed"
+                      : shareBusy
+                        ? "Making a link…"
+                        : shareUrl
+                          ? "Copy the link — anyone can open it, no account"
+                          : "Share — a link that needs no account; they play, they can't spend"
+                  }
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M10 13a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1L11.5 4.5" />
+                    <path d="M14 11a5 5 0 0 0-7.1 0l-3 3a5 5 0 0 0 7.1 7.1l1.5-1.4" />
+                  </svg>
                 </IconBtn>
               )}
               {/* EVERY song exports as a menu — Audio always, Video when it has
