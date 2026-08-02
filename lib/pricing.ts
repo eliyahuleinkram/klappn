@@ -116,16 +116,19 @@ export const TIERS = [
 export type TierId = (typeof TIERS)[number]["id"];
 
 /**
- * THE TASTE — what a claimed account gets on the house, once, with no card and
- * no clock (2026-08-02, the user: "just give them a few free tries to try out
- * the technology"). Sized so the door's own sentence is TRUE: a whole song, and
- * a night in the room. A day-counted trial was considered and rejected — it
- * spends without a ceiling, it can be farmed with a second email, and it runs
- * down while the person is at work; a taste measured in USE waits for them.
- * (Lives here, with the rest of the sheet, so it can be tested without dragging
- * the database in — lib/billing's PLANS.free reads it.)
+ * NO FREE TASTE (2026-08-02, the user: "Remove tastes. Remove that entire
+ * concept… If you want to use the AI capabilities of the software you gotta
+ * pay").
+ *
+ * There was a 500k sign-up taste, sized when a prompt made ONE loop. A prompt
+ * makes a whole SONG now — roughly five times that — so the taste could no
+ * longer buy the thing the door promises, and the only ways out were to shrink
+ * what a taste generates (a deliberately worse first song, which is the worst
+ * possible first impression) or to raise it (a launch bill with no ceiling).
+ * Neither is worth keeping a concept for. The instrument is still free — the
+ * room, the editor, playback, everything a person's own hands do. The MODELS
+ * are what costs money, and those you buy.
  */
-export const FREE_TASTE_TOKENS = 500_000;
 
 /** The top-up amounts (USD, token value — the card fee is added on top at
  *  checkout). Since the subscription pivot these are the OVERFLOW VALVE, not

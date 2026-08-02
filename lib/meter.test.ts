@@ -12,7 +12,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  FREE_TASTE_TOKENS,
   nightsFor,
   songsFor,
   TIERS,
@@ -26,7 +25,7 @@ import {
 // — so testing the sheet tests what the gate meters against. Importing
 // lib/billing here is not possible on purpose: it speaks to Postgres.
 const PLANS = {
-  free: { tokens: FREE_TASTE_TOKENS },
+  free: { tokens: 0 },
   creator: TIERS[0],
   studio: TIERS[1],
 };
@@ -46,21 +45,20 @@ function meter(o: {
   months: { used: number; covered: number }[];
   monthUsed: number;
   allowance: number;
-  taste: number;
   credits: number;
 }) {
   const spent = spill(o.months);
   const planLeft = Math.max(0, o.allowance - o.monthUsed);
-  const creditsLeft = Math.max(0, o.taste + o.credits - spent);
+  const creditsLeft = Math.max(0, o.credits - spent);
   return { spent, planLeft, creditsLeft, remaining: planLeft + creditsLeft };
 }
 
 const CREATOR = PLANS.creator.tokens;
-const TASTE = PLANS.free.tokens;
 
-test("a free account is just an empty plan bucket — the old prepaid arithmetic, unchanged", () => {
-  // No plan → allowance 0 → spill IS lifetime usage, which is exactly how the
-  // prepaid meter behaved before the pivot.
+test("a free account buys NOTHING from the models — no plan, no taste", () => {
+  // 2026-08-02, the user: "if you want to use the AI capabilities of the
+  // software you gotta pay". Free is an empty plan bucket AND an empty
+  // lifetime bucket; only bought credits ever fill the second one.
   const m = meter({
     months: [
       { used: 120_000, covered: 0 },
@@ -68,13 +66,22 @@ test("a free account is just an empty plan bucket — the old prepaid arithmetic
     ],
     monthUsed: 90_000,
     allowance: 0,
-    taste: TASTE,
     credits: 0,
   });
   assert.equal(m.spent, 210_000);
   assert.equal(m.planLeft, 0);
-  assert.equal(m.creditsLeft, TASTE - 210_000);
-  assert.equal(m.remaining, TASTE - 210_000);
+  assert.equal(m.creditsLeft, 0, "nothing is on the house");
+  assert.equal(m.remaining, 0, "the gate is shut until something is bought");
+});
+
+test("a free account with bought credits spends exactly those", () => {
+  const m = meter({
+    months: [{ used: 200_000, covered: 0 }],
+    monthUsed: 200_000,
+    allowance: 0,
+    credits: 500_000,
+  });
+  assert.equal(m.remaining, 300_000, "top-ups are the only free-plan fuel");
 });
 
 test("a subscriber inside the month never touches the lifetime bucket", () => {
@@ -82,12 +89,11 @@ test("a subscriber inside the month never touches the lifetime bucket", () => {
     months: [{ used: 800_000, covered: CREATOR }],
     monthUsed: 800_000,
     allowance: CREATOR,
-    taste: TASTE,
     credits: tokensForUsdCents(1000), // a $10 top-up, bought and untouched
   });
   assert.equal(m.spent, 0, "the plan covered all of it");
   assert.equal(m.planLeft, CREATOR - 800_000);
-  assert.equal(m.creditsLeft, TASTE + tokensForUsdCents(1000));
+  assert.equal(m.creditsLeft, tokensForUsdCents(1000));
 });
 
 test("past the month, the spill comes out of the top-ups — and only the spill", () => {
@@ -96,7 +102,6 @@ test("past the month, the spill comes out of the top-ups — and only the spill"
     months: [{ used: over, covered: CREATOR }],
     monthUsed: over,
     allowance: CREATOR,
-    taste: 0,
     credits: 1_000_000,
   });
   assert.equal(m.spent, 300_000);
@@ -119,7 +124,6 @@ test("A DOWNGRADE MUST NOT EAT PREPAID TIME — the month keeps its own cover", 
     months: [studioMonth],
     monthUsed: 0, // a fresh month on the smaller plan
     allowance: PLANS.creator.tokens,
-    taste: 0,
     credits: 2_000_000,
   });
   assert.equal(m.spent, 0);
@@ -146,7 +150,6 @@ test("A CANCELLATION MUST NOT KEEP COVERING — the leak a global 'best plan' le
     months,
     monthUsed: 400_000,
     allowance: 0,
-    taste: 0,
     credits: 1_000_000,
   });
   assert.equal(m.creditsLeft, 600_000, "the free month draws on the bucket");
@@ -157,7 +160,6 @@ test("the gate closes only when BOTH buckets are empty", () => {
     months: [{ used: CREATOR, covered: CREATOR }],
     monthUsed: CREATOR,
     allowance: CREATOR,
-    taste: 0,
     credits: 0,
   });
   assert.equal(dry.remaining, 0);
@@ -165,7 +167,6 @@ test("the gate closes only when BOTH buckets are empty", () => {
     months: [{ used: CREATOR, covered: CREATOR }],
     monthUsed: CREATOR,
     allowance: CREATOR,
-    taste: 0,
     credits: 500_000,
   });
   assert.equal(carried.remaining, 500_000, "a top-up carries you to the 1st");
@@ -186,9 +187,12 @@ test("a tier can never print a promise its own allowance cannot pay", () => {
   }
 });
 
-test("the free taste is worth a song and a night — the sentence the door says", () => {
-  // SIGNUP_GIFT promises "your first song — and a night in the room". If the
-  // taste is ever trimmed below that, the door starts lying.
-  assert.ok(songsFor(PLANS.free.tokens) >= 1);
-  assert.ok(nightsFor(PLANS.free.tokens) >= 1);
+test("there is no free taste — the free plan grants zero", () => {
+  // The taste was 500k, sized when a prompt made ONE loop; a prompt makes a
+  // whole SONG now, so it could no longer buy what the door promised. Removed
+  // rather than shrunk (2026-08-02) — a deliberately worse first song is the
+  // worst possible first impression.
+  assert.equal(PLANS.free.tokens, 0);
+  assert.equal(songsFor(PLANS.free.tokens), 0);
+  assert.equal(nightsFor(PLANS.free.tokens), 0);
 });

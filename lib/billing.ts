@@ -8,14 +8,14 @@ import { db } from "./db";
  *
  * THE DEAL: the instrument is free forever and always will be. The MACHINE —
  * the whispers, the conversation, the composing — runs on a plan that covers a
- * month at a time (PLANS below). A claimed account gets a taste on the house
- * first: no card, no clock, no seven-day countdown running while you are at
- * work. It waits until you use it.
+ * month at a time (PLANS below). Nothing from the models is given away
+ * (2026-08-02, the user: "if you want to use the AI capabilities of the
+ * software you gotta pay") — there is no sign-up taste and no trial clock.
  *
  * TWO BUCKETS THAT NEVER MIX (readMeter):
  *   · the PLAN covers the first N units of each calendar month, and refills.
- *   · the LIFETIME bucket — the sign-up taste plus every top-up ever bought —
- *     never expires, and is only touched once a month's allowance is gone.
+ *   · the LIFETIME bucket — every top-up ever bought — never expires, and is
+ *     only touched once a month's allowance is gone.
  * A free account is simply an empty plan bucket, which is why one formula
  * serves everybody. Top-ups survive as an overflow valve so a good night never
  * hits a wall, and every prepaid dollar sold in the July token era stays
@@ -38,7 +38,6 @@ export type PlanId = "free" | "creator" | "studio" | "label" | "owner";
 export {
   cardFeeCents,
   CREDIT_PACK_USD,
-  FREE_TASTE_TOKENS,
   loopsFor,
   nightsFor,
   songsFor,
@@ -50,7 +49,7 @@ export {
   totalWithCardFeeCents,
   USD_CENTS_PER_MILLION,
 } from "./pricing";
-import { FREE_TASTE_TOKENS, loopsFor, TIERS, TOKENS_PER_LOOP } from "./pricing";
+import { loopsFor, TIERS, TOKENS_PER_LOOP } from "./pricing";
 
 export interface Plan {
   id: PlanId;
@@ -68,8 +67,8 @@ export interface Plan {
  * THE GIFT, IN ONE SENTENCE — the only place this is worded.
  *
  * A walk-in gets the instrument free forever; the MACHINE (the whispers, the
- * conversation, the composing) runs on a monthly plan, and a claimed account
- * starts with a taste of it on the house. Said once, at the moment it matters,
+ * conversation, the composing) runs on a monthly plan. Said once, at the
+ * moment it matters,
  * and never as a nag: the house rule is that we are confident enough not to
  * push. Every gate that needs an account answers with this line, so a guest
  * never reads two versions of the same offer.
@@ -82,22 +81,24 @@ export interface Plan {
  * for anyone who wants it — on the billing page, in open code — and it is
  * still never dressed up in dollars.
  */
+/** What the door says about money. There is no taste any more (2026-08-02):
+ *  the instrument is free, the models are bought. */
 export const SIGNUP_GIFT =
-  "Make an account and your first song — and a night in the room — are on the house.";
+  "The instrument is yours free. The machine that writes with you is what you pay for.";
 
 export const PLANS: Record<PlanId, Plan> = {
-  // Free is the pre-subscription state, not a plan on the page. `tokens` is
-  // the SIGN-UP TASTE (lib/pricing FREE_TASTE_TOKENS — a song and a night in
-  // the room, no card, no clock). Anonymous walk-ins get the free instrument
-  // but never the taste: a walk-in needs no email, so a blanket grant is
-  // bot-farmable — it lands when a name lands on the door.
+  // Free is the pre-subscription state, not a plan on the page — and it buys
+  // NOTHING from the models (2026-08-02, the user: "if you want to use the AI
+  // capabilities of the software you gotta pay"). Everything a person's own
+  // hands do stays free: the room, the editor, playback, every deterministic
+  // control. `tokens: 0` is the whole of the change — the gate reads it.
   free: {
     id: "free",
     name: "Free",
-    tokens: FREE_TASTE_TOKENS,
+    tokens: 0,
     usd: 0,
     priceId: "",
-    blurb: "the instrument is yours. The machine, for a while.",
+    blurb: "the instrument is yours — the machine is bought.",
   },
   // THE TWO ON THE SHELF — name, price and allowance come from lib/pricing's
   // TIERS (the client reads that same row, so the grid and the gate can never
@@ -200,9 +201,8 @@ export async function setBilling(
   // THE HIGH-WATER MARK rises here and only here — a plan change is rare, the
   // metering path is not (see peak_allowance in schema.sql: it is what keeps a
   // downgrade from retroactively eating somebody's prepaid top-ups).
-  // SUBSCRIPTION allowances only: "free" carries the sign-up taste in the same
-  // field, and letting that count as a monthly allowance would forgive a
-  // taste's worth of spill in every period a free account ever had.
+  // SUBSCRIPTION allowances only — "free" is 0, and has been since the taste
+  // was removed; this guard keeps a downgrade from forgiving spill.
   const gained =
     patch.plan === "creator" || patch.plan === "studio" || patch.plan === "label"
       ? PLANS[patch.plan].tokens
@@ -475,11 +475,10 @@ export interface Meter {
   monthUsed: number;
   /** What the plan still covers before the month is out. */
   planLeft: number;
-  /** The sign-up taste, if this account holds (or can mint) one. */
-  taste: number;
-  /** Units ever bought as top-ups. */
+  /** Units ever bought as top-ups — the whole of the lifetime bucket now that
+   *  there is no sign-up taste (2026-08-02). */
   credits: number;
-  /** Of taste + credits, what is already gone. */
+  /** Of those credits, what is already gone. */
   spent: number;
   /** What is left of the lifetime bucket. */
   creditsLeft: number;
@@ -487,11 +486,11 @@ export interface Meter {
   remaining: number | null;
 }
 
-/** Read the meter. `mint` claims the sign-up taste if this account has never
- *  had it (the gate does; a display read never should). */
+/** Read the meter. (`mint` is vestigial — it claimed the sign-up taste, which
+ *  no longer exists; kept so callers need not all change at once.) */
 export async function readMeter(
   userId: string,
-  { mint = false }: { mint?: boolean } = {},
+  { mint: _mint = false }: { mint?: boolean } = {},
 ): Promise<Meter> {
   const [billing, usage, credits] = await Promise.all([
     getBilling(userId),
@@ -505,7 +504,6 @@ export async function readMeter(
       planAllowance: PLANS.owner.tokens,
       monthUsed: usage.month,
       planLeft: PLANS.owner.tokens,
-      taste: 0,
       credits,
       spent: 0,
       creditsLeft: 0,
@@ -513,20 +511,15 @@ export async function readMeter(
     };
   }
   const planAllowance = plan === "free" ? 0 : PLANS[plan].tokens;
-  const [peak, hasTaste] = await Promise.all([
-    peakAllowance(userId, plan),
-    mint ? claimTasteGrant(userId) : tasteAvailable(userId),
-  ]);
-  const taste = hasTaste ? PLANS.free.tokens : 0;
+  const peak = await peakAllowance(userId, plan);
   const spent = await creditsSpent(userId, peak);
   const planLeft = Math.max(0, planAllowance - usage.month);
-  const creditsLeft = Math.max(0, taste + credits - spent);
+  const creditsLeft = Math.max(0, credits - spent);
   return {
     plan,
     planAllowance,
     monthUsed: usage.month,
     planLeft,
-    taste,
     credits,
     spent,
     creditsLeft,
@@ -577,62 +570,13 @@ export async function addCredits(
  * the taste_grants schema is unchanged.
  */
 
-/** Claim the sign-up dollar for this user: mints once per CLAIMED account,
- *  tells the truth about an existing (incl. grandfathered launch) grant.
- *  Fails OPEN (true) on a DB hiccup, like the rest of the gate. */
-export async function claimTasteGrant(
-  userId: string,
-  sql: Sql = db(),
-): Promise<boolean> {
-  try {
-    const rows = await sql`
-      insert into taste_grants (user_id)
-      select ${userId}
-      where exists (
-        select 1 from "user" u
-        where u.id = ${userId} and coalesce(u."isAnonymous", false) = false
-      )
-      on conflict (user_id) do nothing
-      returning user_id`;
-    if (rows.length > 0) return true;
-    const [row] = await sql`select 1 as g from taste_grants where user_id = ${userId}`;
-    return !!row;
-  } catch (e) {
-    console.error("[klappn] claimTasteGrant failed — failing open", e);
-    return true;
-  }
-}
-
-/** Read-side twin for display (billing page): true when the user HAS a grant
- *  or would mint one on their first compose (claimed account) — so the meter
- *  shown always matches what the gate would decide. Never claims. */
-export async function tasteAvailable(
-  userId: string,
-  sql: Sql = db(),
-): Promise<boolean> {
-  try {
-    const [row] = await sql<{ mine: number; claimed: boolean | null }[]>`
-      select
-        (select count(*) from taste_grants where user_id = ${userId})::int as mine,
-        (select coalesce("isAnonymous", false) = false from "user" where id = ${userId}) as claimed`;
-    return Number(row?.mine ?? 0) > 0 || !!row?.claimed;
-  } catch {
-    return true; // fail open, same as the gate
-  }
-}
-
 /** The tokens a user may spend before the gate closes: the free lifetime
  *  taste (IF they hold / can claim a pool grant) plus every credit they've
  *  bought (free plan), or the legacy monthly subscription allowance (paid
  *  plans, until they cancel), or ∞ (owner). */
-export function allowanceFor(
-  plan: PlanId,
-  credits: number,
-  hasTaste = true,
-): number {
-  return plan === "free"
-    ? (hasTaste ? PLANS.free.tokens : 0) + credits
-    : PLANS[plan].tokens;
+export function allowanceFor(plan: PlanId, credits: number): number {
+  // Free buys nothing from the models (2026-08-02) — only bought credits do.
+  return plan === "free" ? credits : PLANS[plan].tokens;
 }
 
 /** The pre-flight QUOTA GATE for every route that starts AI work. Returns null
@@ -644,7 +588,7 @@ export async function assertQuota(userId: string): Promise<Response | null> {
   if (meter.remaining === null || meter.remaining > 0) return null;
   const plan = PLANS[meter.plan] ?? PLANS.free;
   const used = meter.planAllowance ? meter.monthUsed : meter.spent;
-  const limit = meter.planAllowance + meter.taste + meter.credits;
+  const limit = meter.planAllowance + meter.credits;
   const credits = meter.credits;
   // A GUEST IS NOT OUT OF MONEY — THEY ARE OUT OF ACCOUNT (2026-07-29). The
   // dollar only mints for a claimed name, so telling a walk-in to "top up"
@@ -753,11 +697,7 @@ export async function reserveQuota(userId: string): Promise<QuotaReservation> {
       ]);
       const plan = PLANS[billing.plan] ?? PLANS.free;
       const used = usedFor(plan.id, usage);
-      // FREE POOL: the taste only counts if this account holds (or can still
-      // claim) one of the FREE_TASTE_GRANTS pool grants. Claimed here, at the
-      // first compose attempt — sign-ups alone never burn a grant.
-      const taste = plan.id === "free" ? await claimTasteGrant(userId, sql) : true;
-      const limit = allowanceFor(plan.id, credits, taste);
+      const limit = allowanceFor(plan.id, credits);
       const [{ reserved }] = await sql<{ reserved: string | number }[]>`
         select coalesce(sum(est_tokens), 0) as reserved
         from token_reservations where user_id = ${userId}`;

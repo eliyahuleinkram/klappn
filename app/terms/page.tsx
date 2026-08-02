@@ -140,9 +140,9 @@ export default function TermsPage() {
         </p>
         <p>
           Playing the instrument is free and needs no account. AI composition
-          runs on prepaid tokens only. The small launch-era pool of free
-          tastes is closed to new accounts; grants already claimed stay
-          claimed and spend as normal.
+          runs on a plan or on prepaid tokens — there is no free allowance for
+          it. Tokens bought before this change are unaffected and spend as
+          normal.
         </p>
         <p>
           Tokens buy computation, which is spent the moment it runs, so

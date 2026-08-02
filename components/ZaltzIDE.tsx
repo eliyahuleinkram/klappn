@@ -109,7 +109,7 @@ import RoomChat, { type ChatSeed } from "@/components/RoomChat";
  * (⌘K, 2026-08-02; it replaced a one-shot ✎ ask bar that answered in code and
  * could not be asked a follow-up). The instrument is free —
  * no account needed; the machine's asks burn PREPAID tokens (price in open
- * code; the launch taste pool closed 2026-07-26, holders grandfathered).
+ * code; there is no free allowance for the models, 2026-08-02).
  * A guest session is minted the moment you need one, and everything you make
  * rides onto your email whenever you claim it.
  */

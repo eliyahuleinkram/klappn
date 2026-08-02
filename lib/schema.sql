@@ -56,18 +56,17 @@ create index if not exists songs_featured_idx on songs (featured_at) where featu
 alter table songs add column if not exists share_token text;
 create unique index if not exists songs_share_token_idx on songs (share_token) where share_token is not null;
 
--- THE FREE POOL — the lifetime free taste is claimed from a FIXED global pool
--- of grants (lib/billing.ts FREE_TASTE_GRANTS). A grant is claimed the first
--- time an account tries to compose; once the pool is spent, later accounts pay
--- from the first loop. Keeps the launch bill bounded: grants × taste ≈ dollars.
+-- DEAD TABLE (2026-08-02) — the free taste was removed outright: "if you want
+-- to use the AI capabilities of the software you gotta pay". Nothing reads or
+-- writes taste_grants any more (the gate, the meter and the guest merge all
+-- dropped it). The table is LEFT IN PLACE rather than dropped: it is a record
+-- of who was granted what during the launch era, it costs nothing to keep, and
+-- a DROP is the one migration that cannot be undone. Delete it by hand if you
+-- ever want the room back.
 create table if not exists taste_grants (
   user_id    text primary key references "user"(id) on delete cascade,
   created_at timestamptz not null default now()
 );
--- Accounts that already composed keep their taste (grandfathered at migration).
-insert into taste_grants (user_id)
-  select distinct user_id from token_usage
-  on conflict (user_id) do nothing;
 
 create table if not exists parts (
   id          uuid primary key default gen_random_uuid(),

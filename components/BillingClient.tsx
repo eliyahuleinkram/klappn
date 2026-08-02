@@ -43,7 +43,6 @@ interface MeterView {
   planAllowance: number;
   monthUsed: number;
   planLeft: number;
-  taste: number;
   credits: number;
   spent: number;
   creditsLeft: number;
@@ -55,7 +54,6 @@ const FALLBACK: MeterView = {
   planAllowance: 0,
   monthUsed: 0,
   planLeft: 0,
-  taste: 0,
   credits: 0,
   spent: 0,
   creditsLeft: 0,
@@ -145,8 +143,8 @@ export default function BillingClient({ meter }: { meter: MeterView | null }) {
     : subscribed
       ? `${tier?.name ?? legacy?.name}: ${buys(m.planLeft) || "nothing"} left this month. It refills on the 1st.`
       : m.creditsLeft > 0
-        ? `${m.credits > 0 ? "Still yours" : "On the house"}: ${buys(m.creditsLeft) || "a taste"}.`
-        : "Your taste is used up — the machine is waiting.";
+        ? `Still yours: ${buys(m.creditsLeft) || "a little"}.`
+        : "Nothing in the meter — the machine is waiting to be paid.";
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 pb-28 pt-6 sm:pt-8">
@@ -310,8 +308,8 @@ export default function BillingClient({ meter }: { meter: MeterView | null }) {
 
       {/* ONE line of fine print. There were three. */}
       <p className="mt-6 max-w-2xl text-[12.5px] leading-relaxed text-muted/55">
-        No card to look around, and no clock on the free taste — it waits until
-        you use it. Cancel any time; your songs and everything you have written
+        The instrument is free to look around and to play — the machine that
+        writes with you is what you are buying. Cancel any time; your songs and everything you have written
         stay exactly where they are. The card fee is Stripe’s, passed through to
         the cent, and the whole price sheet is{" "}
         <Link

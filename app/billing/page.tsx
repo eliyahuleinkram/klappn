@@ -24,7 +24,8 @@ export default async function BillingPage() {
   }
   if (!userId) return <SignIn />;
 
-  // A DISPLAY READ NEVER MINTS (mint: false) — the taste is claimed by the
+  // A DISPLAY READ NEVER MINTS (mint: false) — vestigial since the taste was
+  // removed (2026-08-02), harmless to keep. Once claimed by the
   // gate, at the moment somebody actually asks the machine for something.
   let meter: Meter | null = null;
   try {

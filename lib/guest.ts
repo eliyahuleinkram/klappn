@@ -5,9 +5,9 @@ import { db } from "./db";
  * GUESTS ARE REAL USERS (2026-07-26, the try-before-any-account pivot): the
  * Better Auth anonymous plugin mints an actual "user" row + session for a
  * visitor who starts making before signing up, so every owned table (songs,
- * sets, sketches, usage, the taste grant) works unchanged — the quota gate
- * included. The free taste is still claimed from the same fixed pool at the
- * first compose, account or not.
+ * sets, sketches, usage) works unchanged — the quota gate included. Nothing is
+ * given away: the models are bought, by a guest and an account alike
+ * (2026-08-02, the taste was removed).
  *
  * When the guest later signs in with a real email, Better Auth links the two
  * and then DELETES the anonymous user — which would cascade-delete everything
@@ -18,9 +18,6 @@ import { db } from "./db";
  *  - token_usage merges by (user, period) sum — spend follows the person
  *  - token_credits / token_reservations move (guests can't buy today, but a
  *    ledger row must never die in a cascade)
- *  - the taste grant moves ONLY if the account doesn't already hold one; a
- *    duplicate grant is dropped (the pool count shrinks by one — that grant
- *    was consumed by the same human, not freed)
  *  - user_billing moves only when the account has no row of its own
  *
  * On error this THROWS: the sign-in fails loudly and the guest session (and
@@ -40,8 +37,8 @@ export async function mergeGuestAccount(
     await sql`update vocal_takes set user_id = ${toUserId} where user_id = ${fromUserId}`;
     await sql`update events set user_id = ${toUserId} where user_id = ${fromUserId}`;
     await sql`update live_links set user_id = ${toUserId} where user_id = ${fromUserId}`;
-    // Usage merges: the free taste meters against LIFETIME usage, so the
-    // guest's spend must land on the account or the taste would refill.
+    // Usage merges: bought credits meter against LIFETIME usage, so a guest's
+    // spend must land on the account or the balance would refill.
     await sql`
       insert into token_usage (user_id, period, tokens)
       select ${toUserId}, period, tokens from token_usage where user_id = ${fromUserId}
@@ -50,12 +47,6 @@ export async function mergeGuestAccount(
     await sql`delete from token_usage where user_id = ${fromUserId}`;
     await sql`update token_reservations set user_id = ${toUserId} where user_id = ${fromUserId}`;
     await sql`update token_credits set user_id = ${toUserId} where user_id = ${fromUserId}`;
-    // The grant follows the person unless the account already has its own.
-    await sql`
-      update taste_grants set user_id = ${toUserId}
-      where user_id = ${fromUserId}
-        and not exists (select 1 from taste_grants where user_id = ${toUserId})`;
-    await sql`delete from taste_grants where user_id = ${fromUserId}`;
     await sql`
       update user_billing set user_id = ${toUserId}
       where user_id = ${fromUserId}

@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     credits = m.credits;
     // The two buckets, flattened for the client: what a month covers plus what
     // never expires. The room only ever asks "is there anything left?".
-    allowanceTokens = m.planAllowance + m.taste + m.credits;
+    allowanceTokens = m.planAllowance + m.credits;
     usedTokens = m.planAllowance ? m.monthUsed : m.spent;
     remainingTokens = m.remaining;
   } catch {

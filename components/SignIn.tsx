@@ -28,7 +28,7 @@ export default function SignIn({
   const [email, setEmail] = useState("");
   // WALK IN (2026-07-26): the door opens without an email — a guest session is
   // minted and the instrument is theirs (playing is free; the machine's
-  // composing is prepaid — the launch taste pool closed 2026-07-26). Eve opens
+  // composing is bought — there is no free taste, 2026-08-02). Eve opens
   // the door BEFORE asking for a name.
   const [walking, setWalking] = useState(false);
   async function walkIn() {
