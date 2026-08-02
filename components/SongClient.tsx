@@ -16,7 +16,14 @@ import type { PartRow, SongRow } from "@/lib/songs";
 import type { SongArrangement, SongFx, SweepControl } from "@/lib/arrange";
 import { openDeep } from "@/lib/seal";
 import { sentenceLabel } from "@/lib/labels";
-import { ENDING_MOVES, endingMoveOf } from "@/lib/endings-catalog";
+import {
+  ENDING_KNOBS,
+  ENDING_MOVES,
+  endingKnobDefault,
+  endingKnobText,
+  endingMoveOf,
+  type EndingKnobField,
+} from "@/lib/endings-catalog";
 import {
   BREAK_BANKS,
   BREAK_KNOBS,
@@ -855,6 +862,17 @@ export default function SongClient({
   const ends =
     (song.plan as { arrangement?: SongArrangement | null } | null)?.arrangement?.ending
       ?.mode === "stop";
+  /** The ending as it stands, and one knob's live value — its own if it has
+   *  one, otherwise the template's default, so a fresh ending's sliders open
+   *  where the sound actually is rather than at zero. */
+  const endShape = (song.plan as { arrangement?: SongArrangement | null } | null)
+    ?.arrangement?.ending ?? {};
+  const endKnob = (field: EndingKnobField): number => {
+    const v = (endShape as Record<string, unknown>)[field];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    const move = endingMoveOf(endShape.tpl ?? "ring");
+    return move ? endingKnobDefault(move, field) : 0;
+  };
 
   /** Change HOW the song ends — its template or a knob. Optimistic like every
    *  other deterministic control, then persisted; the tail is rebuilt from
@@ -902,6 +920,26 @@ export default function SongClient({
         },
       }),
     }).catch(() => void refresh());
+  }
+
+  /** A knob still under the finger: the tail rebuilds in the ear on every
+   *  move, and only the release is written down (the layer knobs' contract). */
+  function slideEnding(patch: Record<string, number>, commit: boolean) {
+    if (commit) return void setEndingShape(patch);
+    setSong((s) => {
+      const pl = s.plan as { arrangement?: SongArrangement | null } & Record<string, unknown>;
+      return {
+        ...s,
+        plan: {
+          ...pl,
+          arrangement: {
+            ...(pl?.arrangement ?? {}),
+            ending: { ...(pl?.arrangement?.ending ?? {}), mode: "stop", ...patch },
+          },
+        } as unknown as Song["plan"],
+      };
+    });
+    refreshArrangement();
   }
 
   async function flipEnding(mode: "stop" | "loop") {
@@ -4371,17 +4409,53 @@ export default function SongClient({
                           void flipEnding("loop");
                         }}
                       />
-                      {ENDING_MOVES.map((m) => (
-                        <MenuRow
-                          key={m.tpl}
-                          word={m.word}
-                          line={m.hint}
-                          onClick={() => {
-                            setEndOpen(false);
-                            void setEndingShape({ tpl: m.tpl });
-                          }}
-                        />
-                      ))}
+                      <div className="mx-1 my-1 h-px bg-white/[0.06]" />
+                      {/* THE ENDING AS AN INSTRUMENT — the break panel's shape,
+                          because that is the one that works: WHAT it is as a
+                          row of chips, WHAT IT DOES as knobs beneath (the user,
+                          2026-08-02: "we need the knobs… make the ui fuck
+                          cleanly"). Six prose rows was a menu to read; this is
+                          a thing to move. The knobs ride live — the tail
+                          rebuilds under your finger and only the release is
+                          written down — and there are four of them, an even
+                          square, so none is stranded alone in half a row. */}
+                      <div className="flex flex-wrap gap-1 px-1.5 pb-1 pt-1.5">
+                        {ENDING_MOVES.map((m) => {
+                          const on = (endShape.tpl ?? "ring") === m.tpl;
+                          return (
+                            <button
+                              key={m.tpl}
+                              title={m.hint}
+                              onClick={() => void setEndingShape({ tpl: m.tpl })}
+                              className={`rounded-full px-2.5 py-1 text-[11px] font-medium leading-none transition active:scale-95 ${
+                                on
+                                  ? "bg-gradient-to-r from-[#ff63c1] to-accent-strong text-white"
+                                  : "text-muted/55 hover:bg-white/[0.06] hover:text-foreground"
+                              }`}
+                            >
+                              {m.word}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="px-1.5 pb-2 text-[10.5px] leading-snug text-muted/50">
+                        {endingMoveOf(endShape.tpl ?? "ring")?.hint}
+                      </p>
+                      <div className="grid grid-cols-2 gap-x-5 gap-y-3 px-1.5 pb-1.5">
+                        {ENDING_KNOBS.map((k) => (
+                          <FxKnob
+                            key={k.field}
+                            label={k.word}
+                            value={endKnob(k.field)}
+                            min={k.min}
+                            max={k.max}
+                            step={"int" in k && k.int ? 1 : (k.max - k.min) / 100}
+                            fmt={(v) => endingKnobText(k.field, v)}
+                            onInput={(v) => slideEnding({ [k.field]: v }, false)}
+                            onCommit={() => slideEnding({ [k.field]: endKnob(k.field) }, true)}
+                          />
+                        ))}
+                      </div>
                     </div>
                   </>
                 )}
