@@ -46,7 +46,9 @@ export async function POST(
 
   // No song_id to stamp (a set-level call) — captured for the corpus all the same.
   const sink = makeCallSink();
-  const order = await arrangeSet(meta, {
+  // The legacy /sets page orders only — the seams the same call now picks are
+  // the room's language (an entry there carries its own transitions table).
+  const { order } = await arrangeSet(meta, {
     onUsage: (t) => void addTokenUsage(userId, t),
     onCall: sink.onCall,
   });

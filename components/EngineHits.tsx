@@ -14,7 +14,20 @@
  *     One tap, no ceremony, no list to build first.
  *   · THE ORDER is optional and secondary. A quiet ＋ on any row puts it in
  *     one; the section only exists once you've made one, and everything about
- *     ordering (↑↓, ✕, ✦ arrange, next →) lives inside it.
+ *     ordering (drag, ✕, ✦ arrange, next →) lives inside it.
+ *
+ * 2026-08-03 — THE NIGHT READS LIKE A SONG. The set was a list of titles with
+ * nothing between them, which is exactly what it sounded like. Now it is a
+ * THREAD: every pair of songs is separated by a SEAM, and the seam says how
+ * the second one arrives ("⟿ Blend", "⟿ Tape stop"). Tap it and the same
+ * capsule opens into the move itself — six templates, one line of prose, and
+ * the knobs — the song page's ending card, in the room. A transition belongs to
+ * the song it BRINGS IN, so it travels with that song when the night is
+ * reordered instead of being pruned like the old pair-keyed hand-offs.
+ *
+ * Ordering is DIRECT: drag a row where you want it (the grip on touch, anywhere
+ * on the row with a mouse) and an accent line shows where it will land. ⌥↑/⌥↓
+ * do the same from the keyboard.
  *
  * The word "lineup" is retired from every surface. The storage key it was
  * saved under is NOT — `klappn-lineup-v1` holds people's real orders, and
@@ -23,10 +36,27 @@
  * Pure view — the room (ZaltzIDE) owns the queue, the pours, the fades.
  */
 
+import { useRef, useState } from "react";
+import {
+  TRANSITION_KNOBS,
+  TRANSITION_MOVES,
+  type TransitionKnobField,
+  type TransitionShape,
+  transitionKnobText,
+  transitionKnobsOf,
+} from "@/lib/transitions-catalog";
+
 export interface LineupHit {
   id: string;
   title: string;
   ready: boolean;
+}
+
+/** A seat in the night. `t` is how THIS song arrives (undefined = the house blend). */
+export interface QueueEntry {
+  id: string;
+  title: string;
+  t?: TransitionShape;
 }
 
 export default function EngineHits({
@@ -34,12 +64,15 @@ export default function EngineHits({
   onClose,
   queue,
   currentIdx,
+  arriving,
   hits,
   onAdd,
   onRemove,
-  onMove,
+  onReorder,
   onPlay,
   onPlayHit,
+  onPrefetch,
+  onTransition,
   onNext,
   onArrange,
   arranging,
@@ -47,21 +80,100 @@ export default function EngineHits({
   open: boolean;
   onClose: () => void;
   /** The SET, when one exists. Empty is the normal, expected state. */
-  queue: { id: string; title: string }[];
+  queue: QueueEntry[];
   /** The row whose song is in the panes right now (null = free play). */
   currentIdx: number | null;
+  /** A move already in the air — the row it is bringing in, and its name. */
+  arriving: { to: number; word: string } | null;
   /** The library — null while it loads; [] = no ready hits yet. */
   hits: LineupHit[] | null;
   onAdd: (id: string) => void;
   onRemove: (i: number) => void;
-  onMove: (i: number, dir: -1 | 1) => void;
+  /** Move the row at `from` so it sits at `to`. */
+  onReorder: (from: number, to: number) => void;
   onPlay: (i: number) => void;
   /** Play a hit straight — the whole song, no set involved. The primary act. */
   onPlayHit: (id: string) => void;
+  /** Warm a song before it's wanted — the swap has to be instant. */
+  onPrefetch: (id: string) => void;
+  /** How the song at `i` arrives. */
+  onTransition: (i: number, patch: Partial<TransitionShape>) => void;
   onNext: () => void;
   onArrange: () => void;
   arranging: boolean;
 }) {
+  const [openSeam, setOpenSeam] = useState<number | null>(null);
+  const [drag, setDrag] = useState<{ from: number; to: number; y: number } | null>(null);
+  const rowsRef = useRef<HTMLDivElement | null>(null);
+  // A drag that ends is not a tap — the click that follows it must not play.
+  const didDrag = useRef(false);
+  // The panel closes → it forgets what was open, so it always comes back clean.
+  // (Adjusted during render, not in an effect: nothing outside React needs to
+  // know, and an effect here would paint the stale card for one frame.)
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    setOpenSeam(null);
+  }
+
+  const startDrag = (from: number, e: React.PointerEvent) => {
+    if (queue.length < 2) return;
+    const centers = () =>
+      Array.from(rowsRef.current?.querySelectorAll<HTMLElement>("[data-set-row]") ?? []).map(
+        (el) => {
+          const r = el.getBoundingClientRect();
+          return r.top + r.height / 2;
+        },
+      );
+    const ys = centers();
+    const startY = e.clientY;
+    didDrag.current = false;
+    setOpenSeam(null);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* the pointer was already gone — the move still tracks on window */
+    }
+    let landing = from;
+    const move = (ev: PointerEvent) => {
+      const dy = ev.clientY - startY;
+      if (!didDrag.current && Math.abs(dy) < 6) return;
+      didDrag.current = true;
+      // The FURTHEST row the finger has passed, not the nearest: going up that
+      // is the topmost centre it is above, going down the lowest it is below.
+      // (Taking the last match in one ascending pass lands one row short every
+      // time you drag upward — seen live.)
+      let to = from;
+      for (let i = 0; i < from; i++)
+        if (ev.clientY < ys[i]) {
+          to = i;
+          break;
+        }
+      if (to === from)
+        for (let i = ys.length - 1; i > from; i--)
+          if (ev.clientY > ys[i]) {
+            to = i;
+            break;
+          }
+      landing = to;
+      setDrag({ from, to, y: dy });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      setDrag(null);
+      if (didDrag.current && landing !== from) onReorder(from, landing);
+      // let the suppressed click through on the NEXT gesture, never this one
+      setTimeout(() => {
+        didDrag.current = false;
+      }, 0);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   if (!open) return null;
   const inOrder = new Map(queue.map((q, i) => [q.id, i + 1]));
   const hasNext = currentIdx != null && currentIdx < queue.length - 1;
@@ -70,7 +182,7 @@ export default function EngineHits({
       <div className="fixed inset-0 z-10" onClick={onClose} aria-hidden />
       {/* PHONE: a fixed sheet under the bar, full-width. DESKTOP: the house
           dropdown, right-aligned under the mark that opened it. */}
-      <div className="fixed inset-x-3 top-[max(3.4rem,calc(env(safe-area-inset-top)_+_3.1rem))] z-20 flex max-h-[min(70dvh,540px)] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72">
+      <div className="fixed inset-x-3 top-[max(3.4rem,calc(env(safe-area-inset-top)_+_3.1rem))] z-20 flex max-h-[min(70dvh,540px)] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80">
         <div className="flex min-h-0 flex-col p-1.5">
           <div className="min-h-0 flex-1 overflow-y-auto">
             {/* ── YOUR HITS — the list, and the whole point. Tap = it plays. */}
@@ -94,13 +206,16 @@ export default function EngineHits({
                     <div
                       key={h.id}
                       className="group flex items-center gap-1.5 rounded-xl px-3 py-2 transition hover:bg-white/[0.05]"
+                      // the moment the eye lands on it, the song is on its way
+                      onPointerEnter={() => h.ready && onPrefetch(h.id)}
                     >
                       <button
                         onClick={() => onPlayHit(h.id)}
+                        onFocus={() => h.ready && onPrefetch(h.id)}
                         disabled={!h.ready}
                         title={
                           h.ready
-                            ? "Pour it into the panes — the fade rides the master"
+                            ? "Play the whole song — write on top of it"
                             : "Still composing — it lands here when it's ready"
                         }
                         className="flex min-w-0 flex-1 items-center gap-2.5 text-left disabled:opacity-40"
@@ -112,15 +227,15 @@ export default function EngineHits({
                           {h.title}
                         </span>
                       </button>
-                      {/* THE SECOND ACT, kept quiet: put it in an order. It
-                          only shows on hover (always on touch), so the list
-                          reads as one clean column of songs. */}
+                      {/* THE SECOND ACT, kept quiet but never hidden: put it in
+                          an order. (A control that appears on hover is a
+                          control that isn't there — the house law.) */}
                       <button
                         onClick={() => onAdd(h.id)}
                         disabled={!h.ready}
                         aria-label="Add to the set"
-                        title={pos ? "Again — a hit can play twice" : "Add to the set"}
-                        className="shrink-0 px-1 text-[13px] leading-none text-muted/45 opacity-0 transition hover:text-accent-strong disabled:opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
+                        title={pos ? "Again — a hit can play twice in a night" : "Add to the set"}
+                        className="shrink-0 px-1 text-[13px] leading-none text-muted/30 transition hover:text-accent-strong disabled:opacity-0 group-hover:text-muted/60"
                       >
                         ＋
                       </button>
@@ -130,7 +245,7 @@ export default function EngineHits({
               </div>
             )}
 
-            {/* ── THE ORDER — only once there is one. Everything about
+            {/* ── THE SET — only once there is one. Everything about
                 sequencing lives in here, out of the way until it's wanted. */}
             {queue.length > 0 && (
               <div className="mt-1 border-t border-white/[0.06] pt-1.5">
@@ -143,78 +258,132 @@ export default function EngineHits({
                     <button
                       onClick={onArrange}
                       disabled={arranging}
-                      title="The machine orders the night — tempo arc, key flow; your ↑↓ always overrides"
+                      title="The machine orders the night and picks how each song arrives — your hands always overrule it"
                       className="rounded-full px-2 py-0.5 text-[11.5px] text-accent-strong/90 transition hover:bg-accent/[0.1] active:scale-[.95] disabled:opacity-50"
                     >
                       {arranging ? <span className="shimmer-text">ordering…</span> : <>✦ arrange</>}
                     </button>
                   )}
                 </div>
-                {queue.map((q, i) => {
-                  const now = i === currentIdx;
-                  return (
-                    <div
-                      key={`${q.id}:${i}`}
-                      className={`group flex items-center gap-1.5 rounded-xl px-3 py-1.5 transition ${
-                        now ? "bg-white/[0.05]" : "hover:bg-white/[0.05]"
-                      }`}
-                    >
-                      <button
-                        onClick={() => onPlay(i)}
-                        title={now ? "In the panes now" : "Pour this one in"}
-                        className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-                      >
-                        {now ? (
-                          <span className="flex h-3 w-3.5 shrink-0 items-end justify-center gap-[2px]" aria-hidden>
-                            {[0, 1, 2].map((b) => (
-                              <span
-                                key={b}
-                                className="eq-bar w-[2.5px] rounded-full bg-accent-strong"
-                                style={{ height: "100%", animationDelay: `${b * 0.18}s` }}
-                              />
-                            ))}
-                          </span>
-                        ) : (
-                          <span className="w-3.5 shrink-0 text-center text-[11px] tabular-nums text-muted/50">
-                            {i + 1}
-                          </span>
+                <div ref={rowsRef}>
+                  {queue.map((q, i) => {
+                    const now = i === currentIdx;
+                    const dragging = drag?.from === i;
+                    const line = drag && drag.to === i && drag.from !== i;
+                    return (
+                      <div key={`${q.id}:${i}`}>
+                        {/* THE SEAM — how this song arrives. One capsule on a
+                            hairline; tap and it opens into the move itself. */}
+                        {i > 0 && (
+                          <Seam
+                            shape={q.t}
+                            open={openSeam === i}
+                            onToggle={() => setOpenSeam((v) => (v === i ? null : i))}
+                            onPatch={(patch) => onTransition(i, patch)}
+                          />
                         )}
-                        <span
-                          className={`min-w-0 flex-1 truncate text-[12.5px] ${
-                            now ? "font-medium text-foreground" : "text-foreground/75"
-                          }`}
+                        {/* the drop line — where the row you're dragging lands */}
+                        {line && drag.to < drag.from && <DropLine />}
+                        <div
+                          data-set-row
+                          className={`group flex items-center gap-1.5 rounded-xl px-3 py-1.5 transition-colors ${
+                            now ? "bg-white/[0.05]" : "hover:bg-white/[0.05]"
+                          } ${dragging ? "relative z-10 bg-white/[0.07] shadow-[0_12px_30px_-12px_rgba(0,0,0,.9)]" : ""}`}
+                          style={
+                            dragging
+                              ? { transform: `translateY(${drag.y}px)`, opacity: 0.95 }
+                              : undefined
+                          }
+                          onPointerEnter={() => onPrefetch(q.id)}
                         >
-                          {q.title}
-                        </span>
-                      </button>
-                      <span className="flex shrink-0 items-center opacity-0 transition group-hover:opacity-100 pointer-coarse:opacity-100">
-                        <button
-                          onClick={() => onMove(i, -1)}
-                          disabled={i === 0}
-                          aria-label="Earlier"
-                          className="p-1 text-[11px] text-muted/50 transition hover:text-foreground disabled:opacity-30"
-                        >
-                          ↑
-                        </button>
-                        <button
-                          onClick={() => onMove(i, 1)}
-                          disabled={i === queue.length - 1}
-                          aria-label="Later"
-                          className="p-1 text-[11px] text-muted/50 transition hover:text-foreground disabled:opacity-30"
-                        >
-                          ↓
-                        </button>
-                        <button
-                          onClick={() => onRemove(i)}
-                          aria-label="Out of the set"
-                          className="p-1 text-[11px] text-muted/50 transition hover:text-red-300"
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    </div>
-                  );
-                })}
+                          <button
+                            onClick={() => {
+                              if (didDrag.current) return; // that was a drag
+                              onPlay(i);
+                            }}
+                            onPointerDown={(e) => {
+                              // MOUSE: drag from anywhere on the row. TOUCH:
+                              // from the grip only — a finger dragging a row
+                              // inside a scrolling sheet has to mean scroll.
+                              if (e.pointerType === "mouse" && e.button === 0) startDrag(i, e);
+                            }}
+                            onKeyDown={(e) => {
+                              // ⌥↑ / ⌥↓ — the same move, from the keyboard
+                              if (!e.altKey) return;
+                              if (e.key === "ArrowUp" && i > 0) {
+                                e.preventDefault();
+                                onReorder(i, i - 1);
+                              } else if (e.key === "ArrowDown" && i < queue.length - 1) {
+                                e.preventDefault();
+                                onReorder(i, i + 1);
+                              }
+                            }}
+                            title={
+                              now
+                                ? "Playing — this is the room right now"
+                                : "Take it — it arrives the way the seam above says"
+                            }
+                            className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                          >
+                            {now ? (
+                              <span className="flex h-3 w-3.5 shrink-0 items-end justify-center gap-[2px]" aria-hidden>
+                                {[0, 1, 2].map((b) => (
+                                  <span
+                                    key={b}
+                                    className="eq-bar w-[2.5px] rounded-full bg-accent-strong"
+                                    style={{ height: "100%", animationDelay: `${b * 0.18}s` }}
+                                  />
+                                ))}
+                              </span>
+                            ) : (
+                              <span className="w-3.5 shrink-0 text-center text-[11px] tabular-nums text-muted/50">
+                                {i + 1}
+                              </span>
+                            )}
+                            <span
+                              className={`min-w-0 flex-1 truncate text-[12.5px] ${
+                                now ? "font-medium text-foreground" : "text-foreground/75"
+                              }`}
+                            >
+                              {q.title}
+                            </span>
+                            {/* the move is already in the air — say so, in its
+                                own name, where the eye already is */}
+                            {arriving?.to === i && (
+                              <span className="shimmer-text shrink-0 text-[10.5px] lowercase text-accent-strong">
+                                {arriving.word}…
+                              </span>
+                            )}
+                          </button>
+                          <span className="flex shrink-0 items-center">
+                            {queue.length > 1 && (
+                              <span
+                                onPointerDown={(e) => {
+                                  if (e.pointerType !== "mouse") startDrag(i, e);
+                                }}
+                                role="button"
+                                tabIndex={-1}
+                                aria-label="Drag to reorder"
+                                title="Drag it where it belongs"
+                                className="cursor-grab touch-none px-1 text-muted/30 transition hover:text-foreground/70 active:cursor-grabbing"
+                              >
+                                <GripMark />
+                              </span>
+                            )}
+                            <button
+                              onClick={() => onRemove(i)}
+                              aria-label="Out of the set"
+                              className="p-1 text-[11px] text-muted/40 transition hover:text-red-300"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        </div>
+                        {line && drag.to > drag.from && <DropLine />}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -230,5 +399,190 @@ export default function EngineHits({
         </div>
       </div>
     </>
+  );
+}
+
+/** ONE song running into the next: a wave that straightens into an arrow.
+ *  Drawn, never typed — a squiggle-arrow character is missing from half the
+ *  fonts in the world and renders as a box on the machines that lack it. */
+function SeamMark() {
+  return (
+    <svg width="15" height="10" viewBox="0 0 15 10" fill="none" aria-hidden className="shrink-0">
+      <path
+        d="M1 5c1.3-3 2.7 3 4 0s2.7 3 4 0"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        opacity=".85"
+      />
+      <path
+        d="M9.6 5H13.4M11.9 3.3 13.6 5l-1.7 1.7"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** The one place a finger may take hold of a row. Drawn for the same reason
+ *  the seam is: a braille-dots character is a box on the machines that lack it. */
+function GripMark() {
+  return (
+    <svg width="9" height="12" viewBox="0 0 9 12" aria-hidden className="block">
+      {[3, 6, 9].map((y) => (
+        <g key={y} fill="currentColor">
+          <circle cx="2.5" cy={y - 0.5} r="1" />
+          <circle cx="6.5" cy={y - 0.5} r="1" />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/** Where the dragged row will land. */
+function DropLine() {
+  return (
+    <div className="mx-3 my-0.5 h-px bg-gradient-to-r from-transparent via-accent-strong to-transparent shadow-[0_0_10px_rgba(224,49,156,.7)]" />
+  );
+}
+
+/**
+ * THE SEAM — one machined capsule on a hairline, saying how the next song
+ * arrives; tapping it opens the same object at full density (the song page's
+ * closed-seam ↔ open-picker language). Chips are WHAT it is, the line under
+ * them is what it does to the ear, the knobs are how much.
+ */
+function Seam({
+  shape,
+  open,
+  onToggle,
+  onPatch,
+}: {
+  shape: TransitionShape | undefined;
+  open: boolean;
+  onToggle: () => void;
+  onPatch: (patch: Partial<TransitionShape>) => void;
+}) {
+  const { move, knobs } = transitionKnobsOf(shape);
+  if (!open)
+    return (
+      <div className="flex items-center gap-2 px-3 py-1">
+        <span className="h-px flex-1 bg-white/[0.07]" />
+        <button
+          onClick={onToggle}
+          title={`${move.word} — ${move.hint}`}
+          className="flex h-6 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 text-[11px] leading-none text-muted/60 transition hover:border-accent/30 hover:bg-accent/[0.08] hover:text-accent-strong"
+        >
+          <SeamMark />
+          {move.word}
+        </button>
+        <span className="h-px flex-1 bg-white/[0.07]" />
+      </div>
+    );
+  return (
+    <div className="animate-fade-in mx-1.5 my-1 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-1.5">
+      <div className="flex items-center gap-2 px-1 pb-1">
+        <span className="text-[11px] uppercase tracking-[0.18em] text-muted/45">arrives</span>
+        <span className="h-px flex-1 bg-white/[0.06]" />
+        <button
+          onClick={onToggle}
+          aria-label="Close"
+          className="px-1 text-[11px] leading-none text-muted/45 transition hover:text-foreground"
+        >
+          ✕
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1 px-0.5 pb-1">
+        {TRANSITION_MOVES.map((m) => {
+          const on = m.tpl === move.tpl;
+          return (
+            <button
+              key={m.tpl}
+              title={m.hint}
+              // a template carries its OWN knobs — switching move resets to
+              // what that move wants, exactly like picking a break or an ending
+              onClick={() => onPatch({ tpl: m.tpl, ...m.def })}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium leading-none transition active:scale-95 ${
+                on
+                  ? "bg-gradient-to-r from-[#ff63c1] to-accent-strong text-white"
+                  : "text-muted/55 hover:bg-white/[0.06] hover:text-foreground"
+              }`}
+            >
+              {m.word}
+            </button>
+          );
+        })}
+      </div>
+      <p className="px-1 pb-2 text-[10.5px] leading-snug text-muted/50">{move.hint}</p>
+      <div className="grid grid-cols-2 gap-x-5 gap-y-3 px-1 pb-1 [&>*:first-child]:col-span-2">
+        {TRANSITION_KNOBS.map((k) => {
+          const live = move.uses.includes(k.field as TransitionKnobField);
+          return (
+            <SeamKnob
+              key={k.field}
+              label={k.word}
+              value={knobs[k.field as TransitionKnobField]}
+              min={k.min}
+              max={k.max}
+              step={"int" in k && k.int ? 1 : (k.max - k.min) / 100}
+              live={live}
+              // never a control that vanishes: a knob this move has no use for
+              // stays where it is and says so
+              why={live ? "" : `${move.word} has nothing to shape — it just lands.`}
+              fmt={(v) => transitionKnobText(k.field as TransitionKnobField, v)}
+              onInput={(v) => onPatch({ [k.field]: v })}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SeamKnob({
+  label,
+  value,
+  min,
+  max,
+  step,
+  live,
+  why,
+  fmt,
+  onInput,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  live: boolean;
+  why: string;
+  fmt: (v: number) => string;
+  onInput: (v: number) => void;
+}) {
+  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min || 1)) * 100));
+  return (
+    <div className={live ? "" : "opacity-35"} title={why || undefined}>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="truncate text-[11.5px] text-foreground/75">{label}</span>
+        <span className="font-mono text-[10.5px] tabular-nums text-muted/50">{fmt(value)}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={!live}
+        onChange={(e) => onInput(Number(e.target.value))}
+        aria-label={label}
+        className="slider mt-1.5"
+        style={{
+          background: `linear-gradient(to right, var(--accent) ${pct}%, rgba(255,255,255,0.08) ${pct}%)`,
+        }}
+      />
+    </div>
   );
 }

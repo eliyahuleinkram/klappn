@@ -40,12 +40,12 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
   try {
     const sink = makeCallSink();
-    const order = await arrangeSet(songs, {
+    const { order, seams } = await arrangeSet(songs, {
       onUsage: (t) => void addTokenUsage(userId, t),
       onCall: sink.onCall,
     });
     await sink.flush();
-    return Response.json({ order });
+    return Response.json({ order, seams });
   } catch (e) {
     console.error("[klappn] lineup arrange failed:", e);
     return Response.json({ error: "arrange failed" }, { status: 500 });

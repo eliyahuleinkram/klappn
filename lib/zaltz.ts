@@ -1112,6 +1112,14 @@ export function zaltzCycleNow(): number {
   return (at - t0) * cps;
 }
 
+/** The tempo the engine is ACTUALLY running, cycles (= bars) per second.
+ *  Null when nothing is loaded. A live gesture has to ask the transport what
+ *  the room is doing — reading setcpm out of a whole-song program finds
+ *  whatever the last section happened to say. */
+export function zaltzCpsNow(): number | null {
+  return pattern != null && cps > 0 ? cps : null;
+}
+
 let pausedAt: number | null = null;
 /** Pause = the lookahead stops feeding (scheduled tails ring out). */
 export function zaltzPause(): void {

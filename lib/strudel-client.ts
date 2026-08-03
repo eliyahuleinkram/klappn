@@ -17,7 +17,7 @@
  * So we mirror strudel.cc's prebake exactly.
  */
 
-import { isZaltz, zaltzActive, zaltzApplyOrbitGains, zaltzBootError, zaltzBootFailed, zaltzCycleNow, zaltzEvaluate, zaltzHush, zaltzLiveNote, zaltzOrbitGains, zaltzPause, zaltzResume, zaltzSetCps, zaltzStop } from "./zaltz";
+import { isZaltz, zaltzActive, zaltzApplyOrbitGains, zaltzBootError, zaltzBootFailed, zaltzCpsNow, zaltzCycleNow, zaltzEvaluate, zaltzHush, zaltzLiveNote, zaltzOrbitGains, zaltzPause, zaltzResume, zaltzSetCps, zaltzStop } from "./zaltz";
 import { extractHydra, stripHydraBlock } from "./hydra-embed";
 import { capReverbs } from "./reverb-cap";
 import {
@@ -4971,6 +4971,23 @@ export async function unlockAudio(): Promise<void> {
  *  BAR-ALIGNS the evaluate start (see LiveListenClient) — no scheduler surgery. */
 export function schedulerCycleNow(): number {
   return schedulerCycle();
+}
+
+/**
+ * The tempo the transport is ACTUALLY running, in cycles (= bars) per second.
+ * Null when nothing is playing.
+ *
+ * The one number a live gesture may trust. Reading `setcpm` back out of a
+ * whole-song program finds whatever the LAST section happened to say — a
+ * transition once left the room crawling because a section deep inside the
+ * arrangement said setcpm(2). Ask the engine that is sounding instead.
+ */
+export function liveCps(): number | null {
+  if (zaltzActive()) {
+    const z = zaltzCpsNow();
+    if (z) return z;
+  }
+  return schedulerCps() ?? (arrangement?.cps && arrangement.cps > 0 ? arrangement.cps : null);
 }
 
 /**

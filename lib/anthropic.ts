@@ -10,6 +10,11 @@ import {
   type LoopControl,
 } from "./controls";
 import { cleanLabel, sentenceLabel } from "./labels";
+import {
+  TRANSITION_MOVES,
+  sanitizeTransition,
+  type TransitionShape,
+} from "./transitions-catalog";
 import { beatsPerBar, paramRange } from "./playback";
 import {
   GM_SOUNDS,
@@ -1331,12 +1336,20 @@ export async function generateBreaks(
   return out.slice(0, 1);
 }
 
-const ARRANGE_SET_SYSTEM = `You are ordering finished songs into ONE continuous set. You get each song's tempo, key, genre and a one-line description. Choose the order that flows best as a single night: a coherent tempo arc, compatible keys at each hand-off, energy building where it should.
-Output ONLY JSON, no prose/fences: {"order":["<id>", …]} — every given id exactly once.`;
+const ARRANGE_SET_SYSTEM = `You are ordering finished songs into ONE continuous set, and choosing how each song walks on.
+You get each song's tempo, key, genre and a one-line description. Choose the order that flows best as a single night: a coherent tempo arc, compatible keys at each hand-off, energy building where it should.
+Then, for EVERY song except the one you put first, choose the move that brings it in:
+${TRANSITION_MOVES.map((m) => `- ${m.tpl}: ${m.hint}`).join("\n")}
+Read the pair: near-identical tempo and compatible keys can blend or sweep; a big jump in tempo or energy wants a cut, a lift or a tape stop; a drop into something harder earns a lift. Do not use the same move at every seam.
+Knobs, all optional (sensible defaults exist): "lands" = the bar-line it arrives on (0,1,2,4,8 — 4 or 8 for anything ceremonial), "bars" = how long the move takes (1-8), "depth"/"tone"/"space" = 0-1.
+Output ONLY JSON, no prose/fences: {"order":["<id>", …],"seams":{"<id>":{"tpl":"…","lands":4,"bars":2,"depth":0.8,"tone":0.5,"space":0.3}, …}} — every given id in order exactly once; seams keyed by the id of the song ARRIVING.`;
 
-/** Order a set's songs into one flowing night (ONE cheap call — it reads
- *  metadata, not code). Returns the entry ids in play order; any id the model
- *  drops is appended so a song can never fall out of the set. */
+/** Order a set's songs into one flowing night, and pick each hand-off (ONE
+ *  cheap call — it reads metadata, not code). Returns the entry ids in play
+ *  order; any id the model drops is appended so a song can never fall out of
+ *  the set. `seams` is keyed by the id of the song each move brings in — the
+ *  same division of labour as a song's ending: the machine picks the move and
+ *  its knobs, and the knobs stay under the DJ's fingers afterwards. */
 export async function arrangeSet(
   songs: {
     id: string;
@@ -1347,8 +1360,9 @@ export async function arrangeSet(
     summary?: string;
   }[],
   cfg?: ClaudeConfig,
-): Promise<string[]> {
-  if (mockEnabled(cfg?.mock) || songs.length < 2) return songs.map((s) => s.id);
+): Promise<{ order: string[]; seams: Record<string, TransitionShape> }> {
+  if (mockEnabled(cfg?.mock) || songs.length < 2)
+    return { order: songs.map((s) => s.id), seams: {} };
   const user = songs
     .map(
       (s) =>
@@ -1360,7 +1374,7 @@ export async function arrangeSet(
     ...ROUTE.setOrder,
     trace: { kind: "arrange" },
   });
-  const j = parseJson<{ order?: unknown[] }>(raw);
+  const j = parseJson<{ order?: unknown[]; seams?: Record<string, unknown> }>(raw);
   const valid = new Set(songs.map((s) => s.id));
   const out: string[] = [];
   const used = new Set<string>();
@@ -1371,7 +1385,15 @@ export async function arrangeSet(
     }
   }
   for (const s of songs) if (!used.has(s.id)) out.push(s.id);
-  return out;
+  // A seam the model invented for a song that isn't here is dropped; anything
+  // it left out simply keeps the house move. Nothing it says can be malformed
+  // enough to matter — the catalog clamps every knob.
+  const seams: Record<string, TransitionShape> = {};
+  for (const [id, shape] of Object.entries(j?.seams ?? {})) {
+    if (valid.has(id) && shape && typeof shape === "object")
+      seams[id] = sanitizeTransition(shape);
+  }
+  return { order: out, seams };
 }
 
 const LABEL_SYSTEM = `You write the tweak-knob labels for a finished instrumental loop, for a

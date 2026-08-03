@@ -19,13 +19,19 @@ import { attachHydraBlock } from "@/lib/hydra-embed";
 import { openDeep } from "@/lib/seal";
 import {
   applyOrbitGains,
+  audioClockWait,
   disableLiveMic,
   enableLiveMic,
   ensurePerfFx,
   fadeMaster,
   getBroadcastStream,
+  liveCps,
   playPart,
+  preloadSamples,
+  schedulerCycleNow,
   setLiveCps,
+  triggerLiveNote,
+  warmSounds,
   setLiveMicDevice,
   setLiveMicFx,
   setLiveMicVoice,
@@ -51,7 +57,14 @@ import {
 } from "@/components/DeckKit";
 import { isDead, publishStream, type Broadcast } from "@/lib/rtc";
 import { extractHydra } from "@/lib/hydra-embed";
-import EngineHits, { type LineupHit } from "@/components/EngineHits";
+import EngineHits, { type LineupHit, type QueueEntry } from "@/components/EngineHits";
+import {
+  TRANSITION_SOUNDS,
+  sanitizeTransition,
+  transitionKnobsOf,
+  transitionPlan,
+  type TransitionShape,
+} from "@/lib/transitions-catalog";
 import { buildPlayEntry, type HomePart, type HomePlan } from "@/lib/home-sections";
 import { buildArrangement } from "@/lib/arrange";
 import { stripHydraBlock } from "@/lib/hydra-embed";
@@ -261,6 +274,17 @@ function stripSetcpm(code: string): string {
     .filter((l) => !/^\s*setcpm\s*\(/.test(l))
     .join("\n")
     .trim();
+}
+
+/** A program's tempo in CYCLES per second — and a cycle is a bar, which is
+ *  what a transition measures itself in. Its LAST setcpm wins, exactly as
+ *  evaluate does. Null when the code never says. */
+function cpsOfCode(code: string): number | null {
+  let cpm: number | null = null;
+  for (const m of code.matchAll(/\bsetcpm\(\s*([0-9.]+)\s*(?:\/\s*([0-9.]+))?\s*\)/g)) {
+    cpm = Number(m[1]) / (m[2] ? Number(m[2]) : 1);
+  }
+  return cpm != null && cpm > 0 ? cpm / 60 : null;
 }
 
 
@@ -1536,7 +1560,10 @@ export default function ZaltzIDE({
   // everything live-coded on top leaves with the next pour. The queue lives in
   // localStorage like the bench; the pour rides the master fade + the live
   // room's own seamless swap.
-  const [lineup, setLineupState] = useState<{ id: string; title: string }[]>([]);
+  const [lineup, setLineupState] = useState<QueueEntry[]>([]);
+  /** The night, readable from a long-lived callback (the transition runner). */
+  const lineupRef = useRef<QueueEntry[]>([]);
+  lineupRef.current = lineup;
   // Hydrate AFTER mount — the page is server-rendered, and a localStorage
   // read in the initial state makes the header's count differ between the
   // server's HTML and the client's first paint (seen live: hydration error).
@@ -1545,14 +1572,22 @@ export default function ZaltzIDE({
       const raw = JSON.parse(localStorage.getItem("klappn-lineup-v1") || "[]");
       if (Array.isArray(raw))
         setLineupState(
-          raw.filter((e) => e && typeof e.id === "string" && typeof e.title === "string"),
+          raw
+            .filter((e) => e && typeof e.id === "string" && typeof e.title === "string")
+            // a stored transition is data from an older build or a hand-edited
+            // store — it comes back through the catalog or not at all
+            .map((e) => ({
+              id: e.id,
+              title: e.title,
+              ...(e.t ? { t: sanitizeTransition(e.t) } : {}),
+            })),
         );
     } catch {
       /* private mode / bad json — an empty night */
     }
   }, []);
   const setLineup = useCallback(
-    (up: (prev: { id: string; title: string }[]) => { id: string; title: string }[]) => {
+    (up: (prev: QueueEntry[]) => QueueEntry[]) => {
       setLineupState((prev) => {
         const next = up(prev);
         try {
@@ -1589,6 +1624,10 @@ export default function ZaltzIDE({
   const pourCache = useRef(
     new Map<string, { music: string; visual: string }>(),
   );
+  /** Songs already fetched, built and sample-warmed — a hover only pays once. */
+  const songWarmedRef = useRef(new Set<string>());
+  /** The bench's own tempo, where a long-lived callback can read it. */
+  const baseCpsRef = useRef<number | null>(null);
   const masterLevelRef = useRef(master);
   masterLevelRef.current = master;
   // The crate opens → the library loads once (a session appears if needed).
@@ -1653,14 +1692,24 @@ export default function ZaltzIDE({
    * when it came straight from hits — a direct play is free play, so nothing
    * pretends a "next" is queued.
    */
-  const pourById = useCallback(
-    async (id: string, title: string, orderIdx: number | null) => {
-      const entry = { id, title };
+  /**
+   * THE SONG, BUILT AND KEPT — one whole-song program plus its picture.
+   *
+   * Split out from the pour (2026-08-03) so it can run BEFORE anybody asks for
+   * it: the moment a hit is under the cursor, or the moment it becomes the next
+   * song in the night, it is fetched, built and its samples are pulled into
+   * memory. A transition that has to wait on the network is not a transition,
+   * it is a gap — and the first bar of a cold song drops out while its samples
+   * load, which is the one thing the crowd hears.
+   */
+  const bundleFor = useCallback(
+    async (id: string): Promise<{ music: string; visual: string } | null> => {
+      const entry = { id };
       let bundle = pourCache.current.get(entry.id);
       if (!bundle) {
         try {
           const r = await fetch(`/api/songs/${entry.id}`, { cache: "no-store" });
-          if (!r.ok) return;
+          if (!r.ok) return null;
           const d = openDeep(
             (await r.json().catch(() => null)) as {
               song?: {
@@ -1691,7 +1740,7 @@ export default function ZaltzIDE({
           );
           if (!arr?.program?.trim()) {
             setNotice("Nothing playable in that one yet — it joins when a loop lands.");
-            return;
+            return null;
           }
           const visual = (
             (entryPlay?.sections?.[0]?.code ? extractHydra(entryPlay.sections[0].code) : "") ??
@@ -1713,12 +1762,48 @@ export default function ZaltzIDE({
           bundle = { music: [...cpm, `$: ${expr}`].join("\n"), visual };
           pourCache.current.set(entry.id, bundle);
         } catch {
-          return;
+          return null;
         }
       }
+      return bundle;
+    },
+    [],
+  );
+  /** Warm a song before anybody asks for it — the code AND its samples. */
+  const prefetchEntry = useCallback(
+    (id: string) => {
+      if (!id || songWarmedRef.current.has(id)) return;
+      songWarmedRef.current.add(id);
+      void (async () => {
+        const b = await bundleFor(id);
+        if (!b) {
+          songWarmedRef.current.delete(id); // it failed; a later hover may not
+          return;
+        }
+        try {
+          await preloadSamples([b.music]);
+        } catch {
+          /* the engine pulls them at play time — one bar late, never silent */
+        }
+      })();
+    },
+    [bundleFor],
+  );
+  const pourById = useCallback(
+    async (
+      id: string,
+      title: string,
+      orderIdx: number | null,
+      opts?: { fade?: boolean },
+    ) => {
+      const entry = { id, title };
+      const bundle = await bundleFor(id);
+      if (!bundle) return;
       // The FADE — the master dips under the swap and comes home after it
       // lands (the auto-eval's ~700ms debounce + evaluate sit inside the dip).
-      if (stateRef.current.playing) {
+      // A TRANSITION owns the master itself, and passes fade:false — two hands
+      // on the same fader is how a swap ends up louder than it started.
+      if (stateRef.current.playing && opts?.fade !== false) {
         fadeMaster(0.06, 0.45);
         setTimeout(() => fadeMaster(masterLevelRef.current, 1.2), 1500);
       }
@@ -1777,14 +1862,6 @@ export default function ZaltzIDE({
     },
     [lineupHits, pourById],
   );
-  /** Play the order's row i — keeps its seat, so "next →" knows where it is. */
-  const pourSong = useCallback(
-    (i: number) => {
-      const e = lineup[i];
-      if (e) void pourById(e.id, e.title, i);
-    },
-    [lineup, pourById],
-  );
   const addToLineup = useCallback(
     (id: string) => {
       const h = lineupHits?.find((x) => x.id === id);
@@ -1802,17 +1879,39 @@ export default function ZaltzIDE({
     },
     [setLineup],
   );
-  const moveLineup = useCallback(
-    (i: number, dir: -1 | 1) => {
-      const j = i + dir;
+  /** Take the row at `from` out and drop it in at `to` — the drag, and ⌥↑/⌥↓.
+   *  A splice, not a swap: dragging a song three rows down should walk past
+   *  the other three, not trade places with the one it landed on. */
+  const reorderLineup = useCallback(
+    (from: number, to: number) => {
       setLineup((prev) => {
-        if (j < 0 || j >= prev.length) return prev;
+        if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length)
+          return prev;
         const next = [...prev];
-        [next[i], next[j]] = [next[j], next[i]];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
         return next;
       });
-      setLineupIdx((prev) =>
-        prev == null ? prev : prev === i ? j : prev === j ? i : prev,
+      setLineupIdx((prev) => {
+        if (prev == null) return prev;
+        if (prev === from) return to;
+        // the playing song keeps its seat while the night rearranges around it
+        if (from < prev && to >= prev) return prev - 1;
+        if (from > prev && to <= prev) return prev + 1;
+        return prev;
+      });
+    },
+    [setLineup],
+  );
+  /** How the song at `i` arrives. Zero AI, zero network — a knob is a knob. */
+  const setTransition = useCallback(
+    (i: number, patch: Partial<TransitionShape>) => {
+      setLineup((prev) =>
+        prev.map((e, k) =>
+          k === i
+            ? { ...e, t: sanitizeTransition({ ...transitionKnobsOf(e.t).knobs, ...e.t, ...patch }) }
+            : e,
+        ),
       );
     },
     [setLineup],
@@ -1840,18 +1939,50 @@ export default function ZaltzIDE({
         return;
       }
       if (!r.ok) return;
-      const d = (await r.json().catch(() => ({}))) as { order?: string[] };
+      const d = (await r.json().catch(() => ({}))) as {
+        order?: string[];
+        seams?: Record<string, TransitionShape>;
+      };
       const order = (Array.isArray(d.order) ? d.order : [])
         .map(Number)
         .filter((n) => Number.isInteger(n) && n >= 0 && n < lineup.length);
       for (let k = 0; k < lineup.length; k++) if (!order.includes(k)) order.push(k);
       const current = lineupIdx;
-      setLineup(() => order.map((k) => lineup[k]));
+      // The machine ORDERS the night and says how each song walks on — the
+      // same division of labour as a song's ending: it picks the move and the
+      // knobs, your hands own them from then on. A seam is keyed by the song
+      // it BRINGS IN (the first one has nothing to arrive from).
+      setLineup(() =>
+        order.map((k, seat) => {
+          const e = lineup[k];
+          const picked = seat > 0 ? d.seams?.[String(k)] : undefined;
+          return picked ? { ...e, t: sanitizeTransition(picked) } : e;
+        }),
+      );
       if (current != null) setLineupIdx(order.indexOf(current));
     } finally {
       setArranging(false);
     }
   }, [arranging, lineup, lineupIdx, setLineup]);
+  /**
+   * THE NEXT SONG IS ALWAYS ALREADY HERE. Whatever sits after the one playing
+   * is fetched, built and sample-warmed the moment it becomes next — and the
+   * gestures' own one-shots go with it, because a cold soundfont fires late or
+   * not at all, and "late" is the entire drop.
+   */
+  const soundsWarmed = useRef(false);
+  useEffect(() => {
+    const next = lineupIdx == null ? lineup[0] : lineup[lineupIdx + 1];
+    if (next) prefetchEntry(next.id);
+    if (lineup.length > 1 && !soundsWarmed.current) {
+      soundsWarmed.current = true;
+      try {
+        void warmSounds(TRANSITION_SOUNDS);
+      } catch {
+        /* engine not up — the first riser pays for itself */
+      }
+    }
+  }, [lineup, lineupIdx, prefetchEntry]);
 
   const killGainFor = useCallback(
     (orbit: number): number | undefined => {
@@ -1905,13 +2036,9 @@ export default function ZaltzIDE({
   };
 
   // The code's own tempo (its LAST setcpm) — what the nudge multiplies.
-  const baseCps = useMemo(() => {
-    let cpm: number | null = null;
-    for (const m of strudel.matchAll(/\bsetcpm\(\s*([0-9.]+)\s*(?:\/\s*([0-9.]+))?\s*\)/g)) {
-      cpm = Number(m[1]) / (m[2] ? Number(m[2]) : 1);
-    }
-    return cpm != null && cpm > 0 ? cpm / 60 : null;
-  }, [strudel]);
+  const baseCps = useMemo(() => cpsOfCode(strudel), [strudel]);
+  // …and the same number where a long-lived callback can read it.
+  baseCpsRef.current = baseCps;
   const applyNudge = useCallback(
     (n: number) => {
       if (baseCps == null) return;
@@ -1928,6 +2055,203 @@ export default function ZaltzIDE({
     setNudge(n);
     applyNudge(n);
   };
+  // ── THE TRANSITION (2026-08-03) ────────────────────────────────────────────
+  // A song's ENDING is material — a tail, written as Strudel. A TRANSITION is a
+  // GESTURE: both songs are already whole, so nothing is written anywhere. The
+  // catalog hands us a pure curve (lib/transitions-catalog) and this is the
+  // hand that follows it: master, filter, echo, reverb, tape speed, one or two
+  // one-shots, and the single moment the record changes.
+  //
+  // THREE LAWS, each of them a way to ruin a night:
+  //  1. THE ROOM COMES BACK EXACTLY. Every dial the gesture borrows is restored
+  //     from YOUR state (perfRef/master/nudge), never from what the curve last
+  //     said — otherwise the filter is left leaning and the rest of the set is
+  //     quietly wrong.
+  //  2. THE DROP IS ON THE GRID. The gesture starts its own swap offset EARLY,
+  //     so the new song lands ON the bar line instead of a bar after it.
+  //  3. THE LAST PRESS WINS. A second call kills the first mid-flight and tidies
+  //     up after it — a pending move must never be able to freeze the controls.
+  const transitRef = useRef<{
+    alive: boolean;
+    timers: ReturnType<typeof setTimeout>[];
+    ticker: ReturnType<typeof setInterval> | null;
+    /** The tempo the room was running when the move started. */
+    cps: number;
+    /** Has the record already changed? */
+    swapped: boolean;
+  } | null>(null);
+  const [arriving, setArriving] = useState<{ to: number; word: string } | null>(null);
+  /** The room's REAL tempo in cycles (= bars) per second — asked of the engine
+   *  that is sounding, never parsed back out of the code (a whole-song program
+   *  carries a setcpm per section, and the last one wins the regex). Falls back
+   *  to the bench's own tempo when nothing is playing yet. */
+  const roomCps = useCallback((): number | null => {
+    const live = liveCps();
+    if (live && live > 0) return live;
+    const b = baseCpsRef.current;
+    return b != null && b > 0 ? b * (1 + nudgeRef.current / 100) : null;
+  }, []);
+  /** Put every borrowed dial back where YOU left it. The TEMPO is the one
+   *  exception: once the record has changed, the new song's own setcpm owns it
+   *  and writing anything here would drag it to the old song's speed. */
+  const releaseDeck = useCallback((restoreCps: number | null) => {
+    try {
+      fadeMaster(masterLevelRef.current, 0.25);
+    } catch {
+      /* engine gone — the dial still remembers */
+    }
+    try {
+      ensurePerfFx();
+      setLivePerf(perfRef.current);
+    } catch {
+      /* ditto */
+    }
+    if (restoreCps) {
+      try {
+        setLiveCps(restoreCps);
+      } catch {
+        /* the next evaluate re-asserts tempo */
+      }
+    }
+  }, []);
+  const endTransition = useCallback(() => {
+    const ctl = transitRef.current;
+    if (!ctl) return;
+    ctl.alive = false;
+    ctl.timers.forEach(clearTimeout);
+    if (ctl.ticker) clearInterval(ctl.ticker);
+    transitRef.current = null;
+    setArriving(null);
+    // cancelled BEFORE the swap: the old song is still on, so its tempo is ours
+    // to hand back. After the swap, hands off.
+    releaseDeck(ctl.swapped ? null : ctl.cps);
+  }, [releaseDeck]);
+  /**
+   * Bring in the night's row `i` the way its seam says. Falls back to a plain
+   * pour whenever there is nothing to move THROUGH — silence, or free play with
+   * no hit riding — because a crossfade out of nothing is just a delay.
+   */
+  const runTransition = useCallback(
+    async (i: number) => {
+      const entry = lineupRef.current[i];
+      if (!entry) return;
+      endTransition(); // the last press wins, always
+      void prefetchEntry(entry.id); // the swap must never wait on the network
+      const cps = roomCps();
+      const plan = transitionPlan(entry.t, cps);
+      const { move } = transitionKnobsOf(entry.t);
+      if (!stateRef.current.playing || !hitRef.current || !cps) {
+        void pourById(entry.id, entry.title, i);
+        return;
+      }
+      if (plan.totalMs <= 0 && plan.lands <= 0) {
+        void pourById(entry.id, entry.title, i, { fade: false });
+        return;
+      }
+      const ctl = {
+        alive: true,
+        timers: [] as ReturnType<typeof setTimeout>[],
+        ticker: null as ReturnType<typeof setInterval> | null,
+        cps,
+        swapped: false,
+      };
+      transitRef.current = ctl;
+      setArriving({ to: i, word: move.word });
+      // A riser has to be IN MEMORY when it fires — a cold soundfont skips its
+      // first hap ("still loading") and the rise never happens. The wait for
+      // the bar line below is exactly the window to pull it in.
+      if (plan.hits.length) {
+        try {
+          void warmSounds(plan.hits.map((h) => h.s));
+        } catch {
+          /* the fire has its own cold retry */
+        }
+      }
+      // WAIT FOR THE BAR LINE. schedulerCycleNow is the AUDIO clock's position
+      // and a cycle is a bar here, so the next multiple of `lands` is the next
+      // place a song may land; back off by the gesture's own swap offset so the
+      // move STARTS early enough for its drop to sit on that line.
+      const barMs = 1000 / cps;
+      if (plan.lands > 0) {
+        const cyc = schedulerCycleNow();
+        const grid = Math.max(1, plan.lands);
+        let wait = (Math.ceil((cyc + 0.001) / grid) * grid - cyc) * barMs - plan.swapMs;
+        // too close to be musical (or already past) — take the following line
+        while (wait < 80) wait += grid * barMs;
+        await audioClockWait(wait);
+        if (!ctl.alive) return;
+      }
+      const t0 = performance.now();
+      for (const h of plan.hits) {
+        // (the wait for the bar line was this one-shot's warm-up window)
+        ctl.timers.push(
+          setTimeout(() => {
+            if (!ctl.alive) return;
+            try {
+              triggerLiveNote({ s: h.s, note: h.note, gain: h.gain, duration: h.duration });
+            } catch {
+              /* a missing riser must never take the swap down with it */
+            }
+          }, h.ms),
+        );
+      }
+      // THE RECORD CHANGES. fade:false — this hand is already on the master.
+      ctl.timers.push(
+        setTimeout(() => {
+          if (!ctl.alive) return;
+          ctl.swapped = true;
+          // THE TAPE IS BACK AT SPEED before the new song is dropped on it —
+          // otherwise a slowed transport (the tape stop) is still crawling
+          // while the incoming program is evaluated, and the drop lands in
+          // treacle for as long as that takes.
+          try {
+            setLiveCps(cps);
+          } catch {
+            /* the incoming setcpm asserts it either way */
+          }
+          void pourById(entry.id, entry.title, i, { fade: false });
+        }, plan.swapMs),
+      );
+      const follow = () => {
+        if (!ctl.alive) return;
+        const ms = performance.now() - t0;
+        const f = plan.frameAt(ms);
+        const p = perfRef.current;
+        try {
+          fadeMaster(Math.max(0.0005, masterLevelRef.current * f.master), 0.06);
+        } catch {
+          /* best-effort, like every live move */
+        }
+        try {
+          setLivePerf({
+            ...p,
+            // the gesture LEANS ON your dials, it never replaces them
+            filter: Math.max(-100, Math.min(100, p.filter + f.filter)),
+            echo: Math.max(p.echo, f.echo),
+            space: Math.max(p.space, f.space),
+            time: f.echoTime ?? p.time,
+            tail: f.echoTail ?? p.tail,
+          });
+        } catch {
+          /* ditto */
+        }
+        if (f.rate !== 1) {
+          try {
+            setLiveCps(cps * f.rate);
+          } catch {
+            /* ditto */
+          }
+        }
+        if (ms >= plan.totalMs) endTransition();
+      };
+      follow();
+      ctl.ticker = setInterval(follow, 40);
+    },
+    [endTransition, prefetchEntry, pourById, roomCps],
+  );
+  // A room that unmounts mid-move must not leave the master ducked.
+  useEffect(() => () => endTransition(), [endTransition]);
+
   const moveKey = (v: number) => {
     keyRef.current = v;
     setKey(v);
@@ -2919,14 +3243,17 @@ export default function ZaltzIDE({
             onClose={() => setLineupOpen(false)}
             queue={lineup}
             currentIdx={lineupIdx}
+            arriving={arriving}
             hits={lineupHits}
             onAdd={addToLineup}
             onRemove={removeFromLineup}
-            onMove={moveLineup}
-            onPlay={(i) => void pourSong(i)}
+            onReorder={reorderLineup}
+            onPrefetch={prefetchEntry}
+            onTransition={setTransition}
+            onPlay={(i) => void runTransition(i)}
             onPlayHit={pourHit}
             onNext={() => {
-              if (lineupIdx != null) void pourSong(lineupIdx + 1);
+              if (lineupIdx != null) void runTransition(lineupIdx + 1);
             }}
             onArrange={() => void arrangeLineup()}
             arranging={arranging}
