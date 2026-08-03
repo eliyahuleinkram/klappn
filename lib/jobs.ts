@@ -871,6 +871,17 @@ export async function autoShapeSong(
         bars: Number.isFinite(span) && (span as number) >= natural ? (span as number) : natural,
         loopBars: natural,
         layers: (p.tracks ?? []).map((t) => t.label ?? "").filter(Boolean),
+        // Params this section's OWN arrangement already sweeps — the effects
+        // call steers around them (a glide wraps OUTSIDE the section and
+        // silently overrides the section's own move where they share a param;
+        // on song db62451f the lpf was authored twice that way).
+        rides: [
+          ...new Set(
+            (spans[p.id]?.sweeps ?? [])
+              .map((w) => w?.param)
+              .filter((x): x is string => typeof x === "string" && !!x),
+          ),
+        ],
       };
     });
   if (!loops.length) return "empty";
@@ -898,7 +909,7 @@ export async function autoShapeSong(
     ? await composePageEffects(
         {
           ...identity,
-          loops: loops.map(({ name, intent, layers, bars, loopBars }) => ({ name, intent, layers, bars, loopBars })),
+          loops: loops.map(({ name, intent, layers, bars, loopBars, rides }) => ({ name, intent, layers, bars, loopBars, rides })),
         },
         cfg,
       ).catch(() => null)

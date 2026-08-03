@@ -60,7 +60,7 @@ Respond with ONLY a JSON object, no markdown:
  "ending": {"mode": "stop"|"loop", "tpl": "<ending template>", "start": bars before the song's last bar that the tail comes in (0 = after the song), "bars": n, "gain": 0..1.2, "tone": 0..1, "space": 0..1}
 }
 
-Name every sweep for what's HEARD, never its parameters. Sweeps ride the whole section's existing sound. Layer numbers refer to the numbering given. A section you omit plays whole for its natural length. "stop" plays the song once and ends; "loop" wraps forever.
+Name every sweep for what's HEARD, never its parameters. Sweeps ride the whole section's existing sound. Layer numbers refer to the numbering given. A section you omit plays whole for its natural length. "stop" plays the song once and ends; "loop" wraps forever. A gain sweep never rises above 1 — a peak is made by layers entering, never by pushing the whole mix over unity into the limiter.
 
 HOW IT ENDS — choose a template, never write the tail yourself (it is built in the song's key and always falls to silence): ring (the last chord struck once and left to decay) · fall (the tonic walks down and thins out) · crash (one last hit, ringing until it's gone) · dim (the filter shuts as it fades) · breath (nothing new — the room empties and the tails fall away) · cut (it stops on the beat, nothing after). "start" is where the tail comes in: 0 lets the song finish first, higher reaches back into the final loop so the piece resolves INTO its ending. "bars" is how long the tail takes, "gain" its level, "tone" how open it stays (1 = fully open), "space" how much room it rings into. With "loop" the ending fields are ignored.`;
 
@@ -221,6 +221,15 @@ export async function composeSongArrangement(
           for (const w of spec.sweeps ?? [])
             if (w) {
               w.name = cleanFeel(w.name);
+              // THE GAIN CEILING (2026-08-04, song db62451f: a section-level
+              // gain ride to 1.05 over a full 10-layer stack drove the whole
+              // mix into the limiter — heard as "crazy"). A master gain sweep
+              // multiplies EVERY layer; over unity it only buys crush. The
+              // prompt says it; this makes it true regardless.
+              if (w.param === "gain") {
+                if (Number.isFinite(w.from)) w.from = Math.min(1, w.from);
+                if (Number.isFinite(w.to)) w.to = Math.min(1, w.to);
+              }
               if (Number.isFinite(w.from) && Number.isFinite(w.to))
                 w.home = { from: w.from, to: w.to };
             }
@@ -318,6 +327,14 @@ export function sanitizeSweepControls(
     let min = Number(k.min);
     let max = Number(k.max);
     if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) continue;
+    // The gain ceiling holds for the KNOB too — the enrich once offered an
+    // "Overdrive push" range up to 1.2 on a master gain sweep, a hand-cranked
+    // route to the same limiter crush the sweep itself is clamped against.
+    if (w.param === "gain") {
+      min = Math.min(1, min);
+      max = Math.min(1, max);
+      if (min >= max) continue;
+    }
     const cur = field === "from" ? w.from : w.to;
     if (Number.isFinite(cur)) {
       min = Math.min(min, cur);
@@ -377,11 +394,15 @@ export function sanitizeUnfoldFx(
     .map((e) => {
       const fromLoop = Math.max(1, Math.min(loopCount, Math.floor(Number(e.fromLoop)) || 1));
       const toLoop = Math.max(fromLoop, Math.min(loopCount, Math.floor(Number(e.toLoop)) || fromLoop));
+      const param = typeof e.param === "string" ? e.param.trim() : "";
+      // same gain ceiling as the arrangement's sweeps — a glide is a master
+      // ride over every layer at once; over unity it only buys limiter crush
+      const cap = (n: number) => (param === "gain" ? Math.min(1, n) : n);
       return {
         name: cleanFeel(e.name),
-        param: typeof e.param === "string" ? e.param.trim() : "",
-        from: Number(e.from),
-        to: Number(e.to),
+        param,
+        from: cap(Number(e.from)),
+        to: cap(Number(e.to)),
         curve: e.curve === "sine" ? ("sine" as const) : ("linear" as const),
         fromLoop,
         toLoop,
@@ -416,7 +437,7 @@ const PAGE_EFFECTS_SYSTEM = `You shape a finished instrumental piece's EFFECTS �
 Respond with ONLY a JSON object, no markdown:
 {"effects": [{"name": "2-4 words for the MOVE a listener feels", "param": "<control>", "from": n, "to": n, "curve": "linear"|"sine", "fromLoop": first loop it rides (1-based), "toLoop": last loop it rides}, …]}
 
-Each glide runs ONCE across its whole range — from the first bar of fromLoop to the last bar of toLoop. Loop numbers refer to the play order given. Glidable params: lpf, hpf, gain, room, delay, delayfeedback, resonance, shape, phaserrate. Params that rebuild a shared bus (roomsize, delaytime) cannot glide. An empty list is a valid answer — a piece can want no glides at all.`;
+Each glide runs ONCE across its whole range — from the first bar of fromLoop to the last bar of toLoop. Loop numbers refer to the play order given. Glidable params: lpf, hpf, gain, room, delay, delayfeedback, resonance, shape, phaserrate. Params that rebuild a shared bus (roomsize, delaytime) cannot glide. A gain glide never rises above 1 — peaks come from the music, never from pushing the mix over unity. Some loops already ride params inside their own arrangement (listed per loop): never glide a param over a loop that already rides it — your glide is applied outside and would silently override that loop's own move. An empty list is a valid answer — a piece can want no glides at all.`;
 
 const TURN_BREAK_SYSTEM = `You decide ONE TURN in an instrumental song: the moment the music leaves one section and arrives in the next. You're given both sections — what they are, what layers they carry, how long each runs — and anything already gliding across the turn.
 
@@ -581,7 +602,18 @@ export async function composePageEffects(
      *  how long it actually runs — and `loopBars` its natural loop length, so
      *  the model can see a repeat for what it is (32 bars = an 8-bar loop four
      *  times) and size the turn to it. */
-    loops: { name: string; intent?: string; layers: string[]; bars?: number; loopBars?: number }[];
+    loops: {
+      name: string;
+      intent?: string;
+      layers: string[];
+      bars?: number;
+      loopBars?: number;
+      /** Params this loop's OWN arrangement already sweeps — a glide wrapped
+       *  outside would override those moves where they overlap, so the model
+       *  is told to steer around them (the same-pass coupling: arrange lands
+       *  first, effects second, one answer aware of the other). */
+      rides?: string[];
+    }[];
   },
   cfg?: LlmConfig,
 ): Promise<UnfoldFx[] | null> {
@@ -601,7 +633,7 @@ export async function composePageEffects(
         : "";
       return `${i + 1}. "${c.name}"${span}${c.intent?.trim() ? ` — ${c.intent.trim()}` : ""}${
         c.layers.length ? ` [layers: ${c.layers.join(", ")}]` : ""
-      }`;
+      }${c.rides?.length ? ` [already rides: ${c.rides.join(", ")}]` : ""}`;
     }),
     // One loop still has motion — it glides across itself. Say so, or the
     // model reads "no next section" as "no shape".
