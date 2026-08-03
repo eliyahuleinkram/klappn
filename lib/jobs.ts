@@ -94,7 +94,13 @@ import {
   composeTurnBreak,
   enrichSweepControls,
 } from "./arrange-plan";
+import { authorsParam } from "./arrange";
 import type { SectionArrange, SectionSweep, SectionTake, SongArrangement, SongFx } from "./arrange";
+
+/** The params composePageEffects may glide — the set the authors-gate checks. */
+const GLIDE_PARAMS = [
+  "lpf", "hpf", "gain", "room", "delay", "delayfeedback", "resonance", "shape", "phaserrate",
+];
 import { computeLoopBars } from "./loop-length";
 import { breakMoveOf, type BreakOverlay } from "./breaks-catalog";
 
@@ -882,6 +888,10 @@ export async function autoShapeSong(
               .filter((x): x is string => typeof x === "string" && !!x),
           ),
         ],
+        // …and the params the loop's LAYERS set themselves: a glide on one of
+        // these overrides the composed sound (the dark bass torn open by an
+        // lpf glide, db62451f). The model is told; the gate below enforces.
+        authors: GLIDE_PARAMS.filter((prm) => authorsParam(p.strudel ?? "", prm)),
       };
     });
   if (!loops.length) return "empty";
@@ -909,16 +919,28 @@ export async function autoShapeSong(
     ? await composePageEffects(
         {
           ...identity,
-          loops: loops.map(({ name, intent, layers, bars, loopBars, rides }) => ({ name, intent, layers, bars, loopBars, rides })),
+          loops: loops.map(({ name, intent, layers, bars, loopBars, rides, authors }) => ({ name, intent, layers, bars, loopBars, rides, authors })),
         },
         cfg,
       ).catch(() => null)
     : null;
   if (wantFx && !authored) return "whiffed";
+  // THE AUTHORS-GATE (2026-08-04): a glide on a param any covered loop's
+  // layers set themselves would override the composed sound — the prompt says
+  // never; this makes never true. Dropped loud, not silently capped.
+  const gated = authored?.filter((e) => {
+    const covered = loops.slice(Math.max(0, e.fromLoop - 1), Math.min(loops.length, e.toLoop));
+    const clash = covered.some((l) => l.authors.includes(e.param));
+    if (clash)
+      console.error(
+        `[klappn] glide "${e.name ?? e.param}" dropped — ${e.param} is authored by a covered loop`,
+      );
+    return !clash;
+  });
   // Breaks-only leaves the glides exactly as they ride — and uses them as the
   // turns' context, so a fill still knows what crosses it.
-  const effects = authored
-    ? authored.map((e) => ({
+  const effects = gated
+    ? gated.map((e) => ({
         id: crypto.randomUUID(),
         param: e.param,
         from: e.from,

@@ -241,14 +241,44 @@ test("sectionEntries: moves authored for a different layer count are skipped", (
   assert.match(segs[0].expr, /hh\*8/);
 });
 
-test("sectionEntries: a sweep wraps its window and resumes phase across cuts", () => {
+test("sectionEntries: a sweep wraps each free voice and resumes phase across cuts", () => {
   const segs = sectionEntries(PARTS3, 8, {
     sweeps: [{ param: "lpf", from: 300, to: 2400, bar: 0, bars: 8 }],
     moves: [{ bar: 4, layers: [1, 2, 3] }],
   });
   assert.equal(segs.length, 2);
-  assert.match(segs[0].expr, /\.lpf\(saw\.range\(300,2400\)\.slow\(8\)\)$/);
-  assert.match(segs[1].expr, /\.lpf\(saw\.range\(300,2400\)\.slow\(8\)\.early\(4\)\)$/, "resume, not restart");
+  // PER VOICE, not around the stack (2026-08-04): an outer control overrides
+  // every hap's own value, so the wrap lands on each voice individually…
+  assert.match(segs[0].expr, /\.lpf\(saw\.range\(300,2400\)\.slow\(8\)\)/);
+  assert.equal(segs[0].expr.match(/\.lpf\(saw/g)?.length, 3, "every lpf-free voice swept");
+  assert.match(segs[1].expr, /\.lpf\(saw\.range\(300,2400\)\.slow\(8\)\.early\(4\)\)/, "resume, not restart");
+});
+
+test("sectionEntries: a sweep never overrides a voice's own param", () => {
+  const parts = {
+    layers: [`s("bd*4").gain(0.9)`, `note("d1").s("sawtooth").lpf(200)`],
+    mixTail: "",
+  };
+  const segs = sectionEntries(parts, 4, {
+    sweeps: [
+      { param: "lpf", from: 600, to: 6000, bar: 0, bars: 4 },
+      { param: "gain", from: 0.7, to: 1, bar: 0, bars: 4 },
+    ],
+  });
+  assert.equal(segs.length, 1);
+  // per-voice scope: split the stack back into its two voices
+  const [drum, bass] = segs[0].expr
+    .replace(/^stack\(\n/, "")
+    .replace(/\n\)$/, "")
+    .split(",\n(");
+  assert.match(drum, /bd\*4/);
+  assert.match(bass, /sawtooth/);
+  // the dark bass keeps its own filter; the drum (lpf-free) takes the sweep
+  assert.doesNotMatch(bass, /\.lpf\(saw\.range/, "authored lpf wins");
+  assert.match(drum, /\.lpf\(saw\.range\(600,6000\)/, "free voice swept");
+  // the drum authors gain — its accents survive; the bass (gain-free) rides it
+  assert.doesNotMatch(drum, /\.gain\(saw\.range/, "authored gain wins");
+  assert.match(bass, /\.gain\(saw\.range\(0\.7,1\)/, "free voice rides");
 });
 
 test("sectionEntries: sweeps with unsafe params are dropped", () => {

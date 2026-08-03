@@ -354,6 +354,25 @@ const oneShotOk = (code: string) => ONE_SHOT_RE.test(code) && !/setcpm\s*\(/.tes
  *  writes everywhere else, but here they embed as bare expressions. */
 const bareExpr = (code: string) => code.trim().replace(/^\$\s*:\s*/, "").trim();
 
+/** Does this layer's code set the param ITSELF (alias-aware)? An outer sweep
+ *  on the same param would OVERRIDE the layer's own value — a composed tone,
+ *  an accent pattern — so the renderer skips those voices (see sectionEntries).
+ *  Name-boundary matters: `.room(` must not match `.roomsize(`, `.delay(`
+ *  must not match `.delaytime(` — the `\(` anchor guarantees it. */
+const PARAM_ALIASES: Record<string, string[]> = {
+  lpf: ["lpf", "cutoff"],
+  resonance: ["resonance", "lpq"],
+  gain: ["gain"],
+  room: ["room"],
+  delay: ["delay"],
+  shape: ["shape"],
+};
+export function authorsParam(layer: string, param: string): boolean {
+  for (const name of PARAM_ALIASES[param] ?? [param])
+    if (new RegExp(`\\.${name}\\s*\\(`).test(layer)) return true;
+  return false;
+}
+
 /**
  * One section span → its arrange() entries. No spec (or an empty one) → the
  * classic single entry [C, wholeLoop]. With a spec, the span is cut at every
@@ -440,18 +459,37 @@ export function sectionEntries(
     // reverb pile-up, absent when the bare loop plays uncut. .early(a) resumes
     // each phrase where the section actually is; on a true 1-bar layer a
     // whole-bar shift is the identity, so nothing else changes.
-    const voices = active.map((l) => `(${l}\n)${a > 0 ? `.early(${a})` : ""}`);
+    // A SWEEP MAY ONLY TOUCH A PARAM THE LAYER LEFT FREE (2026-08-04, song
+    // db62451f: "the reverb just gets outta control with that saw"). An outer
+    // control OVERRIDES every hap's own value — so a section lpf sweep
+    // (600→6000) tore a bass composed dark at lpf 200 wide open, its
+    // shape(.42).distort(1.1) — voiced FOR a closed filter — became a buzz
+    // wall, and a gain sweep flattened every authored accent pattern
+    // ("0.78 0.56 …" → one scalar). "Sweeps ride the whole section's existing
+    // sound" was the intent; replace-the-sound was the render. So the sweep
+    // now wraps each voice INDIVIDUALLY and skips any voice that authors the
+    // param itself — a layer's own tone always wins; the sweep shapes the
+    // dimensions the composition left open.
+    const swept = (l: string, base: string): string => {
+      let v = base;
+      for (const w of sweeps)
+        if (w.bar <= a && w.end > a && !authorsParam(l, w.param)) {
+          const sig = w.curve === "sine" ? "sine" : "saw";
+          const phase = a > w.bar ? `.early(${a - w.bar})` : "";
+          v = `(${v}).${w.param}(${sig}.range(${w.from},${w.to}).slow(${w.bars})${phase})`;
+        }
+      return v;
+    };
+    const voices = active.map((l) =>
+      swept(l, `(${l}\n)${a > 0 ? `.early(${a})` : ""}`),
+    );
     for (const o of overlays)
       if (o.bar <= a && o.end > a)
-        voices.push(`(${o.code}\n)${a > o.bar ? `.early(${a - o.bar})` : ""}`);
-    let expr =
+        voices.push(
+          swept(o.code, `(${o.code}\n)${a > o.bar ? `.early(${a - o.bar})` : ""}`),
+        );
+    const expr =
       voices.length === 0 ? "silence" : voices.length === 1 ? voices[0] : `stack(\n${voices.join(",\n")}\n)`;
-    for (const w of sweeps)
-      if (w.bar <= a && w.end > a) {
-        const sig = w.curve === "sine" ? "sine" : "saw";
-        const phase = a > w.bar ? `.early(${a - w.bar})` : "";
-        expr = `(${expr}).${w.param}(${sig}.range(${w.from},${w.to}).slow(${w.bars})${phase})`;
-      }
     out.push({ cycles: b - a, expr: `${expr}${parts.mixTail}` });
   }
   return out;
