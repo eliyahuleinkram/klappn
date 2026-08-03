@@ -276,6 +276,58 @@ function stripSetcpm(code: string): string {
     .trim();
 }
 
+/**
+ * A HIT, kept as the raw material of a program rather than a program.
+ *
+ * Because `arrange()` is anchored to the ROOM's clock, not to the moment you
+ * drop a song: pour a 32-bar song at bar 104 and it starts 8 bars in — a track
+ * dropped into the middle of its own outro. So the song is stored unbuilt and
+ * re-emitted at the bar it actually lands on (emitHit), which is also what
+ * makes it possible to say WHERE IN THE SONG the room is.
+ */
+interface HitBundle {
+  sections: { id: string; code: string; seconds: number }[];
+  build: Parameters<typeof buildArrangement>[1];
+  /** section id → the word the loop wears ("Chorus", "≋" for a break). */
+  labels: Record<string, string>;
+  visual: string;
+}
+
+export interface HitProgram {
+  music: string;
+  spans: { id: string; start: number; end: number; bars: number }[];
+  totalCycles: number;
+  ends: boolean;
+  /** The room-clock bar the song's FIRST bar sits on. */
+  late: number;
+}
+
+/** The song as ONE `$:` layer, its downbeat rotated onto bar `late`. */
+function emitHit(bundle: HitBundle, late: number): HitProgram | null {
+  const arr = buildArrangement(bundle.sections, { ...bundle.build, lateCycles: late });
+  if (!arr?.program?.trim()) return null;
+  // LABEL THE SONG AS A LAYER. buildArrangement emits its arrange(...) as a
+  // BARE top-level expression, which is right when it is the only thing
+  // playing — but the instant a `$:` line joins it, Strudel plays the LABELLED
+  // patterns and throws the bare one away. That is exactly "I write over the
+  // hit and the hit disappears". Give the song its own `$:` and the two stack
+  // like any other pair of layers.
+  const prog = stripHydraBlock(arr.program).trim();
+  const cpm = prog.split("\n").filter((l) => /^\s*setcpm\s*\(/.test(l));
+  const expr = prog
+    .split("\n")
+    .filter((l) => !/^\s*setcpm\s*\(/.test(l))
+    .join("\n")
+    .trim();
+  return {
+    music: [...cpm, `$: ${expr}`].join("\n"),
+    spans: arr.spans,
+    totalCycles: arr.totalCycles,
+    ends: arr.ends,
+    late,
+  };
+}
+
 /** A program's tempo in CYCLES per second — and a cycle is a bar, which is
  *  what a transition measures itself in. Its LAST setcpm wins, exactly as
  *  evaluate does. Null when the code never says. */
@@ -1609,6 +1661,23 @@ export default function ZaltzIDE({
     program: string;
   } | null>(null);
   const [hit, setHit] = useState<{ id: string; title: string } | null>(null);
+  /** WHERE THE ROOM IS INSIDE THE HIT. The song is one invisible arrange()
+   *  program, so without this the only honest answer to "what are we playing?"
+   *  was its title. The map from the room's clock to the song's own bars —
+   *  written at every pour, read by the ticker below. */
+  const hitPlayRef = useRef<(HitProgram & { labels: Record<string, string> }) | null>(null);
+  const [rawPos, setRawPos] = useState<{
+    /** the loop's own word — "Chorus", "≋" for a break */
+    label: string;
+    /** 1-based bar inside that loop, and how many it has */
+    bar: number;
+    bars: number;
+    /** 0..1 through the whole song */
+    through: number;
+    /** which section of how many */
+    index: number;
+    of: number;
+  } | null>(null);
   /** The visual THIS ROOM poured in with the last hit, byte-for-byte. It is the
    *  only way to tell "the previous song's picture" (ours to replace) from
    *  "something you wrote" (never ours to touch). Same shape as the old
@@ -1621,9 +1690,7 @@ export default function ZaltzIDE({
   const hitsMetaRef = useRef(
     new Map<string, { bpm?: number; key?: string; genre?: string; summary?: string }>(),
   );
-  const pourCache = useRef(
-    new Map<string, { music: string; visual: string }>(),
-  );
+  const pourCache = useRef(new Map<string, HitBundle>());
   /** Songs already fetched, built and sample-warmed — a hover only pays once. */
   const songWarmedRef = useRef(new Set<string>());
   /** The bench's own tempo, where a long-lived callback can read it. */
@@ -1703,7 +1770,7 @@ export default function ZaltzIDE({
    * load, which is the one thing the crowd hears.
    */
   const bundleFor = useCallback(
-    async (id: string): Promise<{ music: string; visual: string } | null> => {
+    async (id: string): Promise<HitBundle | null> => {
       const entry = { id };
       let bundle = pourCache.current.get(entry.id);
       if (!bundle) {
@@ -1729,15 +1796,23 @@ export default function ZaltzIDE({
           // exactly as it does everywhere else — every loop, every break, every
           // effect, walking itself with no further evaluation from us.
           const entryPlay = buildPlayEntry(parts, plan);
-          const arr = entryPlay && buildArrangement(
-            entryPlay.sections.map((sec) => ({ id: sec.id, code: sec.code, seconds: sec.seconds })),
-            {
-              ending: entryPlay.ending,
-              effects: entryPlay.effects,
-              overlays: entryPlay.overlays,
-              attachVisual: false, // the room owns the picture; the song's rides separately
-            },
-          );
+          if (!entryPlay?.sections?.length) {
+            setNotice("Nothing playable in that one yet — it joins when a loop lands.");
+            return null;
+          }
+          const sections = entryPlay.sections.map((sec) => ({
+            id: sec.id,
+            code: sec.code,
+            seconds: sec.seconds,
+          }));
+          // Built once here purely to know it CAN be built; the pour re-emits
+          // it at the bar it lands on (see emitHit).
+          const arr = buildArrangement(sections, {
+            ending: entryPlay.ending,
+            effects: entryPlay.effects,
+            overlays: entryPlay.overlays,
+            attachVisual: false, // the room owns the picture; the song's rides separately
+          });
           if (!arr?.program?.trim()) {
             setNotice("Nothing playable in that one yet — it joins when a loop lands.");
             return null;
@@ -1746,20 +1821,17 @@ export default function ZaltzIDE({
             (entryPlay?.sections?.[0]?.code ? extractHydra(entryPlay.sections[0].code) : "") ??
             ((plan as { visual?: { hydra?: string } }).visual?.hydra ?? "")
           ).trim();
-          // LABEL THE SONG AS A LAYER. buildArrangement emits its arrange(...)
-          // as a BARE top-level expression, which is right when it is the only
-          // thing playing — but the instant a `$:` line joins it, Strudel plays
-          // the LABELLED patterns and throws the bare one away. That is exactly
-          // "I write over the hit and the hit disappears". Give the song its own
-          // `$:` and the two stack like any other pair of layers.
-          const prog = stripHydraBlock(arr.program).trim();
-          const cpm = prog.split("\n").filter((l) => /^\s*setcpm\s*\(/.test(l));
-          const expr = prog
-            .split("\n")
-            .filter((l) => !/^\s*setcpm\s*\(/.test(l))
-            .join("\n")
-            .trim();
-          bundle = { music: [...cpm, `$: ${expr}`].join("\n"), visual };
+          bundle = {
+            sections,
+            build: {
+              ending: entryPlay.ending,
+              effects: entryPlay.effects,
+              overlays: entryPlay.overlays,
+              attachVisual: false,
+            },
+            labels: entryPlay.labels,
+            visual,
+          };
           pourCache.current.set(entry.id, bundle);
         } catch {
           return null;
@@ -1781,7 +1853,8 @@ export default function ZaltzIDE({
           return;
         }
         try {
-          await preloadSamples([b.music]);
+          const warm = emitHit(b, 0);
+          if (warm) await preloadSamples([warm.music]);
         } catch {
           /* the engine pulls them at play time — one bar late, never silent */
         }
@@ -1799,6 +1872,12 @@ export default function ZaltzIDE({
       const entry = { id, title };
       const bundle = await bundleFor(id);
       if (!bundle) return;
+      // THE SONG STARTS AT ITS TOP, on the bar we are on. (arrange() rides the
+      // ROOM's clock: unrotated, a song poured at bar 104 begins 104 mod its
+      // own length in — you drop a track and it starts in the middle of its
+      // outro. This is also what lets the room say where in the song it is.)
+      const emitted = emitHit(bundle, Math.round(schedulerCycleNow()));
+      if (!emitted) return;
       // The FADE — the master dips under the swap and comes home after it
       // lands (the auto-eval's ~700ms debounce + evaluate sit inside the dip).
       // A TRANSITION owns the master itself, and passes fade:false — two hands
@@ -1816,8 +1895,9 @@ export default function ZaltzIDE({
       hitRef.current = {
         id: entry.id,
         title: entry.title,
-        program: bundle.music,
+        program: emitted.music,
       };
+      hitPlayRef.current = { ...emitted, labels: bundle.labels };
       setHit({ id: entry.id, title: entry.title });
       // THE PICTURE HANDS OVER. A hit brings its own light, and it must be
       // allowed to REPLACE the light the last hit brought — otherwise song B
@@ -1844,10 +1924,48 @@ export default function ZaltzIDE({
     },
     [snapRoom],
   );
+  // THE PLAYHEAD. Read off the audio clock — the song's position is
+  // (room bar − the bar it was poured on), wrapped by its own length — so it
+  // can never disagree with what you are hearing, and it survives every tempo
+  // nudge for free. Ten times a second: a bar counter that ticks late reads as
+  // a broken room.
+  useEffect(() => {
+    if (!hit || !playing) return; // (the readout is gated on both in render)
+    const tick = () => {
+      const hp = hitPlayRef.current;
+      if (!hp || !(hp.totalCycles > 0) || !hp.spans.length) return;
+      // an ending song carries 32 bars of silence past its end (the wrap
+      // guard) — that is part of the loop it walks, so it counts here
+      const period = hp.totalCycles + (hp.ends ? 32 : 0);
+      const raw = schedulerCycleNow() - hp.late;
+      const pos = ((raw % period) + period) % period;
+      const last = hp.spans[hp.spans.length - 1];
+      const span =
+        pos >= hp.totalCycles ? last : (hp.spans.find((s) => pos >= s.start && pos < s.end) ?? last);
+      const over = pos >= hp.totalCycles;
+      const bars = Math.max(1, Math.round(span.end - span.start));
+      setRawPos({
+        label: over ? "over" : (hp.labels[span.id] ?? "Loop"),
+        bar: over ? bars : Math.min(bars, Math.floor(pos - span.start) + 1),
+        bars,
+        through: over ? 1 : Math.min(1, pos / hp.totalCycles),
+        index: hp.spans.indexOf(span) + 1,
+        of: hp.spans.length,
+      });
+    };
+    const iv = setInterval(tick, 100);
+    return () => clearInterval(iv);
+  }, [hit, playing]);
+  /** No hit riding → no position, without an effect having to reach in and
+   *  clear it. A PAUSE keeps the last reading, frozen: a playhead that vanishes
+   *  when the music stops is the one moment you most want to read it. */
+  const hitPos = hit ? rawPos : null;
+
   /** Let the hit go — the bench keeps playing whatever you wrote on top of it,
    *  which is exactly what was yours all along. */
   const dropHit = useCallback(() => {
     hitRef.current = null;
+    hitPlayRef.current = null;
     setHit(null);
     restoreCanvas(200); // never leave the room dark on the way out
     setLineupIdx(null);
@@ -2080,7 +2198,13 @@ export default function ZaltzIDE({
     /** Has the record already changed? */
     swapped: boolean;
   } | null>(null);
-  const [arriving, setArriving] = useState<{ to: number; word: string } | null>(null);
+  const [arriving, setArriving] = useState<{
+    to: number;
+    word: string;
+    /** performance.now() of the drop — the seam counts down to it. */
+    dropAt: number;
+    barMs: number;
+  } | null>(null);
   /** The room's REAL tempo in cycles (= bars) per second — asked of the engine
    *  that is sounding, never parsed back out of the code (a whole-song program
    *  carries a setcpm per section, and the last one wins the regex). Falls back
@@ -2156,7 +2280,28 @@ export default function ZaltzIDE({
         swapped: false,
       };
       transitRef.current = ctl;
-      setArriving({ to: i, word: move.word });
+      // WHEN THE DROP LANDS, decided before anything moves — the seam counts
+      // down to this, so "why is it saying blend" is answered by the thing that
+      // says it: "Blend · in 2 bars".
+      const barMs = 1000 / cps;
+      let wait = 0;
+      if (plan.lands > 0) {
+        // schedulerCycleNow is the AUDIO clock's position and a cycle is a bar,
+        // so the next multiple of `lands` is the next place a song may land;
+        // back off by the gesture's own swap offset so the move STARTS early
+        // enough for its drop to sit on that line.
+        const cyc = schedulerCycleNow();
+        const grid = Math.max(1, plan.lands);
+        wait = (Math.ceil((cyc + 0.001) / grid) * grid - cyc) * barMs - plan.swapMs;
+        // too close to be musical (or already past) — take the following line
+        while (wait < 80) wait += grid * barMs;
+      }
+      setArriving({
+        to: i,
+        word: move.word,
+        dropAt: performance.now() + wait + plan.swapMs,
+        barMs,
+      });
       // A riser has to be IN MEMORY when it fires — a cold soundfont skips its
       // first hap ("still loading") and the rise never happens. The wait for
       // the bar line below is exactly the window to pull it in.
@@ -2167,17 +2312,7 @@ export default function ZaltzIDE({
           /* the fire has its own cold retry */
         }
       }
-      // WAIT FOR THE BAR LINE. schedulerCycleNow is the AUDIO clock's position
-      // and a cycle is a bar here, so the next multiple of `lands` is the next
-      // place a song may land; back off by the gesture's own swap offset so the
-      // move STARTS early enough for its drop to sit on that line.
-      const barMs = 1000 / cps;
-      if (plan.lands > 0) {
-        const cyc = schedulerCycleNow();
-        const grid = Math.max(1, plan.lands);
-        let wait = (Math.ceil((cyc + 0.001) / grid) * grid - cyc) * barMs - plan.swapMs;
-        // too close to be musical (or already past) — take the following line
-        while (wait < 80) wait += grid * barMs;
+      if (wait > 0) {
         await audioClockWait(wait);
         if (!ctl.alive) return;
       }
@@ -2242,7 +2377,13 @@ export default function ZaltzIDE({
             /* ditto */
           }
         }
-        if (ms >= plan.totalMs) endTransition();
+        // THE MOVE IS OVER WHEN THE RECORD HAS CHANGED AND THE CURVE HAS RUN
+        // OUT — never on the curve alone. A cut has NO curve (totalMs 0), so
+        // this first synchronous frame used to tear down the gesture — swap
+        // timer and all — before the swap could fire: "Straight in" simply
+        // never brought the next song in. The 2s backstop covers a pour that
+        // fails outright, so a ticker can't outlive its move.
+        if (ms >= plan.totalMs && (ctl.swapped || ms >= plan.totalMs + 2000)) endTransition();
       };
       follow();
       ctl.ticker = setInterval(follow, 40);
@@ -3244,6 +3385,7 @@ export default function ZaltzIDE({
             queue={lineup}
             currentIdx={lineupIdx}
             arriving={arriving}
+            playhead={hitPos}
             hits={lineupHits}
             onAdd={addToLineup}
             onRemove={removeFromLineup}
@@ -3343,17 +3485,47 @@ export default function ZaltzIDE({
             the code by design, so it has to be visible SOMEWHERE — one quiet
             capsule naming it, with the one verb it needs. */}
         {hit && (
-          <span className="hidden min-w-0 shrink items-center gap-1.5 rounded-full bg-accent/[0.1] py-1.5 pl-3 pr-1.5 text-[12.5px] text-accent-strong ring-1 ring-inset ring-accent/25 sm:inline-flex">
+          /* THE CAPSULE IS THE PLAYHEAD (2026-08-03, the user: "we need to know
+             where we are holding in the hit that we are playing, which section
+             etc"). A hit rides UNDER the bench, invisible in the code by
+             design, so the one place that names it must also say where it is:
+             the loop's own word, the bar inside it, and the capsule itself
+             FILLING left to right across the whole song — the app's playhead
+             vocabulary (track + gradient fill) worn by the object instead of
+             parked beside it. */
+          <span
+            className="hidden min-w-0 shrink items-center gap-2 overflow-hidden rounded-full py-1.5 pl-3 pr-1.5 text-[12.5px] text-accent-strong ring-1 ring-inset ring-accent/25 sm:inline-flex"
+            style={{
+              background: `linear-gradient(to right, rgba(224,49,156,.28) ${(
+                (hitPos?.through ?? 0) * 100
+              ).toFixed(2)}%, rgba(224,49,156,.10) ${((hitPos?.through ?? 0) * 100).toFixed(2)}%)`,
+            }}
+          >
             <span className="flex h-2.5 w-3 shrink-0 items-end justify-center gap-[2px]" aria-hidden>
               {[0, 1, 2].map((b2) => (
                 <span
                   key={b2}
                   className="eq-bar w-[2px] rounded-full bg-accent-strong"
-                  style={{ height: "100%", animationDelay: `${b2 * 0.18}s` }}
+                  style={{
+                    height: "100%",
+                    animationDelay: `${b2 * 0.18}s`,
+                    animationPlayState: playing ? "running" : "paused",
+                  }}
                 />
               ))}
             </span>
             <span className="min-w-0 truncate" title={hit.title}>{hit.title}</span>
+            {hitPos && (
+              <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-accent-strong/70">
+                <span className="h-3 w-px bg-accent-strong/25" />
+                <span className="max-w-[7rem] truncate" title={`Section ${hitPos.index} of ${hitPos.of}`}>
+                  {hitPos.label}
+                </span>
+                <span className="font-mono tabular-nums text-accent-strong/55">
+                  {hitPos.bar}/{hitPos.bars}
+                </span>
+              </span>
+            )}
             <button
               onClick={dropHit}
               aria-label="Let the hit go"

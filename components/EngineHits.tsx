@@ -18,12 +18,21 @@
  *
  * 2026-08-03 — THE NIGHT READS LIKE A SONG. The set was a list of titles with
  * nothing between them, which is exactly what it sounded like. Now it is a
- * THREAD: every pair of songs is separated by a SEAM, and the seam says how
- * the second one arrives ("⟿ Blend", "⟿ Tape stop"). Tap it and the same
- * capsule opens into the move itself — six templates, one line of prose, and
- * the knobs — the song page's ending card, in the room. A transition belongs to
- * the song it BRINGS IN, so it travels with that song when the night is
- * reordered instead of being pruned like the old pair-keyed hand-offs.
+ * THREAD: every pair of songs is separated by a SEAM, and the seam says how the
+ * second one arrives ("Blend", "Tape stop") — a WORD, no glyph (the drawn
+ * squiggle read as decoration, and the user is right that one more mark in a
+ * row of marks is noise). Tap it and the same capsule opens into the move
+ * itself — six templates, one line of prose, and the knobs — the song page's
+ * ending card, in the room. A transition belongs to the song it BRINGS IN, so
+ * it travels with that song when the night is reordered instead of being pruned
+ * like the old pair-keyed hand-offs.
+ *
+ * AND THE SEAM SHOWS ITS OWN MOVE. While a transition is in the air the seam
+ * lights and counts the bars down to the drop ("Blend · in 2 bars") — the
+ * object that names the move is the object that performs it. (It used to be a
+ * word shimmering on the row, which said WHAT was happening but never when or
+ * why: "why does it keep saying blend".) The playing row says where the song
+ * itself is — the loop's word, the bar inside it, and a hairline filling.
  *
  * Ordering is DIRECT: drag a row where you want it (the grip on touch, anywhere
  * on the row with a mouse) and an accent line shows where it will land. ⌥↑/⌥↓
@@ -36,7 +45,7 @@
  * Pure view — the room (ZaltzIDE) owns the queue, the pours, the fades.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   TRANSITION_KNOBS,
   TRANSITION_MOVES,
@@ -65,6 +74,7 @@ export default function EngineHits({
   queue,
   currentIdx,
   arriving,
+  playhead,
   hits,
   onAdd,
   onRemove,
@@ -83,8 +93,11 @@ export default function EngineHits({
   queue: QueueEntry[];
   /** The row whose song is in the panes right now (null = free play). */
   currentIdx: number | null;
-  /** A move already in the air — the row it is bringing in, and its name. */
-  arriving: { to: number; word: string } | null;
+  /** A move already in the air: the row it brings in, its name, and WHEN the
+   *  drop lands — the seam counts the bars down to it. */
+  arriving: { to: number; word: string; dropAt: number; barMs: number } | null;
+  /** Where the room is inside the song that's playing (null = nothing rides). */
+  playhead: { label: string; bar: number; bars: number; through: number } | null;
   /** The library — null while it loads; [] = no ready hits yet. */
   hits: LineupHit[] | null;
   onAdd: (id: string) => void;
@@ -278,6 +291,7 @@ export default function EngineHits({
                           <Seam
                             shape={q.t}
                             open={openSeam === i}
+                            armed={arriving?.to === i ? arriving : null}
                             onToggle={() => setOpenSeam((v) => (v === i ? null : i))}
                             onPatch={(patch) => onTransition(i, patch)}
                           />
@@ -347,11 +361,14 @@ export default function EngineHits({
                             >
                               {q.title}
                             </span>
-                            {/* the move is already in the air — say so, in its
-                                own name, where the eye already is */}
-                            {arriving?.to === i && (
-                              <span className="shimmer-text shrink-0 text-[10.5px] lowercase text-accent-strong">
-                                {arriving.word}…
+                            {/* WHERE THE SONG IS, on the row that is playing it
+                                — the loop's own word and the bar inside it. */}
+                            {now && playhead && (
+                              <span className="flex shrink-0 items-center gap-1.5 text-[10.5px] text-muted/50">
+                                <span className="max-w-[5.5rem] truncate">{playhead.label}</span>
+                                <span className="font-mono tabular-nums">
+                                  {playhead.bar}/{playhead.bars}
+                                </span>
                               </span>
                             )}
                           </button>
@@ -379,6 +396,18 @@ export default function EngineHits({
                             </button>
                           </span>
                         </div>
+                        {/* HOW FAR THROUGH THE SONG — the app's playhead, a
+                            track with a gradient fill. It is the only place
+                            that says it on a phone, where the header's
+                            now-playing capsule has no room to exist. */}
+                        {now && playhead && (
+                          <div className="mx-3 mb-1 h-[2px] overflow-hidden rounded-full bg-white/[0.07]">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-[#ff63c1] to-accent-strong shadow-[0_0_8px_rgba(224,49,156,.7)] transition-[width] duration-200 ease-linear"
+                              style={{ width: `${Math.max(1, playhead.through * 100).toFixed(2)}%` }}
+                            />
+                          </div>
+                        )}
                         {line && drag.to > drag.from && <DropLine />}
                       </div>
                     );
@@ -399,30 +428,6 @@ export default function EngineHits({
         </div>
       </div>
     </>
-  );
-}
-
-/** ONE song running into the next: a wave that straightens into an arrow.
- *  Drawn, never typed — a squiggle-arrow character is missing from half the
- *  fonts in the world and renders as a box on the machines that lack it. */
-function SeamMark() {
-  return (
-    <svg width="15" height="10" viewBox="0 0 15 10" fill="none" aria-hidden className="shrink-0">
-      <path
-        d="M1 5c1.3-3 2.7 3 4 0s2.7 3 4 0"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        opacity=".85"
-      />
-      <path
-        d="M9.6 5H13.4M11.9 3.3 13.6 5l-1.7 1.7"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }
 
@@ -457,15 +462,36 @@ function DropLine() {
 function Seam({
   shape,
   open,
+  armed,
   onToggle,
   onPatch,
 }: {
   shape: TransitionShape | undefined;
   open: boolean;
+  armed: { word: string; dropAt: number; barMs: number } | null;
   onToggle: () => void;
   onPatch: (patch: Partial<TransitionShape>) => void;
 }) {
   const { move, knobs } = transitionKnobsOf(shape);
+  // While a move is in the air the seam counts the bars down to the drop. The
+  // reading is STAMPED WITH THE DROP IT BELONGS TO, so a leftover number from
+  // the previous move can never flash on the next one.
+  const [cd, setCd] = useState<{ dropAt: number; left: number } | null>(null);
+  useEffect(() => {
+    if (!armed) return;
+    const iv = setInterval(
+      () => setCd({ dropAt: armed.dropAt, left: armed.dropAt - performance.now() }),
+      120,
+    );
+    return () => clearInterval(iv);
+  }, [armed]);
+  const left = armed && cd?.dropAt === armed.dropAt ? cd.left : null;
+  const bars = armed && left != null ? Math.ceil(left / armed.barMs) : 0;
+  // Only ever counts DOWN. Once the drop has happened the number is a lie the
+  // ear can check, so it goes — the capsule stays lit until the move's tail is
+  // finished, which is the true thing left to say.
+  const countdown =
+    !armed || left == null || left <= 150 ? null : bars <= 1 ? "in 1 bar" : `in ${bars} bars`;
   if (!open)
     return (
       <div className="flex items-center gap-2 px-3 py-1">
@@ -473,10 +499,18 @@ function Seam({
         <button
           onClick={onToggle}
           title={`${move.word} — ${move.hint}`}
-          className="flex h-6 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 text-[11px] leading-none text-muted/60 transition hover:border-accent/30 hover:bg-accent/[0.08] hover:text-accent-strong"
+          className={`flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] leading-none transition ${
+            armed
+              ? "border-accent/40 bg-accent/[0.14] text-accent-strong shadow-[0_0_20px_-6px_rgba(224,49,156,.9)]"
+              : "border-white/[0.08] bg-white/[0.03] text-muted/60 hover:border-accent/30 hover:bg-accent/[0.08] hover:text-accent-strong"
+          }`}
         >
-          <SeamMark />
           {move.word}
+          {countdown && (
+            <span className="font-mono text-[10px] tabular-nums text-accent-strong/75">
+              · {countdown}
+            </span>
+          )}
         </button>
         <span className="h-px flex-1 bg-white/[0.07]" />
       </div>
@@ -485,6 +519,9 @@ function Seam({
     <div className="animate-fade-in mx-1.5 my-1 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-1.5">
       <div className="flex items-center gap-2 px-1 pb-1">
         <span className="text-[11px] uppercase tracking-[0.18em] text-muted/45">arrives</span>
+        {countdown && (
+          <span className="font-mono text-[10px] tabular-nums text-accent-strong">{countdown}</span>
+        )}
         <span className="h-px flex-1 bg-white/[0.06]" />
         <button
           onClick={onToggle}
