@@ -1326,7 +1326,20 @@ export async function writePartComposition(
  *  the tracks generated SO FAR, keeping status 'generating'. This is what lets the
  *  client show and play each track the moment it lands, instead of waiting for the
  *  whole stack. Best-effort (called outside a durable step); the final
- *  writePartComposition is the authoritative 'ready' write. */
+ *  writePartComposition is the authoritative 'ready' write.
+ *
+ *  ONLY WHILE THE PART IS ACTUALLY COMPOSING (2026-08-03, prod song db62451f).
+ *  This write is NOT inside a durable step, and a Cloudflare Workflow REPLAY
+ *  re-executes everything between steps: the cached layer steps return
+ *  instantly and these progress writes re-fire for every already-finished
+ *  part — flipping READY parts back to 'generating' in a burst (three in one
+ *  second), while the authoritative ready write, being a cached step, never
+ *  re-runs. The parts then sit "composing" forever with finished music, and
+ *  the closing sweep — which reads READY parts — arranges a fraction of the
+ *  song. The mark step is the one door into a compose (it sets 'generating'
+ *  first), so gating on that status makes the replay's ghost writes no-ops —
+ *  and keeps the enriched panels they used to clobber, which is what re-burnt
+ *  real enrich calls on every replay. */
 export async function writePartProgress(
   partId: string,
   strudel: string,
@@ -1338,7 +1351,7 @@ export async function writePartProgress(
     set strudel = ${strudel},
         tracks = ${sql.json(tracks as unknown as Parameters<typeof sql.json>[0])},
         status = 'generating'
-    where id = ${partId}`;
+    where id = ${partId} and status = 'generating'`;
 }
 
 /** REBASE a loop onto structurally new code (e.g. a time-signature change):
