@@ -882,35 +882,23 @@ export async function autoShapeSong(
     summary: plan.summary,
   };
   const loopNo = (id: string): number => loops.findIndex((l) => l.id === id) + 1;
-  const ridingAt = new Map<number, { tpl: string; bars?: number }>();
-  for (const o of (plan as { overlays?: BreakOverlay[] }).overlays ?? []) {
-    const at = loopNo(o.fromId);
-    if (at >= 1)
-      ridingAt.set(at, {
-        tpl: o.tpl,
-        ...(o.bars ? { bars: o.bars } : {}),
-        ...(o.bank ? { bank: o.bank } : {}),
-      });
-  }
-  const fxContext = (list: SongFx[]) =>
-    list.flatMap((e) => {
-      const fl = loopNo(e.fromId);
-      const tl = loopNo(e.toId);
-      if (fl < 1 || tl < 1) return [];
-      return [{ name: e.name, param: e.param, from: e.from, to: e.to, fromLoop: fl, toLoop: tl }];
-    });
   // THE EFFECTS — one call over the whole song, because a glide spans loops and
   // can only be judged against the arc. null = whiffed → nothing changes at all
   // (we don't rewrite the turns off the back of a failed half).
   const effectsNow = ((plan.effects ?? []) as SongFx[]);
   const wantFx = scope !== "breaks";
   const wantTurns = scope !== "effects";
+  // A SWEEP IS A FRESH TAKE (2026-08-03): the outgoing effects/fills are NOT
+  // context. Shown "the set your answer replaces", the model re-emitted the old
+  // glides verbatim on top of its new ones — on song db62451f that faithfully
+  // re-crammed a set authored against a starved 2-of-5-loop read (the replay
+  // bug), so re-sweeping could never wash the poison out. The song alone is
+  // the context; the write replaces wholesale.
   const authored = wantFx
     ? await composePageEffects(
         {
           ...identity,
           loops: loops.map(({ name, intent, layers, bars, loopBars }) => ({ name, intent, layers, bars, loopBars })),
-          ridingEffects: fxContext(effectsNow),
         },
         cfg,
       ).catch(() => null)
@@ -966,8 +954,9 @@ export async function autoShapeSong(
             ? { name: next.name, intent: next.intent, layers: next.layers, bars: next.bars, loopBars: next.loopBars }
             : null,
           atLoop: i + 1,
+          // the glides landing in THIS sweep — the 07-22 coupling; never the
+          // outgoing fill (fresh take, same law as the effects call above)
           crossing: fxCrossing(i + 1),
-          riding: ridingAt.get(i + 1),
         },
         cfg,
       ).catch((e) => {

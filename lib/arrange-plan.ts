@@ -520,10 +520,9 @@ export async function composeTurnBreak(
     /** 1-based index of the outgoing loop, echoed back on the result. */
     atLoop: number;
     /** Glides crossing this turn — the fill is chosen with them, not against
-     *  them (the 07-22 coupling, kept). */
+     *  them (the 07-22 coupling, kept — these are the glides landing in THIS
+     *  answer's sweep, never the outgoing state). */
     crossing?: { name?: string; param: string; from: number; to: number }[];
-    /** What rides this turn now — replaced by whatever comes back. */
-    riding?: { tpl: string; bars?: number; bank?: string };
   },
   cfg?: LlmConfig,
 ): Promise<PageBreak | null> {
@@ -552,9 +551,8 @@ export async function composeTurnBreak(
           .map((c) => `${c.name ? `"${c.name}" — ` : ""}${c.param} ${c.from}→${c.to}`)
           .join(" · ")}`
       : "",
-    args.riding
-      ? `RIDING NOW (replaced by your answer): ${args.riding.tpl}${args.riding.bars ? ` over ${args.riding.bars} bars` : ""}${args.riding.bank ? ` on ${args.riding.bank}` : ""}`
-      : "",
+    // No "riding now" line — a sweep is a fresh take (see composePageEffects):
+    // showing the outgoing fill anchored the model into re-choosing it.
     `The turn. JSON only.`,
   ]
     .filter(Boolean)
@@ -584,15 +582,10 @@ export async function composePageEffects(
      *  the model can see a repeat for what it is (32 bars = an 8-bar loop four
      *  times) and size the turn to it. */
     loops: { name: string; intent?: string; layers: string[]; bars?: number; loopBars?: number }[];
-    /** The effects riding NOW — replaced wholesale. */
-    ridingEffects?: { name?: string; param: string; from: number; to: number; fromLoop: number; toLoop: number }[];
   },
   cfg?: LlmConfig,
 ): Promise<UnfoldFx[] | null> {
   if (!args.loops.length) return null;
-  const riding = (args.ridingEffects ?? []).map(
-    (r) => `- ${r.name ? `"${r.name}" — ` : ""}${r.param} ${r.from}→${r.to}, loops ${r.fromLoop}–${r.toLoop}`,
-  );
   let user = [
     `${args.genre ? `${args.genre} — ` : ""}key of ${args.key}, ${args.bpm} BPM, ${args.timeSignature}.`,
     args.summary ? `The song: ${args.summary}` : "",
@@ -615,9 +608,13 @@ export async function composePageEffects(
     args.loops.length === 1
       ? "This piece is ONE loop that repeats: a glide rides once across it."
       : "",
-    riding.length
-      ? ["RIDING NOW (your set replaces ALL of this):", ...riding].join("\n")
-      : "Nothing rides yet.",
+    // A SWEEP IS A FRESH TAKE (2026-08-03, prod song db62451f). The outgoing
+    // effects used to ride in here labelled "replaced by your answer" — and
+    // the model, anchored, re-emitted them verbatim on top of its new ones.
+    // On that song the old set was authored against a starved 2-of-5-loop
+    // context (the replay bug), so every re-sweep faithfully re-crammed the
+    // poison it was meant to wash out. The write replaces wholesale; the
+    // model composes from the song alone.
     `The effects. JSON only.`,
   ]
     .filter(Boolean)
