@@ -965,9 +965,20 @@ export async function zaltzEvaluate(
   const Pattern = coreMod!.Pattern;
   const prevP = (Pattern.prototype as unknown as { p?: unknown }).p;
   const prevCpm = (globalThis as Record<string, unknown>).setcpm;
+  const prevAll = (globalThis as Record<string, unknown>).all;
   pPatterns = {};
   anonIndex = 0;
   capturedCpm = null;
+  // `all(x => x.room(…))` — strudel.cc's master transform over every playing
+  // pattern. The arrangement builder folds these onto section stacks before
+  // they ever reach an eval, so the engine never needed the word — until a
+  // live coder typed the idiom straight into the room (2026-08-04) and got
+  // "all is not defined". Same fold, applied here: collect the fns, run them
+  // over the combined stack. A transform that throws is dropped, not fatal.
+  const allFns: ((p: unknown) => unknown)[] = [];
+  (globalThis as Record<string, unknown>).all = (fn: unknown) => {
+    if (typeof fn === "function") allFns.push(fn as (p: unknown) => unknown);
+  };
   (Pattern.prototype as unknown as Record<string, unknown>).p = function (id: unknown) {
     if (typeof id === "string" && (id.startsWith("_") || id.endsWith("_"))) return coreMod!.silence;
     let key = String(id);
@@ -982,10 +993,18 @@ export async function zaltzEvaluate(
   try {
     const evaled = (await coreMod!.evaluate(code, transpilerFn)) as { pattern?: Pat } | Pat | null;
     const collected = Object.values(pPatterns);
-    const pat = collected.length
+    let pat = collected.length
       ? (coreMod!.stack(...(collected as never[])) as unknown as Pat)
       : (((evaled as { pattern?: Pat })?.pattern ?? evaled) as Pat | null);
     if (!pat || typeof pat.queryArc !== "function") throw new Error("no pattern in program");
+    for (const fn of allFns) {
+      try {
+        const next = fn(pat) as Pat;
+        if (next && typeof next.queryArc === "function") pat = next;
+      } catch {
+        /* a broken master transform must not kill the music under it */
+      }
+    }
     const newCps = (capturedCpm ?? 30) / 60;
     if (takeover && timer && pattern) {
       sdTrace("evaluate TAKEOVER");
@@ -1078,6 +1097,7 @@ export async function zaltzEvaluate(
     if (collectorInstalled) {
       (Pattern.prototype as unknown as Record<string, unknown>).p = prevP;
       (globalThis as Record<string, unknown>).setcpm = prevCpm;
+      (globalThis as Record<string, unknown>).all = prevAll;
       collectorInstalled = false;
     }
   }
