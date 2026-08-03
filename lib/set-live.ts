@@ -207,16 +207,53 @@ export function assignChannelOrbits(
     melody: new Map(),
   };
 
+  // WHERE A LAYER ACTUALLY ENDS (2026-08-04, the room: a pane ending in
+  // `all(x => x.room(…))` got the last layer's `.orbit(n)` appended after the
+  // all() call — `undefined.orbit`, dead pane; the same segment-swallow that
+  // once put .orbit on a trailing setcpm). A `$:` segment runs to the next
+  // `$:`, so any top-level statement after the last layer rides inside it.
+  // Split the segment at the first balanced-paren line that is neither a
+  // chain continuation (`.…`) nor blank/comment — that line starts a new
+  // statement and everything from it on is a TAIL to re-emit untouched.
+  // Quote-aware: mini-notation strings carry brackets ("[sh sh]").
+  const layerExtent = (seg: string): { body: string; tail: string } => {
+    const lines = seg.split("\n");
+    let depth = 0;
+    let quote: string | null = null;
+    let end = lines.length;
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0 && depth <= 0 && !quote) {
+        const t = lines[i].trim();
+        if (t && !t.startsWith(".") && !t.startsWith("//")) {
+          end = i;
+          break;
+        }
+      }
+      for (const ch of lines[i]) {
+        if (quote) {
+          if (ch === quote) quote = null;
+        } else if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+        else if (ch === "(" || ch === "[" || ch === "{") depth++;
+        else if (ch === ")" || ch === "]" || ch === "}") depth--;
+      }
+    }
+    return {
+      body: lines.slice(0, end).join("\n"),
+      tail: end < lines.length ? lines.slice(end).join("\n") : "",
+    };
+  };
+
   const head = code.slice(0, starts[0]);
   const remapDucks = opts?.ducks === "remap";
   // PASS 1 — assign every layer its decade orbit, remembering the orbit it
   // ARRIVED on (explicit .orbit(n) or the default bus 1) so duck targets can
   // follow their layers through the re-busing.
-  const layers: { body: string; newOrbit: number }[] = [];
+  const layers: { body: string; trail: string; newOrbit: number }[] = [];
   const orbitMap = new Map<number, Set<number>>();
   for (let li = 0; li < starts.length; li++) {
     const end = li + 1 < starts.length ? starts[li + 1] : code.length;
-    const raw = code.slice(starts[li], end);
+    const seg = layerExtent(code.slice(starts[li], end));
+    const raw = seg.body;
     const oldOrbit = Number(raw.match(/\.orbit\(\s*(\d+)\s*\)/)?.[1] ?? 1);
     // The stored code carries merge-baked orbits (reverb dedup) — replace them
     // with the channel decade, which preserves the same signature separation.
@@ -238,13 +275,13 @@ export function assignChannelOrbits(
     let set = orbitMap.get(oldOrbit);
     if (!set) orbitMap.set(oldOrbit, (set = new Set()));
     set.add(newOrbit);
-    layers.push({ body: layer, newOrbit });
+    layers.push({ body: layer, trail: seg.tail, newOrbit });
   }
   // PASS 2 — append the new orbit; in remap mode, rewrite duck targets
   // (`.duck("2:3")` / `.duckorbit(2)`) through the map. A target no layer
   // arrived on is dropped; a call left with no live targets goes entirely.
   const out: string[] = [head];
-  for (const { body, newOrbit } of layers) {
+  for (const { body, trail, newOrbit } of layers) {
     let layer = body;
     if (remapDucks) {
       layer = layer.replace(
@@ -262,7 +299,10 @@ export function assignChannelOrbits(
       );
     }
     const at = layerAppendPos(layer);
-    out.push(`${layer.slice(0, at)}.orbit(${newOrbit})${layer.slice(at)}`);
+    // the trail = whatever top-level statement followed this layer (an all()
+    // master transform, a comment block) — re-emitted OUTSIDE the chain, so
+    // the appended .orbit can never land on a statement that returns nothing
+    out.push(`${layer.slice(0, at)}.orbit(${newOrbit})${layer.slice(at)}${trail ? `\n${trail}` : ""}`);
   }
   return out.join("") + tail;
 }
