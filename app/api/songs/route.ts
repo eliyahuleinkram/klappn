@@ -15,7 +15,12 @@ import {
   deriveWorkspaceFromLoop,
   type MixInspiration,
 } from "@/lib/anthropic";
-import { addTokenUsage, releaseReservation, reserveQuota } from "@/lib/billing";
+import {
+  addTokenUsage,
+  assertComposeSlots,
+  releaseReservation,
+  reserveQuota,
+} from "@/lib/billing";
 import { makeCallSink } from "@/lib/call-trace";
 import { terminateManyGenerations, triggerGeneration } from "@/lib/workflows";
 import { stripHydraBlock } from "@/lib/hydra-embed";
@@ -64,6 +69,11 @@ export async function POST(req: Request) {
   // act gate let a free user fire N requests at once and blow past the cap. The
   // hold is released in the finally once composing is triggered (its real cost is
   // metered separately as the workflow runs).
+  // …and the RUN gate beside it: the quota gate lets go the moment this run is
+  // triggered, so without this an account could put a dozen whole songs in the
+  // air before any of them had metered a unit.
+  const slots = await assertComposeSlots(userId);
+  if (slots) return slots;
   const gate = await reserveQuota(userId);
   if (!gate.ok) return gate.response;
   try {

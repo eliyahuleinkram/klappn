@@ -9,7 +9,12 @@ import {
   setSongStatus,
 } from "@/lib/songs";
 import { triggerGeneration } from "@/lib/workflows";
-import { addTokenUsage, releaseReservation, reserveQuota } from "@/lib/billing";
+import {
+  addTokenUsage,
+  assertComposeSlots,
+  releaseReservation,
+  reserveQuota,
+} from "@/lib/billing";
 import { makeCallSink } from "@/lib/call-trace";
 
 /**
@@ -32,6 +37,8 @@ export async function POST(
   if (!userId) return unauthorized();
   const { id } = await params;
 
+  const slots = await assertComposeSlots(userId, id);
+  if (slots) return slots;
   const gate = await reserveQuota(userId);
   if (!gate.ok) return gate.response;
   try {

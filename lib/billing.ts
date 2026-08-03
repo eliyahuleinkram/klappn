@@ -653,6 +653,69 @@ function quotaExceeded(
   );
 }
 
+/**
+ * HOW MANY RUNS ONE ACCOUNT MAY HAVE ALIVE AT ONCE — the ceiling on money
+ * ALREADY IN THE AIR, which is the one thing the quota gate cannot see.
+ *
+ * The gate below reserves a loop and lets go the moment the workflow is
+ * triggered, because the run then meters its own cost as it goes. That was
+ * exactly right when a request made ONE loop. Since the birth run composes a
+ * whole song (2026-08-02) a single pass authorizes five to fifteen times what
+ * it held, and nothing stopped an account from starting twenty of them in the
+ * same second — every one of them passing, because none of the others had
+ * spent anything yet. Sized in dollars: a $5 top-up could put ~$37 of composing
+ * in flight before the first unit ever landed.
+ *
+ * So the second gate counts RUNS, not units. Three is well past what a person
+ * at one keyboard can listen to — a song takes minutes, and you can only hear
+ * one — and it holds the worst case to three songs of overshoot, which is
+ * inside the margin of any plan on the shelf.
+ *
+ * A song can only hold one run (claimGenerating), so live 'generating' songs IS
+ * the number of runs. Silence for 15 minutes means the run is gone, not
+ * thinking (see reconcileStaleGeneration — every live run writes constantly),
+ * so a crashed workflow can never take a slot with it.
+ */
+const MAX_LIVE_RUNS = 3;
+
+/**
+ * The RUN gate — for the routes that start background composing. Returns null
+ * when there's a slot, or a ready-to-return 429.
+ *
+ * `exceptSongId` is the song about to be worked on: it may already be one of
+ * the three (an extend while it composes), and its own run must never be the
+ * thing that refuses it. Fails OPEN like every other meter — this closes a
+ * burst, and a burst is not worth walling off the product for.
+ */
+export async function assertComposeSlots(
+  userId: string,
+  exceptSongId?: string,
+): Promise<Response | null> {
+  try {
+    const sql = db();
+    const [row] = await sql<{ n: number }[]>`
+      select count(*)::int as n from songs
+      where user_id = ${userId}
+        and status = 'generating'
+        and updated_at > now() - interval '15 minutes'
+        ${exceptSongId ? sql`and id <> ${exceptSongId}` : sql``}`;
+    if (Number(row?.n ?? 0) < MAX_LIVE_RUNS) return null;
+    // The house account is unmetered by definition — never queue it behind a
+    // ceiling that exists to protect the house.
+    if ((await getBilling(userId, sql)).plan === "owner") return null;
+    return Response.json(
+      {
+        error: "Three are already composing. Let one land.",
+        code: "too_many_runs",
+      },
+      { status: 429 },
+    );
+  } catch (e) {
+    console.error("[klappn] assertComposeSlots failed — failing open", e);
+    return null;
+  }
+}
+
 /** How long a generation may hold a reservation before the sweep reclaims it —
  *  a backstop for a crashed release, well above any real compose time. */
 const RESERVATION_TTL_MIN = 15;

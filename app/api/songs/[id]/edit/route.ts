@@ -1,7 +1,11 @@
 import { getSong, setSongStatus, snapshotPartOriginals } from "@/lib/songs";
 import { getUserId, unauthorized } from "@/lib/session";
 import { triggerEdit } from "@/lib/workflows";
-import { releaseReservation, reserveQuota } from "@/lib/billing";
+import {
+  assertComposeSlots,
+  releaseReservation,
+  reserveQuota,
+} from "@/lib/billing";
 
 // Kick off the edit Workflow with a natural-language change request.
 export async function POST(
@@ -12,6 +16,8 @@ export async function POST(
   if (!userId) return unauthorized();
   const { id } = await params;
 
+  const slots = await assertComposeSlots(userId, id);
+  if (slots) return slots;
   const gate = await reserveQuota(userId);
   if (!gate.ok) return gate.response;
   try {

@@ -24,7 +24,12 @@ import {
   setTrackInstrument,
   setTrackMuted,
 } from "@/lib/jobs";
-import { addTokenUsage, releaseReservation, reserveQuota } from "@/lib/billing";
+import {
+  addTokenUsage,
+  assertComposeSlots,
+  releaseReservation,
+  reserveQuota,
+} from "@/lib/billing";
 import { makeCallSink } from "@/lib/call-trace";
 import { flagIssue } from "@/lib/issues";
 import { sealDeep } from "@/lib/seal";
@@ -327,6 +332,15 @@ export async function PATCH(
     if (!body.intent?.trim()) {
       return Response.json({ error: "intent required" }, { status: 400 });
     }
+    // THIS COMPOSES — it rewrites the loop's intent and immediately starts a run
+    // over it. It was the one AI path in the product with no gate on it at all
+    // (2026-08-03): an account with nothing left could rewrite loops all day.
+    // Both gates, same as every other door that starts a run.
+    const slots = await assertComposeSlots(owned.userId, id);
+    if (slots) return slots;
+    const gate = await reserveQuota(owned.userId);
+    if (!gate.ok) return gate.response;
+    await releaseReservation(gate.id); // the run meters its own cost from here
     const part = await replacePartIntent(
       id,
       partId,

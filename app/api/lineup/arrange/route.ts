@@ -50,6 +50,6 @@ export async function POST(req: Request) {
     console.error("[klappn] lineup arrange failed:", e);
     return Response.json({ error: "arrange failed" }, { status: 500 });
   } finally {
-    await releaseReservation(userId);
+    await releaseReservation(gate.id);
   }
 }
