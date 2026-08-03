@@ -295,11 +295,18 @@ interface HitBundle {
 
 export interface HitProgram {
   music: string;
-  spans: { id: string; start: number; end: number; bars: number }[];
   totalCycles: number;
+  /** cycles (= bars) per second — how the room's clock becomes minutes. */
+  cps: number;
   ends: boolean;
   /** The room-clock bar the song's FIRST bar sits on. */
   late: number;
+}
+
+/** m:ss — how long a song has been playing, said the way a player says it. */
+function clockOf(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 /** The song as ONE `$:` layer, its downbeat rotated onto bar `late`. */
@@ -321,8 +328,8 @@ function emitHit(bundle: HitBundle, late: number): HitProgram | null {
     .trim();
   return {
     music: [...cpm, `$: ${expr}`].join("\n"),
-    spans: arr.spans,
     totalCycles: arr.totalCycles,
+    cps: arr.cps,
     ends: arr.ends,
     late,
   };
@@ -1663,20 +1670,15 @@ export default function ZaltzIDE({
   const [hit, setHit] = useState<{ id: string; title: string } | null>(null);
   /** WHERE THE ROOM IS INSIDE THE HIT. The song is one invisible arrange()
    *  program, so without this the only honest answer to "what are we playing?"
-   *  was its title. The map from the room's clock to the song's own bars —
+   *  was its title. The map from the room's clock to the song's own minutes —
    *  written at every pour, read by the ticker below. */
-  const hitPlayRef = useRef<(HitProgram & { labels: Record<string, string> }) | null>(null);
+  const hitPlayRef = useRef<HitProgram | null>(null);
   const [rawPos, setRawPos] = useState<{
-    /** the loop's own word — "Chorus", "≋" for a break */
-    label: string;
-    /** 1-based bar inside that loop, and how many it has */
-    bar: number;
-    bars: number;
-    /** 0..1 through the whole song */
+    /** how long we're into the song, and how long it runs */
+    at: string;
+    of: string;
+    /** 0..1 through it */
     through: number;
-    /** which section of how many */
-    index: number;
-    of: number;
   } | null>(null);
   /** The visual THIS ROOM poured in with the last hit, byte-for-byte. It is the
    *  only way to tell "the previous song's picture" (ours to replace) from
@@ -1897,7 +1899,7 @@ export default function ZaltzIDE({
         title: entry.title,
         program: emitted.music,
       };
-      hitPlayRef.current = { ...emitted, labels: bundle.labels };
+      hitPlayRef.current = emitted;
       setHit({ id: entry.id, title: entry.title });
       // THE PICTURE HANDS OVER. A hit brings its own light, and it must be
       // allowed to REPLACE the light the last hit brought — otherwise song B
@@ -1927,30 +1929,27 @@ export default function ZaltzIDE({
   // THE PLAYHEAD. Read off the audio clock — the song's position is
   // (room bar − the bar it was poured on), wrapped by its own length — so it
   // can never disagree with what you are hearing, and it survives every tempo
-  // nudge for free. Ten times a second: a bar counter that ticks late reads as
-  // a broken room.
+  // nudge for free. Ten times a second: a clock that ticks late reads as a
+  // broken room.
+  //
+  // It says the SONG's time, not which loop is up (2026-08-03, the user: "it
+  // should just show the name… we need to know what song we are playing and
+  // where we are currently up to"). A loop's name answers a question about the
+  // song's insides; standing at the desk you are asking how far in you are.
   useEffect(() => {
     if (!hit || !playing) return; // (the readout is gated on both in render)
     const tick = () => {
       const hp = hitPlayRef.current;
-      if (!hp || !(hp.totalCycles > 0) || !hp.spans.length) return;
+      if (!hp || !(hp.totalCycles > 0) || !(hp.cps > 0)) return;
       // an ending song carries 32 bars of silence past its end (the wrap
       // guard) — that is part of the loop it walks, so it counts here
       const period = hp.totalCycles + (hp.ends ? 32 : 0);
       const raw = schedulerCycleNow() - hp.late;
-      const pos = ((raw % period) + period) % period;
-      const last = hp.spans[hp.spans.length - 1];
-      const span =
-        pos >= hp.totalCycles ? last : (hp.spans.find((s) => pos >= s.start && pos < s.end) ?? last);
-      const over = pos >= hp.totalCycles;
-      const bars = Math.max(1, Math.round(span.end - span.start));
+      const pos = Math.min(hp.totalCycles, ((raw % period) + period) % period);
       setRawPos({
-        label: over ? "over" : (hp.labels[span.id] ?? "Loop"),
-        bar: over ? bars : Math.min(bars, Math.floor(pos - span.start) + 1),
-        bars,
-        through: over ? 1 : Math.min(1, pos / hp.totalCycles),
-        index: hp.spans.indexOf(span) + 1,
-        of: hp.spans.length,
+        at: clockOf(pos / hp.cps),
+        of: clockOf(hp.totalCycles / hp.cps),
+        through: Math.min(1, pos / hp.totalCycles),
       });
     };
     const iv = setInterval(tick, 100);
@@ -3486,13 +3485,15 @@ export default function ZaltzIDE({
             capsule naming it, with the one verb it needs. */}
         {hit && (
           /* THE CAPSULE IS THE PLAYHEAD (2026-08-03, the user: "we need to know
-             where we are holding in the hit that we are playing, which section
-             etc"). A hit rides UNDER the bench, invisible in the code by
-             design, so the one place that names it must also say where it is:
-             the loop's own word, the bar inside it, and the capsule itself
-             FILLING left to right across the whole song — the app's playhead
-             vocabulary (track + gradient fill) worn by the object instead of
-             parked beside it. */
+             where we are holding in the hit that we are playing"). A hit rides
+             UNDER the bench, invisible in the code by design, so the one place
+             that names it must also say where it is: the song's clock, and the
+             capsule itself FILLING left to right as it runs — the app's
+             playhead vocabulary (track + gradient fill) worn by the object
+             instead of parked beside it. THE NAME AND THE TIME, nothing else:
+             which loop is up is a question about the song's insides, and this
+             is the one control that answers "what am I playing, and how far
+             in?". */
           <span
             className="hidden min-w-0 shrink items-center gap-2 overflow-hidden rounded-full py-1.5 pl-3 pr-1.5 text-[12.5px] text-accent-strong ring-1 ring-inset ring-accent/25 sm:inline-flex"
             style={{
@@ -3516,13 +3517,10 @@ export default function ZaltzIDE({
             </span>
             <span className="min-w-0 truncate" title={hit.title}>{hit.title}</span>
             {hitPos && (
-              <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-accent-strong/70">
+              <span className="flex shrink-0 items-center gap-1.5">
                 <span className="h-3 w-px bg-accent-strong/25" />
-                <span className="max-w-[7rem] truncate" title={`Section ${hitPos.index} of ${hitPos.of}`}>
-                  {hitPos.label}
-                </span>
-                <span className="font-mono tabular-nums text-accent-strong/55">
-                  {hitPos.bar}/{hitPos.bars}
+                <span className="font-mono text-[11px] tabular-nums text-accent-strong/70">
+                  {hitPos.at} <span className="text-accent-strong/40">/ {hitPos.of}</span>
                 </span>
               </span>
             )}

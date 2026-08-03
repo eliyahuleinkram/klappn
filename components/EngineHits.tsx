@@ -96,8 +96,8 @@ export default function EngineHits({
   /** A move already in the air: the row it brings in, its name, and WHEN the
    *  drop lands — the seam counts the bars down to it. */
   arriving: { to: number; word: string; dropAt: number; barMs: number } | null;
-  /** Where the room is inside the song that's playing (null = nothing rides). */
-  playhead: { label: string; bar: number; bars: number; through: number } | null;
+  /** How far into the playing song the room is (null = nothing rides). */
+  playhead: { at: string; of: string; through: number } | null;
   /** The library — null while it loads; [] = no ready hits yet. */
   hits: LineupHit[] | null;
   onAdd: (id: string) => void;
@@ -361,14 +361,10 @@ export default function EngineHits({
                             >
                               {q.title}
                             </span>
-                            {/* WHERE THE SONG IS, on the row that is playing it
-                                — the loop's own word and the bar inside it. */}
+                            {/* HOW FAR IN, on the row that is playing it. */}
                             {now && playhead && (
-                              <span className="flex shrink-0 items-center gap-1.5 text-[10.5px] text-muted/50">
-                                <span className="max-w-[5.5rem] truncate">{playhead.label}</span>
-                                <span className="font-mono tabular-nums">
-                                  {playhead.bar}/{playhead.bars}
-                                </span>
+                              <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-muted/50">
+                                {playhead.at} <span className="text-muted/30">/ {playhead.of}</span>
                               </span>
                             )}
                           </button>
