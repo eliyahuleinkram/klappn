@@ -3039,6 +3039,10 @@ export default function ZaltzIDE({
       // half a door.
       setChatSeed({ pane, text: sel?.text ?? "", nonce: ++chatSeedNonce.current });
       setChatOpen(true);
+      // The crate is a MENU — it steps aside the moment you go and do something
+      // else. (It also sits above the conversation, so leaving it open would
+      // park a dismiss-layer over the panel you just summoned.)
+      setLineupOpen(false);
     },
     [spent],
   );

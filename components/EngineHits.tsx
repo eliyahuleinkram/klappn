@@ -192,10 +192,14 @@ export default function EngineHits({
   const hasNext = currentIdx != null && currentIdx < queue.length - 1;
   return (
     <>
-      <div className="fixed inset-0 z-10" onClick={onClose} aria-hidden />
+      <div className="fixed inset-0 z-[23]" onClick={onClose} aria-hidden />
       {/* PHONE: a fixed sheet under the bar, full-width. DESKTOP: the house
-          dropdown, right-aligned under the mark that opened it. */}
-      <div className="fixed inset-x-3 top-[max(3.4rem,calc(env(safe-area-inset-top)_+_3.1rem))] z-20 flex max-h-[min(70dvh,540px)] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80">
+          dropdown, right-aligned under the mark that opened it.
+          THE ROOM'S LADDER: pills 18–19 · the mixer desk 20 · the conversation
+          22 · THIS 23/24 · the paying sheet 40. A menu opened from the bar
+          outranks every panel that lives on the page — at z-20 the crate opened
+          UNDERNEATH the chat and looked like it had failed to open at all. */}
+      <div className="fixed inset-x-3 top-[max(3.4rem,calc(env(safe-area-inset-top)_+_3.1rem))] z-[24] flex max-h-[min(70dvh,540px)] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80">
         <div className="flex min-h-0 flex-col p-1.5">
           <div className="min-h-0 flex-1 overflow-y-auto">
             {/* ── YOUR HITS — the list, and the whole point. Tap = it plays. */}
