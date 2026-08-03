@@ -1285,7 +1285,10 @@ export default function SetClient({
     holdSection: (id: string) => holdRef.current || holdTargetFor(id) === Infinity,
     // FINITE saved repeats (2×/4×/8×) bake into the pattern as extra cycles —
     // they play natively, no re-eval, and listeners derive the same timeline.
+    // A section carrying an arrangement spec plays its authored span instead
+    // (the hold is already folded into arr.bars — same rule as home).
     repeatsFor: (id: string) => {
+      if (buildFlat().find((s) => s.id === id)?.arr) return 1;
       const target = holdTargetFor(id);
       return Number.isFinite(target) ? target : 1;
     },

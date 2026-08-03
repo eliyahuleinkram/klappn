@@ -27,6 +27,7 @@ import {
   getBroadcastStream,
   liveCps,
   playPart,
+  loopCycles,
   preloadSamples,
   schedulerCycleNow,
   setLiveCps,
@@ -286,7 +287,12 @@ function stripSetcpm(code: string): string {
  * makes it possible to say WHERE IN THE SONG the room is.
  */
 interface HitBundle {
-  sections: { id: string; code: string; seconds: number }[];
+  /** The full ArrangeSection rows — `arr` (the unfolded spans, layer moves,
+   *  sweeps, overlays) MUST ride along: dropping it played every loop at its
+   *  bare natural length once, which is a different — and much shorter —
+   *  song than the one the hits page plays (2026-08-03, the user: "5:39 in
+   *  the hits and 1:52 in the engine"). */
+  sections: Parameters<typeof buildArrangement>[0];
   build: Parameters<typeof buildArrangement>[1];
   /** section id → the word the loop wears ("Chorus", "≋" for a break). */
   labels: Record<string, string>;
@@ -1809,11 +1815,44 @@ export default function ZaltzIDE({
             setNotice("Nothing playable in that one yet — it joins when a loop lands.");
             return null;
           }
-          const sections = entryPlay.sections.map((sec) => ({
-            id: sec.id,
-            code: sec.code,
-            seconds: sec.seconds,
-          }));
+          // THE WHOLE ARRANGEMENT RIDES (2026-08-03). `arr` carries the song's
+          // unfolded spans (repeats × natural length), its layer entrances and
+          // exits, sweeps and break overlays — dropping it here collapsed a
+          // 5:39 song to 1:52 of bare loops. Repeat LATCHES on sections
+          // without a spec bake into seconds instead, exactly as the export
+          // and the home player treat them (a dialled ∞ plays once — a pour
+          // can't hold forever).
+          //
+          // ENGINE-MEASURED loop periods, same truth the song page and home
+          // play by: the regex estimate over-counts repeating slowcat
+          // elements, and this program is built ONCE — there is no live
+          // watcher to pick a corrected boundary up later, so measure first.
+          // Best-effort; the estimate stands where a measure fails.
+          const measured: Record<string, number> = {};
+          for (const r of entryPlay.raw) {
+            if (!r.code.trim()) continue;
+            const n = await loopCycles(r.code).catch(() => null);
+            if (n && n > 0) measured[r.id] = n;
+          }
+          const sections = entryPlay.sections.map((sec) => {
+            const h =
+              String(sec.id).startsWith("break:") || !sec.arr
+                ? entryPlay.holds[sec.id]
+                : undefined;
+            const repeats =
+              Number.isFinite(h) && (h as number) >= 1
+                ? Math.min(64, Math.floor(h as number))
+                : 1;
+            const seconds = measured[sec.id]
+              ? measured[sec.id] * entryPlay.bar
+              : sec.seconds;
+            return {
+              id: sec.id,
+              code: sec.code,
+              seconds: seconds * repeats,
+              arr: sec.arr,
+            };
+          });
           // Built once here purely to know it CAN be built; the pour re-emits
           // it at the bar it lands on (see emitHit).
           const arr = buildArrangement(sections, {

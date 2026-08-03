@@ -196,6 +196,9 @@ export default function SetsClient({ initialSets }: { initialSets: SetCard[] }) 
         // holdSection double-counted under the arrangement watcher's ~5Hz poll).
         holdSection: (id) => sectionHoldTarget(id, c) === Infinity,
         repeatsFor: (id) => {
+          // an arrangement-spec'd section plays its authored span — the hold
+          // is already folded into arr.bars (same rule as home and the deck)
+          if (buildSetSections(c, barsForPart).find((s) => s.id === id)?.arr) return 1;
           const target = sectionHoldTarget(id, c);
           return Number.isFinite(target) ? target : 1;
         },

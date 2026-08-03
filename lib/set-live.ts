@@ -16,6 +16,7 @@ import {
 } from "./hydra-embed";
 import type { PartRow, SongRow } from "./songs";
 import type { SetEntry, SetTransition } from "./sets";
+import type { SectionArrange, SongArrangement } from "./arrange";
 
 /**
  * LIVE SET channel routing — the machinery behind the deck's three kill
@@ -377,6 +378,10 @@ interface Planish {
   /** Per-loop repeat latches saved on the song page (−1 = forever), keyed by
    *  part id (loops) or `break:<partId>` (the song's own breaks). */
   holdCycles?: Record<string, number>;
+  /** The model-authored song arrangement — its per-section specs (unfolded
+   *  spans, layer moves, sweeps, overlays) are how the song actually plays on
+   *  its own page and on home, so a set must carry them too. */
+  arrangement?: SongArrangement | null;
   /** The song's ONE canonical visual (see lib/hydra-embed.ts). */
   visual?: Partial<SongVisual>;
 }
@@ -487,6 +492,11 @@ export interface SetSection {
   entryId: string;
   partId?: string;
   isBreak: boolean;
+  /** The section's arrangement spec (see Planish.arrangement) — WITHOUT it the
+   *  set plays every loop at its bare natural length once, a much shorter song
+   *  than the one the hits page plays. Callers' repeatsFor must return 1 for a
+   *  section that carries one (the hold is folded into its bars, same as home). */
+  arr?: SectionArrange;
 }
 
 /** Every entry's playable loops in order (RAW code — decorateSetSection applies
@@ -509,6 +519,25 @@ export function buildSetSections(
     const p = planish(bundle.song);
     const bs = barSeconds(p.bpm || 120, p.timeSignature);
     const playable = bundle.parts.filter((x) => x.strudel?.trim());
+    // The section's arrangement — MIRRORS buildHomeSections.arrOf: a dialled
+    // repeat folds INTO the span (held × the loop's own length), and under a
+    // transposed song the one-way overlay lines are dropped (they'd play in
+    // the original key). Sections that carry one must get repeatsFor = 1 from
+    // the player, or the span double-counts.
+    const arrOf = (part: PartRow): SectionArrange | undefined => {
+      const a = p.arrangement?.sections?.[part.id];
+      if (!a) return undefined;
+      const held = p.holdCycles?.[part.id];
+      const nat = Math.max(
+        1,
+        (barsFor?.(part) ?? computeLoopBars(part.strudel || "")) || 1,
+      );
+      const withHold =
+        Number.isFinite(held) && (held as number) >= 1
+          ? { ...a, bars: (held as number) * nat }
+          : a;
+      return (p.transpose || 0) !== 0 ? { ...withHold, overlays: undefined } : withHold;
+    };
     playable.forEach((part, i) => {
       out.push({
         id: `${e.id}|${part.id}`,
@@ -517,6 +546,7 @@ export function buildSetSections(
         entryId: e.id,
         partId: part.id,
         isBreak: false,
+        arr: arrOf(part),
       });
       // The song's OWN chosen one-bar break after this loop (within the song only).
       const set = p.breaks?.[part.id];
