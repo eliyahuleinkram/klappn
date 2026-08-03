@@ -428,7 +428,19 @@ export function sectionEntries(
     const b = marks[i + 1];
     let active = parts.layers;
     for (const m of moves) if (m.bar <= a) active = m.layers.map((idx) => parts.layers[idx - 1]);
-    const voices = active.map((l) => `(${l}\n)`);
+    // THE MUSIC RESUMES ITS PHRASE ACROSS A CUT (2026-08-04, song db62451f:
+    // "the stampede sounds extremely intense… the reverb is way too strong").
+    // Each arrange() entry runs its pattern from LOCAL cycle 0, and sweeps/
+    // overlays have always re-entered with .early(elapsed) — but the LAYERS
+    // did not, on the old assumption that a loop layer is a 1-bar cycle.
+    // Composed layers are legally multi-bar phrases (`<A B C D>` slowcats),
+    // so every move/sweep edge snapped all of them back to their FIRST cell:
+    // a section cut at bars 2/4/8/12/14 re-struck its densest bar and its
+    // bell/chord hits five times into 7-9s reverbs — heard as hammering and
+    // reverb pile-up, absent when the bare loop plays uncut. .early(a) resumes
+    // each phrase where the section actually is; on a true 1-bar layer a
+    // whole-bar shift is the identity, so nothing else changes.
+    const voices = active.map((l) => `(${l}\n)${a > 0 ? `.early(${a})` : ""}`);
     for (const o of overlays)
       if (o.bar <= a && o.end > a)
         voices.push(`(${o.code}\n)${a > o.bar ? `.early(${a - o.bar})` : ""}`);
