@@ -370,6 +370,9 @@ interface Planish {
   key?: string;
   transpose?: number;
   timeSignature?: string | null;
+  /** The song's own saved Sound dials (colour) — part of how the song sounds
+   *  everywhere else, so a set must play them too. */
+  sound?: MixSound;
   breaks?: Record<string, { options: { label: string; strudel: string; strudelMobile?: string | null }[]; chosen: number | null }>;
   /** Per-loop repeat latches saved on the song page (−1 = forever), keyed by
    *  part id (loops) or `break:<partId>` (the song's own breaks). */
@@ -439,12 +442,23 @@ export function decorateSetSection(
       ? (part.tracks as { label?: string }[]).map((t) => t.label)
       : undefined;
   }
-  src = assignChannelOrbits(src, labels);
+  // THE SONG ARRIVES WHOLE (2026-08-03, the user: "when we create a set the
+  // songs must remain the same"). Ducks REMAP through the re-busing instead of
+  // being stripped — the sidechain pump is part of the song, and remapped
+  // targets follow their layers into the channel decades so the kills still
+  // bite (the strip predates remap, which the boiler room proved).
+  src = assignChannelOrbits(src, labels, { ducks: "remap" });
+  // …and the song's own Sound dials play under the DJ's: the deck's live perf
+  // wins only where a dial is actually turned (perfToSound leaves untouched
+  // fields undefined — those must not erase the song's saved colour).
+  const sound: MixSound = { ...(p.sound ?? {}) };
+  for (const [k, v] of Object.entries(perfToSound(dials.perf)))
+    if (v !== undefined) (sound as Record<string, unknown>)[k] = v;
   const out = transformForPlayback(src, {
     transpose: (p.transpose || 0) + dials.perf.key,
     bpm: (p.bpm || 120) * (1 + dials.nudge / 100),
     timeSignature: p.timeSignature,
-    sound: perfToSound(dials.perf),
+    sound,
     isBreak: isTransition || (rest ?? "").startsWith("break:"),
   });
   // The song's visual rides EVERY section, the way home plays it: a loop that

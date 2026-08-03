@@ -711,22 +711,29 @@ export default function ZaltzIDE({
       // never touched. Every layer lands on its channel's orbit decade, so
       // the kills have buses to bite. Ducks REMAP through the re-busing (the
       // Sets deck strips them; a live coder's sidechain pump must survive).
+      //
+      // THE HIT IS FINISHED CODE AND RIDES BYTE-UNTOUCHED (2026-08-03, the
+      // user: "nothing about the hit should change"). Its arrange() program
+      // was built by the exact path home plays — re-transforming the COMBINED
+      // program here corrupted it: sanitizeDuckTargets reads live orbits off
+      // `$:` lines, the arrange program has none (its layers are folded into
+      // stack() expressions), so the moment the bench held one layer every
+      // duck in the song failed the "target exists" test and the whole
+      // sidechain pump was stripped — "it gets rid of the effects". Only YOUR
+      // lines go through the transform (and the key dial, which is `$:`-scoped
+      // and never reached the hit anyway).
+      const deckedPane = assignChannelOrbits(stripSetcpm(pane), undefined, {
+        ducks: "remap",
+        orbits: "per-layer",
+      });
       await playPart(
         "zaltz-ide",
-        transformForPlayback(
-          riding
-            ? // A HIT IS RIDING: it was re-bussed by signature when the
-              // arrangement was built, so re-busing it again here would merge
-              // its layers back onto shared buses (the crackle law). Only YOUR
-              // lines get the deck's channel decades — the kills bite what you
-              // wrote, and the song underneath plays untouched.
-              `${riding}\n${assignChannelOrbits(stripSetcpm(pane), undefined, {
-                ducks: "remap",
-                orbits: "per-layer",
-              })}`.trim()
-            : assignChannelOrbits(code, undefined, { ducks: "remap", orbits: "per-layer" }),
-          { transpose: keyRef.current },
-        ),
+        riding
+          ? `${riding}\n${transformForPlayback(deckedPane, { transpose: keyRef.current })}`.trim()
+          : transformForPlayback(
+              assignChannelOrbits(code, undefined, { ducks: "remap", orbits: "per-layer" }),
+              { transpose: keyRef.current },
+            ),
         "zaltz-ide",
         // SEAMLESS: a re-eval of the live session hot-swaps in place — no
         // cycle-0 restart, no retire. Takes and ⌘↵ land mid-set without a seam.

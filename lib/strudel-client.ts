@@ -2933,6 +2933,9 @@ interface ActiveArrangement {
   heldId: string | null;
   heldCycles: number | null;
   overrides: Map<string, string>; // sectionId → live-tweaked code (dial rides)
+  /** Per-section code as the LAST BUILD plays it (post orbit re-bus) — what
+   *  liveSectionCodes() serves the solo/mute gates. */
+  codes: { id: string; code: string }[];
   /** The UNIT's sections (raw) — a same-tempo slice of the live list. */
   baseList: SongSection[];
   /** First section id — where this unit anchors in the live list. */
@@ -3102,6 +3105,7 @@ async function rebuildArrangement(a: ActiveArrangement): Promise<void> {
       a.spans = built.spans;
       a.totalCycles = built.totalCycles;
       a.cps = built.cps; // unit-end math must follow a live tempo change
+      a.codes = built.codes;
       a.sig = arrangementSig(a);
     } while (a.rebuildPending);
   } finally {
@@ -4611,18 +4615,36 @@ export async function warmSounds(tokens: string[]): Promise<void> {
  */
 let liveEvalBusy = false;
 let liveEvalPending: string | null = null;
-export async function liveUpdate(code: string, _layer?: number): Promise<void> {
+export async function liveUpdate(code: string, sectionId?: string): Promise<void> {
   if (!code.trim()) return;
   if (!mod) return;
-  // ARRANGEMENT MODE: callers hand us the CURRENT section's tweaked code (a
-  // deck dial, a layer swap). Evaluating it bare would replace the whole song
-  // with one loop — instead the tweak becomes an override and the full
-  // arrangement re-evaluates in place (no hush → the phase carries through).
-  if (songActive && arrangement && currentPartId) {
-    arrangement.overrides.set(currentPartId, code);
+  // ARRANGEMENT MODE: callers hand us ONE section's tweaked code (a deck dial,
+  // a layer swap). Evaluating it bare would replace the whole song with one
+  // loop — instead the tweak becomes an override and the full arrangement
+  // re-evaluates in place (no hush → the phase carries through).
+  //
+  // THE OVERRIDE LANDS ON THE SECTION THE CODE BELONGS TO (2026-08-03, the
+  // user: "tweaks must update in real-time"). It used to land on
+  // currentPartId — whatever happened to be SOUNDING — so a knob turned on
+  // loop B while loop A played wrote B's music into A's slot, and a tweak
+  // made while a break sounded replaced the break. Callers now name the
+  // owning section; the bare form keeps the old meaning for the one surface
+  // (the room) that really does mean "whatever is sounding".
+  if (songActive && arrangement) {
+    const target = sectionId ?? currentPartId;
+    if (!target) return;
+    // A section this arrangement doesn't hold (another unit of a set, a
+    // blueprint) must not override anything — it will be decorated fresh
+    // from live state when its own unit plays.
+    if (!arrangementList(arrangement).some((s) => s.id === target)) return;
+    arrangement.overrides.set(target, code);
     void rebuildArrangement(arrangement);
     return;
   }
+  // STEPPER MODE, same law: the program IS one section, so a tweak to any
+  // OTHER section must not evaluate over it — that section picks the tweak up
+  // from live state (decorate) when it next plays.
+  if (songActive && sectionId && currentPartId && sectionId !== currentPartId) return;
   if (liveEvalBusy) {
     liveEvalPending = code; // latest wins — intermediate states are disposable
     return;
@@ -5394,6 +5416,19 @@ export function currentSectionId(): string | null {
   return currentPartId;
 }
 
+/** Each section's code AS THE LIVE ARRANGEMENT PLAYS IT — after the song-wide
+ *  orbit re-bus, refreshed on every rebuild. Null when nothing arranged is
+ *  playing (stepper / single loop / silence), where the standalone transform
+ *  IS the truth. The solo/mute orbit gates read their bus numbers from here:
+ *  the standalone per-section numbering does not survive the re-bus, so gates
+ *  computed from it close the wrong buses (the "headphones don't isolate"
+ *  bug, 2026-08-03). */
+export function liveSectionCodes(): { id: string; code: string }[] | null {
+  const a = arrangement;
+  if (!a || !songActive) return null;
+  return a.codes;
+}
+
 /** Where the playhead is inside the sounding section — its id, the current bar
  *  (float, 0-based) and the section's span in bars. Null when not playing an
  *  arrangement. The unfold lanes read this each frame to draw a live playhead;
@@ -5651,6 +5686,7 @@ export async function playSong(
       heldId: null,
       heldCycles: null,
       overrides: new Map(),
+      codes: built.codes,
       baseList: rawSections,
       anchorId: rawSections[0]?.id ?? "",
       rawPrint: rawPrintOf(rawSections),

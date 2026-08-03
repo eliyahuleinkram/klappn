@@ -211,6 +211,12 @@ export interface Arrangement {
   /** True when the song ENDS at totalCycles (SongEnding mode "stop") — the
    *  player must stop there instead of letting the pattern wrap. */
   ends: boolean;
+  /** Each section's code AS THE PROGRAM PLAYS IT — i.e. after the global orbit
+   *  re-bus. The section a caller handed in is NOT what sounds: rebusArrangement
+   *  renumbers `.orbit(n)` song-wide by effect signature, so anything that needs
+   *  the REAL bus numbers (the solo/mute orbit gates) must read these, never the
+   *  standalone per-section transform. */
+  codes: { id: string; code: string }[];
 }
 
 /** `setcpm(a/b)` or `setcpm(n)` argument, or null when absent. Takes the LAST
@@ -673,7 +679,14 @@ export function buildArrangement(
       : 0;
   let program = `setcpm(${cpmArg})\narrange(\n${body}\n)${late ? `.late(${late})` : ""}`;
   if (hydra && opts.attachVisual !== false) program = attachHydraBlock(program, hydra);
-  return { program, spans, totalCycles: at, cps, ends };
+  return {
+    program,
+    spans,
+    totalCycles: at,
+    cps,
+    ends,
+    codes: usable.map((s) => ({ id: s.id, code: s.code })),
+  };
 }
 
 // ── presence ⟷ moves (the unfold editor's math) ─────────────────────────────

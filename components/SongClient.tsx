@@ -52,6 +52,7 @@ import {
   isSongPlaying,
   refreshArrangement,
   isMobileDevice,
+  liveSectionCodes,
   liveUpdate,
   rebindSong,
   warmSounds,
@@ -486,7 +487,18 @@ export default function SongClient({
    *  new state keeps. `transformed` saves a re-transform when the caller has it. */
   function syncLayerGates(p: Part, transformed?: string) {
     if (exporting || !p.strudel?.trim()) return;
+    // THE REAL BUS NUMBERS (2026-08-03, the user: "it is not isolating the
+    // sound properly"). In arrangement mode — the default since the whole song
+    // became one arrange() pattern — the program's orbits are renumbered
+    // SONG-WIDE by effect signature (rebusArrangement), so the standalone
+    // per-part transform's numbering is fiction: gates computed from it close
+    // the wrong buses. Read the section's code as the live program actually
+    // plays it; the standalone transform stays the truth for the stepper and
+    // single-loop play, where nothing was re-bused.
+    const live = liveSectionCodes();
+    const mine = live?.find((s) => s.id === p.id)?.code;
     const t =
+      mine ??
       transformed ??
       transformForPlayback(playbackCode(p), { transpose, bpm, timeSignature, sound });
     const orbs = layerOrbitsOf(t);
@@ -494,7 +506,12 @@ export default function SongClient({
     let want: number[];
     if (solo?.partId === p.id) {
       const keep = orbs[solo.layer] ?? null;
-      want = [...new Set(orbs.filter((o): o is number => o != null && o !== keep))];
+      // Solo closes every bus the WHOLE program owns except the kept one —
+      // other sections' buses included: their reverb tails would otherwise
+      // ring on into the isolation (the pin keeps those sections from
+      // SOUNDING; the gates keep them from RINGING).
+      const all = live ? live.flatMap((s) => layerOrbitsOf(s.code)) : orbs;
+      want = [...new Set(all.filter((o): o is number => o != null && o !== keep))];
     } else {
       const tracks = p.tracks ?? [];
       const kept = new Set(orbs.filter((o, i) => o != null && !tracks[i]?.muted));
@@ -577,7 +594,7 @@ export default function SongClient({
         if (playing === partId && !paused) {
           const solo = soloedRef.current;
           const t = transformForPlayback(repaired, { transpose, bpm, timeSignature, sound });
-          void liveUpdate(solo?.partId === partId ? soloLiveCode(t, solo.layer) : t);
+          void liveUpdate(solo?.partId === partId ? soloLiveCode(t, solo.layer) : t, partId);
         }
         setRepairMsg(null);
       } else {
@@ -1297,8 +1314,9 @@ export default function SongClient({
       soloedRef.current = null;
       setSoloed(null);
       releaseLayerGates();
-      releaseLayerGates();
-      if (playingNow) void liveUpdate(transformForPlayback(playbackCode(p), opts));
+      // The full code override lands on THIS loop's slot; the lifted pin
+      // (holdSection reads soloedRef) lets the song walk on from here.
+      if (playingNow) void liveUpdate(transformForPlayback(playbackCode(p), opts), partId);
       return;
     }
     soloedRef.current = { partId, layer };
@@ -1308,7 +1326,7 @@ export default function SongClient({
       // the overlay code (same-bus layers muted) swaps in, transport kept.
       const t = transformForPlayback(playbackCode(p), opts);
       syncLayerGates(p, t);
-      void liveUpdate(soloLiveCode(t, layer));
+      void liveUpdate(soloLiveCode(t, layer), partId);
     } else {
       // Silence, pause, or another loop playing → this loop takes over from
       // the top; decorate() reads soloedRef and bakes the solo, and the
@@ -2246,9 +2264,13 @@ export default function SongClient({
         return solo?.partId === id && code.trim() ? soloLiveCode(t, solo.layer) : t;
       },
       // HOLD, read live at every loop boundary. Loop repeats are GONE — the
-      // unfold's bars are the span; the only holds left are a loop that's
-      // STILL COMPOSING (you're listening to it build).
+      // unfold's bars are the span; the holds left are a loop that's STILL
+      // COMPOSING (you're listening to it build) and a SOLO (2026-08-03, the
+      // user: "that specific loop loops around in isolating that one sound") —
+      // headphones pin the transport on that loop, looping it isolated, until
+      // the solo lifts and the song walks on from where it held.
       holdSection: (id: string) => {
+        if (soloedRef.current?.partId === id) return true;
         const p = partsRef.current.find((x) => x.id === id);
         return !!p && (p.status === "generating" || p.status === "pending");
       },
@@ -2436,6 +2458,7 @@ export default function SongClient({
         timeSignature,
         sound,
       }),
+      buildingBp.id,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildingBp?.strudel]);
@@ -2529,6 +2552,7 @@ export default function SongClient({
           const t = transformForPlayback(code, { transpose, bpm, timeSignature, sound });
           void liveUpdate(
             solo?.partId === part.id ? soloLiveCode(t, solo.layer) : t,
+            part.id,
           );
         }
         return;
@@ -2641,6 +2665,7 @@ export default function SongClient({
             timeSignature,
             sound,
           }),
+          p.id,
         );
       };
       // Mobile on-device: a tempo/transpose SLIDER DRAG fires this per step, each a
@@ -2676,7 +2701,7 @@ export default function SongClient({
     const onMobileLoop = isMobileDevice();
     const doSwap = () => {
       const t = transformForPlayback(playingCode, { transpose, bpm, timeSignature, sound });
-      void liveUpdate(solo?.partId === playing ? soloLiveCode(t, solo.layer) : t);
+      void liveUpdate(solo?.partId === playing ? soloLiveCode(t, solo.layer) : t, playing);
     };
     // Desktop hot-swaps cheaply per layer. Mobile re-renders the whole loop per
     // swap, so DEBOUNCE: one re-render when the loop settles, not per layer.
@@ -6965,7 +6990,10 @@ function LoopCardImpl({
   // soloed, so this is a no-op then.
   const liveLayers = (code: string) => {
     const t = transformForPlayback(code, { transpose, bpm, timeSignature, sound });
-    void liveUpdate(soloedLayer >= 0 ? soloLiveCode(t, soloedLayer) : t);
+    // The section id rides along: this card's tweak must land on THIS loop's
+    // slot in the live arrangement — it used to land on whatever section was
+    // SOUNDING, so a knob turned on one loop rewrote another's music.
+    void liveUpdate(soloedLayer >= 0 ? soloLiveCode(t, soloedLayer) : t, part.id);
   };
   function swapSound(sw: SoundSwap, to: string) {
     const base = part.strudel || "";
