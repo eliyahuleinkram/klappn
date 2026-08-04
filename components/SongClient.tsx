@@ -2943,6 +2943,10 @@ export default function SongClient({
   // A sweep that changed nothing used to look exactly like one that worked: the
   // pill just went away. The route now says what it DID, and a no-op says so in
   // the corner for a beat before the word comes back (2026-07-31).
+  // WHICH SPEND IS IN FLIGHT — the corner says the word for the one running
+  // ("Arranging the song…" / "Sweeping the song…"), because three rows that
+  // all reported "sweeping" would lie about two of them.
+  const [shaping, setShaping] = useState<"arrange" | "effects" | "breaks" | "both" | null>(null);
   const [sweepNote, setSweepNote] = useState<string | null>(null);
   const sweepNoteAt = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -2956,12 +2960,40 @@ export default function SongClient({
     if (sweepNoteAt.current) clearTimeout(sweepNoteAt.current);
     sweepNoteAt.current = setTimeout(() => setSweepNote(null), 3600);
   }
+  /** ARRANGE, THE AI ONE (2026-08-04, the user: Shape's Arrange row "should be
+   *  the same AI arrange that is the opus call over the whole song"). One HIGH
+   *  call re-authors every section's SPAN, its layer entrances and exits, its
+   *  sweeps and the song's ending — the same call a birth run makes for itself.
+   *  Replaces wholesale, like the other two rows; moving loops by hand is now
+   *  its own button outside the menu, and never spends a thing. */
+  async function runArrange() {
+    setShaping("arrange");
+    try {
+      const res = await fetch(`/api/songs/${songId}/arrange`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        await refresh();
+        refreshArrangement(); // the playing mix adopts the new shape NOW
+      } else {
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        noteSweep(d.error === "no music to arrange yet" ? "Nothing to arrange yet" : "The arrange missed — nothing moved");
+      }
+    } catch {
+      noteSweep("The arrange missed — nothing moved");
+    } finally {
+      setShaping(null);
+    }
+  }
   /** Re-hear one half of the shape, or both (2026-08-02, the user: effects and
    *  breaks "should not have to run together"). Whichever half isn't asked for
    *  rides on untouched — and the turns still read the glides for context, so
    *  asking for breaks alone never means asking blind. */
   async function runSweep(what: "effects" | "breaks" | "both" = "both") {
     setSweep("busy");
+    setShaping(what);
     try {
       const res = await fetch(`/api/songs/${songId}/shape`, {
         method: "POST",
@@ -2986,6 +3018,7 @@ export default function SongClient({
       noteSweep("The sweep missed — nothing moved");
     } finally {
       setSweep("idle");
+      setShaping(null);
     }
   }
   // ── BREAK OVERLAYS (plan.overlays) — deterministic drum rides, zero AI to
@@ -3586,6 +3619,44 @@ export default function SongClient({
   // flip the loop to "generating", and that silent gap read as "nothing happened". This local
   // bridge covers it; the poll's targetGenerating takes over (8s outlives any workflow start).
   const [editSubmitting, setEditSubmitting] = useState(false);
+  /**
+   * THE WHOLE SONG, IN WORDS (2026-08-04, the user: "we should have another
+   * option that we can edit the entire song… it is a song wide edit so it is
+   * not limited to the section").
+   *
+   * The same bar, the same sentence — only the chip changes, and with it what
+   * the words reach: every loop at once instead of the one you tapped. Each
+   * loop is rewritten the way it was made (layer by layer, in parallel); a
+   * loop the model can't answer for is left exactly as it was, so a
+   * song-wide ask can never cost you the song.
+   */
+  const [songEdit, setSongEdit] = useState(false);
+  function onEditSong(text: string) {
+    const r = text.trim();
+    if (!r || busy || editSubmitting) return;
+    setEditText("");
+    setSongEdit(false);
+    setEditSubmitting(true);
+    setTimeout(() => setEditSubmitting(false), 8000);
+    fetch(`/api/songs/${songId}/edit`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ changeRequest: r }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          setError(d.error || "Couldn’t apply that change.");
+          setEditSubmitting(false);
+          return;
+        }
+        void refresh();
+      })
+      .catch(() => {
+        setError("Network error — try again.");
+        setEditSubmitting(false);
+      });
+  }
   function onEditLoop(text: string) {
     const r = text.trim();
     if (!r || !targetLoop || targetGenerating || editSubmitting) return;
@@ -3772,9 +3843,11 @@ export default function SongClient({
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg>
                   </button>
                 </span>
-              ) : sweep === "busy" ? (
+              ) : shaping ? (
                 <span className="flex h-8 items-center px-3 text-[12.5px] leading-none">
-                  <span className="shimmer-text">Sweeping the song…</span>
+                  <span className="shimmer-text">
+                    {shaping === "arrange" ? "Arranging the song…" : "Sweeping the song…"}
+                  </span>
                 </span>
               ) : sweepNote ? (
                 <span className="animate-fade-in flex h-8 items-center px-3 text-[12.5px] leading-none text-muted/70">
@@ -3820,23 +3893,14 @@ export default function SongClient({
                             menu shows the same three from the first paint, and
                             a row that can't run yet says so IN ITS OWN LINE —
                             no hover, no guessing, the consequence on the card.
-                            Arrange stays live the whole time: moving loops
-                            never touches the AI. */}
-                        <MenuRow
-                          word="Visuals"
-                          line={
-                            visiting
-                              ? "The look is the maker's — yours to watch, not to repaint"
-                              : playableCount > 0
-                                ? "One living look across the whole piece"
-                                : "Once the first loop has landed"
-                          }
-                          disabled={visiting || playableCount === 0}
-                          onClick={() => {
-                            setShapeOpen(false);
-                            setVisualsOpen(true);
-                          }}
-                        />
+
+                            THE MENU IS ONE FAMILY (2026-08-04, the user): the
+                            three AI shapes of the whole song, and nothing else.
+                            Effects · Breaks · Arrange — each one call, each
+                            replacing what it re-hears. The picture left (it is
+                            a look, not a shape) and moving loops by hand left
+                            (it spends nothing); both are their own buttons in
+                            the row outside. */}
                         {/* ASKED SEPARATELY (2026-08-02). Wanting new turns over
                             the arcs you already like is an ordinary thing to
                             want, and it costs one small call per seam instead
@@ -3875,12 +3939,27 @@ export default function SongClient({
                             void runSweep("breaks");
                           }}
                         />
+                        {/* ARRANGE IS THE AI ONE NOW (2026-08-04, the user).
+                            The same whole-song call a birth run makes for
+                            itself: how long each section runs, which layers
+                            enter and leave across it, its sweeps, and the last
+                            bar. Dragging loops around is a different verb and
+                            has its own button — it never spends. */}
                         <MenuRow
                           word="Arrange"
-                          line="Move anything anywhere — just your hands"
+                          line={
+                            visiting
+                              ? "The shape is the maker's — every dial here is still yours"
+                              : busy
+                                ? "The song is still being built"
+                                : playableCount > 0
+                                  ? "The AI re-hears the whole shape — spans, layer moves, the ending"
+                                  : "Once a loop is ready to shape"
+                          }
+                          disabled={visiting || busy || playableCount === 0}
                           onClick={() => {
                             setShapeOpen(false);
-                            setArrange(true);
+                            void runArrange();
                           }}
                         />
                         {/* (Share is NOT here — 2026-08-02, the user: "why is
@@ -3892,6 +3971,36 @@ export default function SongClient({
                     </>
                   )}
                 </div>
+              )}
+              {/* THE THREE THAT LEFT THE MENU (2026-08-04, the user). Each is
+                  its own verb, so each is its own button — and only one of
+                  them costs anything (the picture), which the sheet says
+                  before it spends. Disabled rather than hidden: a control that
+                  vanishes teaches nothing (a visitor sees why on hover/title). */}
+              {!visiting && (
+                <IconBtn
+                  onClick={() => setSongEdit(true)}
+                  active={songEdit}
+                  disabled={busy || playableCount === 0}
+                  title="Say a change — the whole song at once"
+                >
+                  <EditSongIcon />
+                </IconBtn>
+              )}
+              <IconBtn
+                onClick={() => setArrange(true)}
+                title="Move loops by hand — order, repeats, deletes (no AI)"
+              >
+                <ArrangeHandIcon />
+              </IconBtn>
+              {!visiting && (
+                <IconBtn
+                  onClick={() => setVisualsOpen(true)}
+                  disabled={playableCount === 0}
+                  title="Visuals — one living look across the piece"
+                >
+                  <VisualsIcon />
+                </IconBtn>
               )}
               {anyHydra && (
                 <IconBtn
@@ -4559,7 +4668,7 @@ export default function SongClient({
         />
       );
     })()}
-    {!immersive && targetLoop && (
+    {!immersive && (targetLoop || songEdit) && (
       <>
         {/* a soft scrim so the bar melts into the page instead of cutting across it */}
         <div
@@ -4575,41 +4684,60 @@ export default function SongClient({
           {/* ONE object: chip (which loop) + field + one morphing button. The pill alone carries the
               focus cue — a soft outside glow; nothing inside draws a ring (.cmdbar in globals.css). */}
           <div className="cmdbar cmdbar-in flex w-full max-w-[34rem] items-center gap-2.5 rounded-full border border-white/[0.09] bg-white/[0.04] py-2 pl-2.5 pr-2 shadow-[0_30px_90px_-26px_rgba(0,0,0,.95),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl transition-[border-color,box-shadow] duration-300 focus-within:border-accent/35 focus-within:shadow-[0_30px_90px_-26px_rgba(0,0,0,.95),0_0_52px_-12px_rgba(224,49,156,.55),inset_0_1px_0_rgba(255,255,255,.08)]">
-            {/* the loop this edits — always visible, even while typing */}
+            {/* WHAT THE WORDS REACH — always visible, even while typing. The
+                loop you tapped, or the whole song when the song-wide field is
+                open: one chip, and it is the only difference between the two. */}
             <span className="flex max-w-[11rem] shrink-0 items-center gap-2 rounded-full bg-white/[0.05] py-1.5 pl-3 pr-3.5">
               <span
-                className={`h-1.5 w-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--accent)] ${targetGenerating ? "animate-pulse" : ""}`}
+                className={`h-1.5 w-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--accent)] ${(songEdit ? busy : targetGenerating) ? "animate-pulse" : ""}`}
               />
               <span className="truncate text-[12px] font-medium text-foreground/85">
-                {targetLoop.label?.trim() || "This loop"}
+                {songEdit
+                  ? "The whole song"
+                  : targetLoop?.label?.trim() || "This loop"}
               </span>
             </span>
             <input
               autoFocus
               value={editText}
               maxLength={200}
-              disabled={targetGenerating || editSubmitting}
+              disabled={songEdit ? busy || editSubmitting : targetGenerating || editSubmitting}
               onChange={(e) => setEditText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  onEditLoop(editText);
+                  if (songEdit) onEditSong(editText);
+                  else onEditLoop(editText);
                 } else if (e.key === "Escape") {
+                  setSongEdit(false);
                   setSelectedLoopId(null);
                 }
               }}
-              placeholder={editSubmitting ? "on it…" : targetGenerating ? "reworking…" : "add, remove, reshape anything…"}
+              placeholder={
+                editSubmitting
+                  ? "on it…"
+                  : songEdit
+                    ? "one change, every loop…"
+                    : targetGenerating
+                      ? "reworking…"
+                      : "add, remove, reshape anything…"
+              }
               className="min-w-0 flex-1 border-0 bg-transparent text-[14.5px] text-foreground placeholder:text-muted/40 disabled:opacity-50"
             />
             {/* ONE button that morphs: a quiet ✕ while empty, blooming into the gradient send as you
                 type — the ✕ fades out as the arrow fades in over the same spot. */}
             <button
               type="button"
-              onClick={() =>
-                editText.trim() && !targetGenerating && !editSubmitting
-                  ? onEditLoop(editText)
-                  : setSelectedLoopId(null)
-              }
+              onClick={() => {
+                const blocked = songEdit ? busy : targetGenerating;
+                if (editText.trim() && !blocked && !editSubmitting) {
+                  if (songEdit) onEditSong(editText);
+                  else onEditLoop(editText);
+                  return;
+                }
+                setSongEdit(false);
+                setSelectedLoopId(null);
+              }}
               aria-label={editText.trim() && !targetGenerating && !editSubmitting ? "Apply change" : "Close editor"}
               className="group/act relative grid h-10 w-10 shrink-0 place-items-center rounded-full text-white transition-transform duration-200 hover:scale-[1.06] active:scale-95"
             >
@@ -4839,6 +4967,39 @@ function ExpandIcon() {
       <path d="M16 3h3a2 2 0 0 1 2 2v3" />
       <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
       <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </svg>
+  );
+}
+
+// the song's picture — one living look across the piece (its own button since
+// 2026-08-04: a look is not a shape, so it left the Shape menu)
+function VisualsIcon() {
+  return (
+    <svg {...iconProps}>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+// move loops by hand — the drag surface (zero AI, so it never sits in Shape)
+function ArrangeHandIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M4 7h11" />
+      <path d="M4 17h11" />
+      <path d="M18 4l3 3-3 3" />
+      <path d="M18 14l3 3-3 3" />
+    </svg>
+  );
+}
+
+// say a change in words — the whole song at once
+function EditSongIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3z" />
+      <path d="M14.5 6.5l3 3" />
     </svg>
   );
 }
