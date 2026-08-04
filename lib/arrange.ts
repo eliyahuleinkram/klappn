@@ -106,6 +106,13 @@ export interface SectionArrange {
   /** Total bars this section occupies (a 4-bar loop can unfold over 16) —
    *  an explicit ArrangeSection.cycles (a user hold) still wins over it. */
   bars?: number;
+  /** THE SPAN THE SHAPE WAS WRITTEN FOR (2026-08-04). A repeat dial restates
+   *  `bars` in its own terms (held × the loop's length) — set this to the
+   *  ARRANGEMENT's own span at the same time and the renderer replays the
+   *  authored moves and sweeps in PROPORTION over the new one. Absent (or
+   *  equal to `bars`) = play them exactly where they were written. Never set
+   *  for a hold LATCH, whose stretch is temporary and phase-preserving. */
+  authoredBars?: number;
   moves?: SectionMove[];
   sweeps?: SectionSweep[];
   overlays?: SectionOverlay[];
@@ -345,6 +352,18 @@ export function sectionExpression(code: string): string | null {
  *  (the spec is model-written JSON; never let a weird string become code). */
 const PARAM_RE = /^[a-zA-Z][a-zA-Z0-9]*$/;
 
+/** One move per bar, the LATER state winning. Shrinking a span can round two
+ *  authored moves onto the same bar; the arc runs one way, so the further-on
+ *  layer set is the one that belongs there. Input must be sorted by bar. */
+function dedupeByBar<T extends { bar: number }>(list: T[]): T[] {
+  const out: T[] = [];
+  for (const m of list) {
+    if (out.length && out[out.length - 1].bar === m.bar) out[out.length - 1] = m;
+    else out.push(m);
+  }
+  return out;
+}
+
 /** Overlay/ending code must read as a playable expression (same source shapes
  *  compose-strudel accepts) and must not smuggle a tempo change. */
 const ONE_SHOT_RE = /\b(?:note|n|s|sound|chord|stack|seq|cat|run|silence)\s*\(/;
@@ -393,20 +412,48 @@ export function sectionEntries(
   const n = parts.layers.length;
   const whole = () => [{ cycles: C, expr: stackOf(parts.layers, parts.mixTail) }];
   if (!spec) return whole();
+  // THE SHAPE SCALES WITH THE SPAN (2026-08-04, the user, on turning a repeat
+  // dial: "how does it re-decide which layers come in when"). It doesn't —
+  // and it must not have to. The moves and sweeps carry ABSOLUTE bar numbers
+  // written for one span, so a dial that restated the span used to truncate
+  // them (×½ dropped the peak and the thin-out outright: `m.bar < C`) or
+  // strand them (×2 played the whole arc in the first half and then froze on
+  // the last layer set for the rest). Neither was anybody's decision.
+  //
+  // So the authored positions are replayed in PROPORTION: a rise written over
+  // sixteen bars becomes the same rise over thirty-two, and over eight it
+  // compresses instead of losing its end. Zero AI — the arrangement's musical
+  // judgment (what enters, in what order, at what point of the arc) is kept
+  // exactly; only the ruler changes. `authoredBars` is set by the surfaces
+  // that restate a span (arrOf and its mirrors) — never by a hold LATCH,
+  // whose stretch is temporary and phase-preserving.
+  const authoredBars =
+    Number.isFinite(spec.authoredBars) && (spec.authoredBars as number) > 0
+      ? Math.floor(spec.authoredBars as number)
+      : null;
+  const spanBars =
+    Number.isFinite(spec.bars) && (spec.bars as number) > 0 ? Math.floor(spec.bars as number) : C;
+  const scale = authoredBars && authoredBars !== spanBars ? spanBars / authoredBars : 1;
+  /** An authored bar, placed on the span actually playing. */
+  const at = (bar: number) => Math.max(0, Math.round(bar * scale));
+  /** A length in bars, kept at least one bar however far it shrinks. */
+  const span = (bars: number) => Math.max(1, Math.round(bars * scale));
   // moves — validated hard, and skipped WHOLESALE when authored against a
   // different layer count (a mute/edit shifted the indices; wrong layers
   // dropping out is far worse than the section just playing full).
   const moves =
     spec.layerCount != null && spec.layerCount !== n
       ? []
-      : (spec.moves ?? [])
-          .filter((m) => Number.isFinite(m?.bar) && Array.isArray(m?.layers))
-          .map((m) => ({
-            bar: Math.max(0, Math.floor(m.bar)),
-            layers: [...new Set(m.layers.filter((i) => Number.isInteger(i) && i >= 1 && i <= n))],
-          }))
-          .filter((m) => m.bar < C)
-          .sort((a, b) => a.bar - b.bar);
+      : dedupeByBar(
+          (spec.moves ?? [])
+            .filter((m) => Number.isFinite(m?.bar) && Array.isArray(m?.layers))
+            .map((m) => ({
+              bar: at(Math.max(0, Math.floor(m.bar))),
+              layers: [...new Set(m.layers.filter((i) => Number.isInteger(i) && i >= 1 && i <= n))],
+            }))
+            .filter((m) => m.bar < C)
+            .sort((a, b) => a.bar - b.bar),
+        );
   // a redundant all-layers move at bar 0 is the spec's way of saying "start full"
   const sweeps = (spec.sweeps ?? [])
     .filter(
@@ -419,9 +466,9 @@ export function sectionEntries(
       from: w.from,
       to: w.to,
       curve: w.curve,
-      bar: Math.max(0, Math.floor(w.bar)),
+      bar: at(Math.max(0, Math.floor(w.bar))),
       end: 0,
-      bars: Math.max(1, Math.floor(w.bars)),
+      bars: span(Math.max(1, Math.floor(w.bars))),
     }))
     .map((w) => ({ ...w, end: Math.min(C, w.bar + w.bars) }))
     .filter((w) => w.bar < C);
@@ -429,9 +476,9 @@ export function sectionEntries(
     .filter((o) => o && typeof o.code === "string" && Number.isFinite(o.bar) && Number.isFinite(o.bars))
     .map((o) => ({
       code: bareExpr(o.code),
-      bar: Math.max(0, Math.floor(o.bar)),
+      bar: at(Math.max(0, Math.floor(o.bar))),
       end: 0,
-      bars: Math.max(1, Math.floor(o.bars)),
+      bars: span(Math.max(1, Math.floor(o.bars))),
     }))
     .map((o) => ({ ...o, end: Math.min(C, o.bar + o.bars) }))
     .filter((o) => o.bar < C && oneShotOk(o.code));

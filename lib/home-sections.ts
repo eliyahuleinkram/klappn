@@ -88,8 +88,12 @@ export function buildHomeSections(parts: HomePart[], plan: HomePlan): SongSectio
     if (!a) return undefined;
     const held = plan.holdCycles?.[p.id];
     const nat = Math.max(1, computeLoopBars(p.strudel) || 1);
+    // authoredBars rides along so the renderer scales the shape to the dialled
+    // span (2026-08-04) — same rule as SongClient.arrOf and buildSetSections.
     const withHold =
-      Number.isFinite(held) && (held as number) >= 1 ? { ...a, bars: (held as number) * nat } : a;
+      Number.isFinite(held) && (held as number) >= 1
+        ? { ...a, bars: (held as number) * nat, authoredBars: Math.max(1, Math.floor(a.bars ?? nat)) }
+        : a;
     return transpose !== 0 ? { ...withHold, overlays: undefined } : withHold;
   };
   playable.forEach((p, i) => {

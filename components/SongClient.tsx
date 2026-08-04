@@ -3266,10 +3266,15 @@ export default function SongClient({
     // nothing at all. Now a hold simply RESTATES the span in the dial's terms:
     // held × the loop's own length. One number, one meaning, and the authored
     // moves clamp into whatever span you choose (lib/arrange).
+    // …and the SHAPE comes with it (2026-08-04): `authoredBars` tells the
+    // renderer the span these moves were written for, so it replays them in
+    // proportion over the dialled one instead of truncating or stranding them.
     const held = holdCyclesRef.current[id];
     const nat = Math.max(1, barsOf(partsRef.current.find((p) => p.id === id) ?? ({} as Part)) || 1);
     const withHold =
-      Number.isFinite(held) && (held as number) >= 1 ? { ...a, bars: (held as number) * nat } : a;
+      Number.isFinite(held) && (held as number) >= 1
+        ? { ...a, bars: (held as number) * nat, authoredBars: Math.max(1, Math.floor(a.bars ?? nat)) }
+        : a;
     return (transposeRef.current ?? 0) !== 0
       ? { ...withHold, overlays: undefined }
       : withHold;

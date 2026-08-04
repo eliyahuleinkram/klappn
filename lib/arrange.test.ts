@@ -254,6 +254,63 @@ test("sectionEntries: a sweep wraps each free voice and resumes phase across cut
   assert.match(segs[1].expr, /\.lpf\(saw\.range\(300,2400\)\.slow\(8\)\.early\(4\)\)/, "resume, not restart");
 });
 
+test("sectionEntries: a dialled span SCALES the authored shape, never truncates it", () => {
+  const parts = { layers: ["s(\"a\")", "s(\"b\")", "s(\"c\")"], mixTail: "" };
+  const spec = {
+    bars: 16,
+    layerCount: 3,
+    moves: [
+      { bar: 0, layers: [1] },
+      { bar: 8, layers: [1, 2] },
+      { bar: 12, layers: [1, 2, 3] },
+    ],
+    sweeps: [{ param: "lpf", from: 400, to: 4000, bar: 0, bars: 16 }],
+  };
+  const voices = (e: { expr: string }) => (e.expr.match(/s\("[a-c]"\)/g) ?? []).length;
+  const starts = (segs: { cycles: number; expr: string }[]) => {
+    let at = 0;
+    return segs.map((s) => {
+      const r = [at, voices(s)];
+      at += s.cycles;
+      return r;
+    });
+  };
+  // authored: the arc as written
+  assert.deepEqual(starts(sectionEntries(parts, 16, spec)), [[0, 1], [8, 2], [12, 3]]);
+  // dialled LONGER — every stage stretches; the peak still lands, and the
+  // sweep covers the whole span instead of finishing halfway
+  const long = sectionEntries(parts, 32, { ...spec, bars: 32, authoredBars: 16 });
+  assert.deepEqual(starts(long), [[0, 1], [16, 2], [24, 3]]);
+  assert.equal(
+    long.filter((s) => /lpf\(saw/.test(s.expr)).reduce((n, s) => n + s.cycles, 0),
+    32,
+    "the sweep spans the dialled section, not the authored one",
+  );
+  // dialled SHORTER — compressed, but the peak survives (it used to be dropped)
+  assert.deepEqual(
+    starts(sectionEntries(parts, 8, { ...spec, bars: 8, authoredBars: 16 })),
+    [[0, 1], [4, 2], [6, 3]],
+  );
+  // a hold LATCH (no authoredBars) is untouched — its stretch is temporary
+  assert.deepEqual(starts(sectionEntries(parts, 32, spec)), [[0, 1], [8, 2], [12, 3], [16, 3]]);
+});
+
+test("sectionEntries: moves colliding under a shrink keep the later state", () => {
+  const parts = { layers: ["s(\"a\")", "s(\"b\")", "s(\"c\")"], mixTail: "" };
+  const segs = sectionEntries(parts, 4, {
+    bars: 4,
+    authoredBars: 16,
+    layerCount: 3,
+    moves: [
+      { bar: 0, layers: [1] },
+      { bar: 8, layers: [1, 2] }, // → bar 2
+      { bar: 9, layers: [1, 2, 3] }, // → bar 2 as well; the fuller state wins
+    ],
+  });
+  const voices = (e: { expr: string }) => (e.expr.match(/s\("[a-c]"\)/g) ?? []).length;
+  assert.deepEqual(segs.map((s) => [s.cycles, voices(s)]), [[2, 1], [2, 3]]);
+});
+
 test("sectionEntries: a sweep never overrides a voice's own param", () => {
   const parts = {
     layers: [`s("bd*4").gain(0.9)`, `note("d1").s("sawtooth").lpf(200)`],

@@ -572,9 +572,11 @@ export function buildSetSections(
         1,
         (barsFor?.(part) ?? computeLoopBars(part.strudel || "")) || 1,
       );
+      // authoredBars rides along so the renderer scales the shape to the
+      // dialled span (2026-08-04) — same rule as the song page and home.
       const withHold =
         Number.isFinite(held) && (held as number) >= 1
-          ? { ...a, bars: (held as number) * nat }
+          ? { ...a, bars: (held as number) * nat, authoredBars: Math.max(1, Math.floor(a.bars ?? nat)) }
           : a;
       return (p.transpose || 0) !== 0 ? { ...withHold, overlays: undefined } : withHold;
     };
