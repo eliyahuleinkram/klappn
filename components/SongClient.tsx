@@ -3819,7 +3819,7 @@ export default function SongClient({
                   {(
                     [
                       ["effects", "Effects", "The AI re-hears the glides across the whole song — replacing the ones riding. The turns are left alone."],
-                      ["breaks", "Breaks", "The AI re-hears every turn — one call per seam, told what glides across it. The effects are left alone."],
+                      ["breaks", "Breaks", "The AI re-hears every turn as one set — graded across the song, told what glides across each. The effects are left alone."],
                     ] as const
                   ).map(([what, word, why]) => (
                     <button
@@ -3930,7 +3930,7 @@ export default function SongClient({
                               : busy
                                 ? "The song is still being built"
                                 : playableCount > 0
-                                  ? "The AI re-hears every turn — the effects stay"
+                                  ? "The AI re-hears every turn as one set — the effects stay"
                                   : "Once a loop is ready to sweep"
                           }
                           disabled={visiting || busy || playableCount === 0}

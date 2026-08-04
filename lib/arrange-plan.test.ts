@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   cleanFeel,
   parseArrangementReply,
+  sanitizePageBreaks,
   sanitizeSweepControls,
   sanitizeUnfoldFx,
 } from "./arrange-plan";
@@ -148,5 +149,28 @@ test("sanitizeUnfoldFx clamps loop ranges and drops junk", () => {
   );
   assert.deepEqual({ from: out[1].fromLoop, to: out[1].toLoop }, { from: 3, to: 3 });
   assert.deepEqual(sanitizeUnfoldFx(null, 3), []);
+});
+
+test("sanitizePageBreaks: seat-checked, deduped, ordered, bare turns absent", () => {
+  const wanted = new Set([1, 2, 3]);
+  const out = sanitizePageBreaks(
+    [
+      { atLoop: 3, tpl: "crash", gain: 0.9 }, // out of order — sorted back
+      { atLoop: 1, tpl: "lift", bars: 2 },
+      { atLoop: 1, tpl: "tumble" }, // duplicate seat — first claim wins
+      { atLoop: 2, tpl: null }, // an explicitly bare turn — no entry
+      { atLoop: 9, tpl: "roll" }, // a seat the song doesn't have — dropped
+      { atLoop: 3.7, tpl: "roll" }, // floors into an already-claimed seat — dropped
+    ],
+    wanted,
+  );
+  assert.deepEqual(
+    out.map((b) => [b.atLoop, b.tpl]),
+    [
+      [1, "lift"],
+      [3, "crash"],
+    ],
+  );
+  assert.equal(out[0].bars, 2);
 });
 

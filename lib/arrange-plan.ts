@@ -420,18 +420,21 @@ export function sanitizeUnfoldFx(
     )
     .slice(0, 8); // safety net only — the model decides how much motion the piece wants
 }
-// ── THE SWEEP, IN TWO SHAPES (2026-08-02, the user) ──────────────────────────
-// An EFFECT spans the piece — it needs the whole arc, so it stays ONE call over
-// every loop. A BREAK is LOCAL: it lives at one turn, between two loops, and
-// nothing three sections away changes what belongs there. So the turns are
-// authored ONE CALL EACH, in parallel, each seeing only its two loops, their
-// spans, and the glide crossing it — small context, decisive answer, and a
-// cheaper tier (ROUTE.turn: Sonnet 5, a closed catalog and four knobs).
+// ── THE SWEEP, IN TWO SHAPES — BOTH WHOLE-SONG NOW (2026-08-04, the user) ────
+// An EFFECT spans the piece and always needed the whole arc. The turns were
+// authored one call each for a while (2026-08-02, "a break is local") — and
+// the blind calls proved the premise wrong by example: three near-identical
+// seams got three identical tom cascades, because each call reached for the
+// same obvious answer with nobody in the room to say "we've done that twice".
+// A fill is partly defined by NOT being the previous fill, and its size only
+// means anything against the arc — variety and escalation are song properties.
+// So the turns are ONE call again, on the same tier as the effects.
 //
-// The 2026-07-22 merge is honoured, not undone: it fixed two WHOLE-SONG calls
-// that each held the other's category fixed and argued over material the next
-// call deleted. Here the effects land FIRST and every turn call is told what
-// glides through it — the coupling survives at a fraction of the context.
+// The 2026-07-22 lesson is still honoured: that failure was two whole-song
+// calls with OVERLAPPING authority, each freezing the other's category and
+// arguing over material. Here each category keeps ONE author and information
+// flows one way — effects land first, the turns are told what glides across
+// them, and neither rewrites the other.
 
 const PAGE_EFFECTS_SYSTEM = `You shape a finished instrumental piece's EFFECTS — parameter glides living OUTSIDE its loops, each spanning a range of them. You're given the song's identity and its loops in play order, each with its layers and how long it runs.
 
@@ -440,19 +443,19 @@ Respond with ONLY a JSON object, no markdown:
 
 Each glide runs ONCE across its whole range — from the first bar of fromLoop to the last bar of toLoop. Loop numbers refer to the play order given. Glidable params: lpf, hpf, gain, room, delay, delayfeedback, resonance, shape, phaserrate. Params that rebuild a shared bus (roomsize, delaytime) cannot glide. A gain glide never rises above 1 — peaks come from the music, never from pushing the mix over unity. A glide OVERRIDES each layer's own setting of its param for every loop it covers — a bass voiced dark at lpf 200 would be torn open, authored accents flattened. So NEVER glide a param a covered loop's layers author (each loop lists its authored params), and never one a loop's own arrangement already rides (also listed). Glide the dimensions the music leaves free. An empty list is a valid answer — a piece can want no glides at all.`;
 
-const TURN_BREAK_SYSTEM = `You decide ONE TURN in an instrumental song: the moment the music leaves one section and arrives in the next. You're given both sections — what they are, what layers they carry, how long each runs — and anything already gliding across the turn.
+const PAGE_BREAKS_SYSTEM = `You decide EVERY TURN of an instrumental piece in one sitting — each moment the music leaves one section and arrives in the next. You're given the song's identity, its loops in play order, and the turns: what each leaves, what it arrives in, and anything gliding across it.
 
-Choose the drum fill that breaks the first section into the second, or NOTHING: a bare turn is a real answer, and a long rise often wants one.
+For each turn, choose the drum fill that breaks the outgoing section into the next — or NOTHING: a bare turn is a real answer, and a long rise often wants one.
 
 Respond with ONLY a JSON object, no markdown:
-{"tpl": "<template key>", "bank": "<kit>", "bars": how many CLOSING bars of the outgoing section the fill occupies (1-8), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8, "tune": -12..12 semitones, "pan": 0..1}
-or exactly {"tpl": null} for a bare turn.
+{"turns": [{"atLoop": the outgoing loop's number, "tpl": "<template key>" | null, "bank": "<kit>", "bars": how many CLOSING bars of the outgoing section the fill occupies (1-8), "gain": 0..1.2, "heat": 0..0.6, "tone": 0..1, "space": 0..0.8, "tune": -12..12 semitones, "pan": 0..1}, …]}
+One entry per turn, in order; "tpl": null leaves that turn bare.
 
+THE TURNS ARE HEARD AS A SET — that is why you see them together. A fill is partly defined by not being the previous fill: vary the template and the length across the piece, and GRADE them with the arc — small early (one bar, a tick), the largest gesture into the peak, the last turn settling into the ending (or landing the wrap back onto the top). The same cascade three seams running is a stuck machine, not a drummer.
+THE KIT belongs to the SONG, not the turn: pick the one this genre would own and keep it across the turns — vary the pattern, not the drums — switching only when the music truly changes register. Kits: RolandTR909 (hard techno/house), RolandTR808 (deep, booming, hip-hop), RolandTR707 (dry, plain, pop), RolandTR606 (thin, wiry, punk-electro), LinnDrum (80s, gated), AkaiMPC60 (sampled boom-bap), OberheimDMX (early electro), AlesisHR16 (clean late-80s), EmuSP12 (gritty 12-bit), BossDR550 (soft, polite).
 Templates: roll (snare roll) · run (tom run) · build (doubling roll) · stutter (kick stutter) · lift (rising hats) · clap (doubling claps) · crash (push into a ringing crash) · tumble (tom cascade).
-"bars" belongs to the SECTION, not the template: a section playing once wants a single closing bar, while one that runs sixteen or thirty-two bars can carry a four- or eight-bar turn without losing the thread. The outgoing section's span is given — read it before choosing. The fill is ONE GESTURE stretched over the bars you give it — its intensity climbs across the whole length, it does not restart each bar — so ask for the length the turn actually wants.
-The fill always ENDS on the change — that is what makes it a turn. Its length is the only thing you choose.
-THE KIT matters as much as the pattern — a lo-fi turn and a techno turn are not the same drums. Choose one: RolandTR909 (hard techno/house), RolandTR808 (deep, booming, hip-hop), RolandTR707 (dry, plain, pop), RolandTR606 (thin, wiry, punk-electro), LinnDrum (80s, gated), AkaiMPC60 (sampled boom-bap), OberheimDMX (early electro), AlesisHR16 (clean late-80s), EmuSP12 (gritty 12-bit), BossDR550 (soft, polite). Pick the one this song's genre would actually own.
-Knobs: gain = level, heat = drive, tone = how open the top is (1 = fully open), space = room send, tune = the whole kit up or down in semitones (up also shortens the hits — a tighter, snappier fill), pan = where it sits across the stereo (0.5 = centre). The fill is a point of RELEASE, not a running beat.`;
+"bars" belongs to the SECTION, not the template: a section playing once wants a single closing bar, while one that runs sixteen or thirty-two can carry a four- or eight-bar turn without losing the thread — each section's span is given, read it before choosing. The fill is ONE GESTURE stretched over the bars you give it — its intensity climbs across the whole length, it does not restart each bar — and it always ENDS on the change; that is what makes it a turn.
+Knobs: gain = level, heat = drive, tone = how open the top is (1 = fully open), space = room send, tune = the whole kit up or down in semitones (up also shortens the hits — tighter, snappier), pan = where it sits across the stereo (0.5 = centre). A fill is a point of RELEASE, not a running beat.`;
 
 export interface PageBreak {
   tpl: string;
@@ -519,73 +522,107 @@ export interface TurnLoop {
 }
 
 /**
- * ONE TURN — the fill (or the bare turn) between two sections.
+ * EVERY TURN OF THE SONG, ONE SITTING (2026-08-04, the user: "breaks just like
+ * the effects should be done song wide in one call").
  *
- * Local by nature, so local in context: two loops, their spans, and whatever
- * glides across the seam. Runs on ROUTE.turn (Sonnet 5, medium) — a closed
- * catalog of eight templates, four knobs and a length is a decision, not an
- * invention. Callers run these CONCURRENTLY: no turn depends on another.
+ * The catalog is closed and the knobs are few, but WHICH fill belongs at a
+ * turn is an arc question — variety and escalation only exist across the set.
+ * Same tier and effort as the effects half (ROUTE.shape: Opus 5, high): both
+ * halves of the sweep are now the same kind of judgment over the same span.
  *
- * null = leave this turn bare (a real answer, and the safe failure).
+ * Returns the chosen fills in turn order (a bare turn simply has no entry);
+ * null = the whole call whiffed and the caller leaves what rides untouched —
+ * distinguishable, with one call, from "every turn chose bare" ([]).
  */
-export async function composeTurnBreak(
+export async function composePageBreaks(
   args: {
     genre?: string;
     key: string;
     bpm: number;
     timeSignature: string;
-    /** The section the music is LEAVING — the fill rides its closing bars. */
-    from: TurnLoop;
-    /** What it arrives in. null = the song's ending (the last turn of a piece
-     *  that stops rather than wraps). */
-    to: TurnLoop | null;
-    /** 1-based index of the outgoing loop, echoed back on the result. */
-    atLoop: number;
-    /** Glides crossing this turn — the fill is chosen with them, not against
-     *  them (the 07-22 coupling, kept — these are the glides landing in THIS
-     *  answer's sweep, never the outgoing state). */
-    crossing?: { name?: string; param: string; from: number; to: number }[];
+    summary?: string;
+    /** Every loop in play order — spans given so a fill is sized to its
+     *  section (`bars` = the SPAN, `loopBars` = the natural loop length). */
+    loops: TurnLoop[];
+    /** The turns, in order. `toLoop` = 1-based arrival loop, null = the
+     *  song's ending. `crossing` = glides landing in THIS sweep's answer
+     *  (the 07-22 coupling — never the outgoing state). */
+    turns: {
+      atLoop: number;
+      toLoop: number | null;
+      crossing?: { name?: string; param: string; from: number; to: number }[];
+    }[];
   },
   cfg?: LlmConfig,
-): Promise<PageBreak | null> {
-  const line = (l: TurnLoop, role: string) => {
+): Promise<PageBreak[] | null> {
+  if (!args.loops.length || !args.turns.length) return [];
+  const loopLine = (l: TurnLoop, i: number) => {
     const reps = l.bars && l.loopBars ? Math.round(l.bars / l.loopBars) : 1;
     const span = l.bars
       ? reps > 1
-        ? ` — ${l.bars} bars (its ${l.loopBars}-bar loop ×${reps})`
-        : ` — ${l.bars} bars`
+        ? ` (${l.bars} bars — its ${l.loopBars}-bar loop ×${reps})`
+        : ` (${l.bars} bars)`
       : "";
-    return [
-      `${role}: "${l.name}"${span}${l.intent?.trim() ? ` — ${l.intent.trim()}` : ""}`,
-      l.layers.length ? `  layers: ${l.layers.join(", ")}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
+    return `${i + 1}. "${l.name}"${span}${l.intent?.trim() ? ` — ${l.intent.trim()}` : ""}${
+      l.layers.length ? ` [layers: ${l.layers.join(", ")}]` : ""
+    }`;
   };
-  const user = [
-    `${args.genre ? `${args.genre} — ` : ""}key of ${args.key}, ${args.bpm} BPM, ${args.timeSignature}.`,
-    line(args.from, "LEAVING"),
-    args.to
-      ? line(args.to, "ARRIVING IN")
-      : `ARRIVING IN: the song's ending — this is the last turn the piece takes.`,
-    args.crossing?.length
-      ? `CROSSING THIS TURN: ${args.crossing
+  const turnLine = (t: (typeof args.turns)[number]) => {
+    const from = args.loops[t.atLoop - 1];
+    const to = t.toLoop ? args.loops[t.toLoop - 1] : null;
+    const arrive = to
+      ? t.toLoop === 1 && t.atLoop !== 1
+        ? `back to "${to.name}" — the wrap onto the top`
+        : `"${to.name}"`
+      : "the song's ending — the last turn the piece takes";
+    const crossing = t.crossing?.length
+      ? ` — crossing: ${t.crossing
           .map((c) => `${c.name ? `"${c.name}" — ` : ""}${c.param} ${c.from}→${c.to}`)
           .join(" · ")}`
-      : "",
-    // No "riding now" line — a sweep is a fresh take (see composePageEffects):
-    // showing the outgoing fill anchored the model into re-choosing it.
-    `The turn. JSON only.`,
+      : "";
+    return `${t.atLoop}. "${from?.name ?? "?"}" → ${arrive}${crossing}`;
+  };
+  let user = [
+    `${args.genre ? `${args.genre} — ` : ""}key of ${args.key}, ${args.bpm} BPM, ${args.timeSignature}.`,
+    args.summary ? `The song: ${args.summary}` : "",
+    "THE LOOPS (in play order):",
+    ...args.loops.map(loopLine),
+    "THE TURNS (in order):",
+    ...args.turns.map(turnLine),
+    // No "riding now" — a sweep is a fresh take (see composePageEffects):
+    // showing the outgoing fills anchored the model into re-choosing them.
+    `The turns. JSON only.`,
   ]
     .filter(Boolean)
     .join("\n");
-  const reply = (
-    await complete(TURN_BREAK_SYSTEM, user, cfg, {
-      ...ROUTE.turn,
-      trace: { kind: "turn-break" },
-    })
-  ).trim();
-  return sanitizeTurnBreak(firstJsonObject(reply), args.atLoop);
+  const wanted = new Set(args.turns.map((t) => t.atLoop));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const reply = (
+      await complete(PAGE_BREAKS_SYSTEM, user, cfg, {
+        ...ROUTE.shape,
+        trace: { kind: "page-breaks", attempt },
+      })
+    ).trim();
+    const raw = firstJsonObject(reply) as { turns?: unknown } | null;
+    if (raw && Array.isArray(raw.turns)) return sanitizePageBreaks(raw.turns, wanted);
+    user += `\n\nThat reply was not usable. Resend ONLY the JSON object with a "turns" array.`;
+  }
+  return null;
+}
+
+/** The turns array, seat-checked: only turns the song actually has, one entry
+ *  per seat (first claim wins), bare turns simply absent, in play order. */
+export function sanitizePageBreaks(items: unknown[], wanted: Set<number>): PageBreak[] {
+  const seen = new Set<number>();
+  const out: PageBreak[] = [];
+  for (const item of items) {
+    const at = Math.floor(Number((item as { atLoop?: unknown })?.atLoop));
+    if (!wanted.has(at) || seen.has(at)) continue; // unknown/duplicate seat
+    seen.add(at);
+    const b = sanitizeTurnBreak(item, at);
+    if (b) out.push(b);
+  }
+  return out.sort((a, b) => a.atLoop - b.atLoop);
 }
 
 /** THE WHOLE-SONG HALF OF THE SWEEP: the effect glides, which span loops and

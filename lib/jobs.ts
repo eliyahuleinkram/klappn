@@ -91,7 +91,7 @@ import type { ModelId } from "./models";
 import {
   composeSongArrangement,
   composePageEffects,
-  composeTurnBreak,
+  composePageBreaks,
   enrichSweepControls,
 } from "./arrange-plan";
 import { authorsParam } from "./arrange";
@@ -954,15 +954,16 @@ export async function autoShapeSong(
     : effectsNow;
   // (Both sets are written together at the end — the turns are told the glides
   // from THIS array, not from the database, so nothing needs persisting first.)
-  // THE TURNS — ONE CALL EACH, ALL AT ONCE (2026-08-02, the user). A fill is a
-  // local decision: the two loops it sits between are the whole context, so
-  // each turn gets its own small call on a cheap tier instead of a share of one
-  // big one. They run CONCURRENTLY — no turn depends on another — and each is
-  // told the glides that just landed across it, which is the 07-22 coupling
-  // (glide and fill at one turn are one decision) preserved at 1/N the context.
-  // A turn that throws or whiffs is simply BARE; one bad seam never costs the
-  // others. The last loop turns into the ending when the song stops, or back
-  // into the first when it wraps — a one-loop piece turns into itself.
+  // THE TURNS — ONE CALL, EVERY SEAM (2026-08-04, the user: "breaks just like
+  // the effects should be done song wide"). A fill turned out NOT to be a
+  // local decision: variety and escalation only exist across the set, and the
+  // blind per-turn calls proved it by handing three seams the same tom
+  // cascade. One call on the effects' own tier sees them together; each turn
+  // is still told the glides that just landed across it (the 07-22 coupling).
+  // A whiffed call leaves what rides UNTOUCHED — with one call, a failure is
+  // distinguishable from "every turn chose bare" ([]), which still clears.
+  // The last loop turns into the ending when the song stops, or back into the
+  // first when it wraps — a one-loop piece turns into itself.
   const ending = (plan as { arrangement?: SongArrangement | null }).arrangement?.ending;
   const wraps = ending?.mode !== "stop";
   const fxCrossing = (at: number) =>
@@ -973,32 +974,31 @@ export async function autoShapeSong(
         ? [{ name: e.name, param: e.param, from: e.from, to: e.to }]
         : [];
     });
-  const turns = !wantTurns
+  const turnsAnswer = !wantTurns
     ? []
-    : await Promise.all(
-    loops.map((l, i) => {
-      const last = i === loops.length - 1;
-      const next = last ? (wraps ? loops[0] : null) : loops[i + 1];
-      return composeTurnBreak(
+    : await composePageBreaks(
         {
           ...identity,
-          from: { name: l.name, intent: l.intent, layers: l.layers, bars: l.bars, loopBars: l.loopBars },
-          to: next
-            ? { name: next.name, intent: next.intent, layers: next.layers, bars: next.bars, loopBars: next.loopBars }
-            : null,
-          atLoop: i + 1,
-          // the glides landing in THIS sweep — the 07-22 coupling; never the
-          // outgoing fill (fresh take, same law as the effects call above)
-          crossing: fxCrossing(i + 1),
+          summary: plan.summary,
+          loops: loops.map(({ name, intent, layers, bars, loopBars }) => ({ name, intent, layers, bars, loopBars })),
+          turns: loops.map((_, i) => {
+            const last = i === loops.length - 1;
+            return {
+              atLoop: i + 1,
+              toLoop: last ? (wraps ? 1 : null) : i + 2,
+              crossing: fxCrossing(i + 1),
+            };
+          }),
         },
         cfg,
       ).catch((e) => {
-        console.error(`[klappn] turn ${i + 1} of ${songId} failed:`, e);
+        console.error(`[klappn] turns call for ${songId} failed:`, e);
         return null;
       });
-    }),
-  );
-  const overlays = turns.flatMap((b) => {
+  // Breaks-only + a whiff = nothing was decided at all; say so rather than
+  // miming success (the effects half has said this since 07-31).
+  if (wantTurns && !turnsAnswer && !wantFx) return "whiffed";
+  const overlays = (turnsAnswer ?? []).flatMap((b) => {
     if (!b) return [];
     const move = breakMoveOf(b.tpl);
     if (!move) return [];
@@ -1027,7 +1027,8 @@ export async function autoShapeSong(
   // Only the half that was asked for is replaced — the other rides untouched.
   await withDb("write", async (sql) => {
     if (wantFx) await replaceSongEffects(songId, song.user_id, effects, sql);
-    if (wantTurns) await replaceSongOverlays(songId, song.user_id, overlays, sql);
+    // only when the turns call ANSWERED — a whiff must not clear what rides
+    if (wantTurns && turnsAnswer) await replaceSongOverlays(songId, song.user_id, overlays, sql);
   });
   return "shaped";
 }
