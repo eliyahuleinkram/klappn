@@ -3860,31 +3860,19 @@ export default function SongClient({
                 </span>
               ) : (
                 <div className="relative">
-                  <button
+                  {/* THE SAME PILL AS VISUALS (2026-08-04, the user: it "does
+                      not need that the downward icon"). The caret was saying
+                      what the card already says the instant it opens, and it
+                      made one of the two words in this row wear an ornament
+                      the other didn't. Lit = open, which is the same signal
+                      every other control here uses. */}
+                  <WordBtn
                     onClick={() => setShapeOpen((v) => !v)}
+                    active={shapeOpen}
                     title="Shape the whole song"
-                    className={`flex h-8 items-center gap-1 rounded-full px-3 text-[12.5px] font-medium leading-none transition duration-200 active:scale-95 ${
-                      shapeOpen
-                        ? "bg-accent/12 text-accent"
-                        : "text-muted/80 hover:bg-white/[0.06] hover:text-foreground"
-                    }`}
                   >
                     Shape
-                    <svg
-                      width="9"
-                      height="9"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                      className={`transition-transform duration-200 ${shapeOpen ? "rotate-180" : ""}`}
-                    >
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
-                  </button>
+                  </WordBtn>
                   {shapeOpen && (
                     <>
                       <div
@@ -3892,7 +3880,21 @@ export default function SongClient({
                         onClick={() => setShapeOpen(false)}
                         aria-hidden
                       />
-                      <div className="animate-fade-in absolute right-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.05] p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+                      {/* IT HAS TO BE ON THE SCREEN, AND IT HAS TO BE READ
+                          (2026-08-04, the user: "the shape overlay is hard to
+                          see when we are in mobile view"). Two faults, both
+                          measured at 375px: anchored right-0 to a pill that
+                          sits at the LEFT of a wrapped row, 162 of its 256
+                          pixels hung off the left edge — every word of every
+                          row was outside the viewport — and 5%-white glass
+                          over the song's own aura left what remained barely
+                          legible. So it opens from its left edge on a phone
+                          (rightward, into the screen) and keeps the right
+                          anchor where the row really is right-aligned; it can
+                          never be wider than the viewport; and the glass is
+                          TINTED DARK, so the rows read over a bright picture
+                          instead of dissolving into it. */}
+                      <div className="animate-fade-in absolute left-0 top-full z-20 mt-2 w-[min(16rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/[0.12] bg-[#0c0d0f]/85 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.95)] backdrop-blur-2xl sm:left-auto sm:right-0">
                         {/* EVERY ROW IS ALWAYS HERE (2026-08-02, the user).
                             Controls that appear and vanish teach nothing: the
                             menu shows the same three from the first paint, and
