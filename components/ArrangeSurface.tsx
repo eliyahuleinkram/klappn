@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Scrim } from "@/components/Dismiss";
 import type { PartRow } from "@/lib/songs";
 import { sentenceLabel } from "@/lib/labels";
 
@@ -261,12 +262,10 @@ export default function ArrangeSurface({
             onKeyDown={(e) => {
               // Enter only builds when there's a direction — an empty field
               // must NEVER generate by surprise.
+              // (Escape belongs to the Scrim — one key, one law, everywhere.)
               if (e.key === "Enter") {
                 e.preventDefault();
                 if (prompt.trim()) void submitInsert(position);
-              } else if (e.key === "Escape") {
-                setComposer(null);
-                setPrompt("");
               }
             }}
             placeholder="what plays here?…"
@@ -302,8 +301,9 @@ export default function ArrangeSurface({
       <button
         onClick={() => {
           setPrompt("");
-          setComposer(position);
+          setComposer((cur) => (cur === position ? null : position));
         }}
+        aria-expanded={composer === position}
         disabled={busy}
         title="A new loop, composed for this exact spot"
         aria-label="Add a loop here"
@@ -322,13 +322,11 @@ export default function ArrangeSurface({
           ROOT because the gap zones are transformed (translateY), which would
           trap a fixed overlay inside their box. */}
       {composer !== null && (
-        <div
-          className="fixed inset-0 z-10"
-          onClick={() => {
+        <Scrim
+          onClose={() => {
             setComposer(null);
             setPrompt("");
           }}
-          aria-hidden
         />
       )}
       {/* the thread — one luminous strand the whole song hangs on */}

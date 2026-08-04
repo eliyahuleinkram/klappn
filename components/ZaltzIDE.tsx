@@ -14,6 +14,7 @@ import CodePane, {
   type CaretContext,
   type CodePaneHandle,
 } from "@/components/CodePane";
+import { useDismiss } from "@/components/Dismiss";
 import { authClient } from "@/lib/auth-client";
 import { attachHydraBlock } from "@/lib/hydra-embed";
 import { openDeep } from "@/lib/seal";
@@ -516,6 +517,8 @@ export default function ZaltzIDE({
 
 
   const [sheet, setSheet] = useState<null | "tokens" | "signin">(null);
+  // A sheet is a modal: the dark behind it, or Escape. Same as everywhere.
+  useDismiss(!!sheet, () => setSheet(null));
   const [mobilePane, setMobilePane] = useState<PaneId>("strudel");
 
   const runId = useRef(0);
@@ -950,8 +953,8 @@ export default function ZaltzIDE({
         cutTapeRef.current(); // ⌘. is a stop — the tape follows the transport
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "s" || e.key === "S")) {
         e.preventDefault();
-      } else if (e.key === "Escape") {
-        setSheet(null);
+        // (Escape is not handled here — the app-wide dismiss law closes the
+        // INNERMOST open thing, so a menu opened over a sheet goes first.)
       } else if (e.key === " " || e.code === "Space") {
         // SPACE = the transport (user 07-27) — the player's oldest key. Never
         // while typing (space is a character there), and preventDefault stops
@@ -2699,16 +2702,9 @@ export default function ZaltzIDE({
     document.addEventListener("fullscreenchange", on);
     return () => document.removeEventListener("fullscreenchange", on);
   }, []);
-  useEffect(() => {
-    // Esc leaves the show even where fullscreen never engaged (phones with
-    // keyboards, denied fullscreen) — same key, same meaning everywhere.
-    if (!show) return;
-    const on = (e: KeyboardEvent) => {
-      if (e.key === "Escape") exitShow();
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  }, [show, exitShow]);
+  // Esc leaves the show even where fullscreen never engaged (phones with
+  // keyboards, denied fullscreen) — same key, same meaning everywhere.
+  useDismiss(show, exitShow);
   const enterShow = () => {
     setShow(true);
     setMixerOpen(true);

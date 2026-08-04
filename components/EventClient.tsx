@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDismiss } from "@/components/Dismiss";
 import { openDeep } from "@/lib/seal";
 import { hasHydra } from "@/lib/hydra-embed";
 import {
@@ -90,6 +91,8 @@ export default function EventClient(p: Props) {
   const [rsvpOpen, setRsvpOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
+  // Escape backs out of the field — never mid-send.
+  useDismiss(rsvpOpen && !busy, () => setRsvpOpen(false));
   const [error, setError] = useState<string | null>(null);
   const [inNow, setInNow] = useState(false); // "You're in" — this session
   const emailRef = useRef<HTMLInputElement>(null);
@@ -445,31 +448,49 @@ export default function EventClient(p: Props) {
               placeholder="your@email"
               className="min-w-0 flex-1 border-0 bg-transparent text-[15px] text-foreground placeholder:text-muted/40"
             />
+            {/* THE ONE MORPHING BUTTON (2026-08-04c) — the house grammar every
+                other field in the app wears: a quiet ✕ while empty (close,
+                clear — it never sends), blooming into the gradient → the moment
+                there is an address. Before this, opening the field was a
+                one-way door: nothing on screen took you back. */}
             <button
-              onClick={() => void rsvp()}
-              disabled={busy || !email.trim().includes("@")}
-              aria-label="I'm in"
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#ff63c1] via-accent to-[#b3126f] text-white shadow-[0_8px_24px_-6px_rgba(224,49,156,.85)] transition-transform hover:scale-[1.06] active:scale-95 disabled:opacity-40"
+              onClick={() =>
+                email.trim().includes("@") ? void rsvp() : setRsvpOpen(false)
+              }
+              disabled={busy}
+              aria-label={email.trim().includes("@") ? "I'm in" : "Close"}
+              className={`grid h-11 w-11 shrink-0 place-items-center rounded-full transition-transform hover:scale-[1.06] active:scale-95 disabled:opacity-40 ${
+                email.trim().includes("@")
+                  ? "bg-gradient-to-br from-[#ff63c1] via-accent to-[#b3126f] text-white shadow-[0_8px_24px_-6px_rgba(224,49,156,.85)]"
+                  : "text-muted/50 hover:text-foreground"
+              }`}
             >
-              <svg
-                width="17"
-                height="17"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <path d="M5 12h14M13 5l7 7-7 7" />
-              </svg>
+              {email.trim().includes("@") ? (
+                <svg
+                  width="17"
+                  height="17"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M5 12h14M13 5l7 7-7 7" />
+                </svg>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              )}
             </button>
           </div>
         ) : (
           <>
             <button
               onClick={() => setRsvpOpen(true)}
+              aria-expanded={rsvpOpen}
               className="btn-primary w-full rounded-2xl py-4 text-[16px] font-semibold tracking-tight"
             >
               I&rsquo;m in

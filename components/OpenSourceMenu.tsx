@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Scrim } from "@/components/Dismiss";
 import { GITHUB_URL, ZALTZ_GITHUB_URL, ZISSL_GITHUB_URL } from "@/lib/links";
 
 /**
@@ -39,7 +40,7 @@ export default function OpenSourceMenu({
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} aria-hidden />
+          <Scrim onClose={() => setOpen(false)} />
           <div
             className={`absolute z-20 w-64 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl ${
               direction === "up" ? "bottom-full left-0 mb-2" : "right-0 top-full mt-2"

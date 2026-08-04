@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Scrim } from "@/components/Dismiss";
 
 /**
  * ACCOUNT MENU — one avatar, everything about YOU behind a click (the email
@@ -40,6 +41,7 @@ export default function AccountMenu({
         onClick={() => setOpen((o) => !o)}
         title="Account"
         aria-label="Account"
+        aria-expanded={open}
         className={`flex h-8 w-8 items-center justify-center rounded-full font-medium transition ${
           !signedIn ? "text-[10px] lowercase" : "text-[13px]"
         } ${
@@ -54,11 +56,7 @@ export default function AccountMenu({
       </button>
       {open && (
         <>
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => setOpen(false)}
-            aria-hidden
-          />
+          <Scrim onClose={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
             {!signedIn ? (
               <div className="px-3 py-2 text-[12px] leading-relaxed text-muted/70">

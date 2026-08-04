@@ -46,6 +46,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Scrim } from "@/components/Dismiss";
 import {
   TRANSITION_KNOBS,
   TRANSITION_MOVES,
@@ -192,7 +193,7 @@ export default function EngineHits({
   const hasNext = currentIdx != null && currentIdx < queue.length - 1;
   return (
     <>
-      <div className="fixed inset-0 z-[23]" onClick={onClose} aria-hidden />
+      <Scrim onClose={onClose} z="z-[23]" />
       {/* PHONE: a fixed sheet under the bar, full-width. DESKTOP: the house
           dropdown, right-aligned under the mark that opened it.
           THE ROOM'S LADDER: pills 18–19 · the mixer desk 20 · the conversation

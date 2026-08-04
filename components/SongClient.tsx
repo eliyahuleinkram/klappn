@@ -37,6 +37,7 @@ import {
 } from "@/lib/breaks-catalog";
 import ArrangeSurface from "@/components/ArrangeSurface";
 import CodePane from "@/components/CodePane";
+import { Scrim, useDismiss } from "@/components/Dismiss";
 import {
   clearNowPlaying,
   dockStop,
@@ -707,6 +708,10 @@ export default function SongClient({
   // is a regenerate-only object — it can't be steered with words (removed 2026-07-13).
   async function openBreaks(prevPart: Part, regenerate = false, prompt?: string) {
     setError(null);
+    // The seam's own capsule steps ASIDE for this one — the break panel is
+    // where that tap led, not a second card stacked on the first, so one tap
+    // outside puts the whole seam back to quiet.
+    setGapOpen(null);
     setBreakOpen(prevPart.id);
     // Already composed + not re-rolling → just open. regenerate = re-roll a FRESH break.
     if (!regenerate && plan?.breaks?.[prevPart.id]?.options?.length) return;
@@ -1007,14 +1012,12 @@ export default function SongClient({
   // field + one morphing button), so the whole app speaks one design.
   const renderComposer = (target: AddTarget) => (
     <>
-      {/* tap anywhere outside and the composer folds away */}
-      <div
-        className="fixed inset-0 z-10"
-        onClick={() => {
+      {/* outside, Escape, or the ✎ that opened it — three ways out, one law */}
+      <Scrim
+        onClose={() => {
           setAddOpen(null);
           setAddPrompt("");
         }}
-        aria-hidden
       />
       <div className="cmdbar cmdbar-in relative z-20 flex items-center gap-2.5 rounded-full border border-white/[0.09] bg-white/[0.04] py-2 pl-2.5 pr-2 shadow-[0_20px_60px_-24px_rgba(0,0,0,.9),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl transition-[border-color,box-shadow] duration-300 focus-within:border-accent/35 focus-within:shadow-[0_20px_60px_-24px_rgba(0,0,0,.9),0_0_44px_-12px_rgba(224,49,156,.5),inset_0_1px_0_rgba(255,255,255,.08)]">
       <span className="flex shrink-0 items-center gap-2 rounded-full bg-white/[0.05] py-1.5 pl-3 pr-3.5">
@@ -1031,12 +1034,12 @@ export default function SongClient({
           // Enter only builds when there's a direction — an empty field must
           // NEVER generate by surprise (the wordless one-tap is the labeled
           // "New loop" / "Extend" segment on the capsule).
+          // Escape is not handled here — the Scrim above owns it for the whole
+          // app, so the key does the same thing whether the field has focus or
+          // the finger has wandered off it.
           if (e.key === "Enter") {
             e.preventDefault();
             if (addPrompt.trim()) addPart(target, addPrompt);
-          } else if (e.key === "Escape") {
-            setAddOpen(null);
-            setAddPrompt("");
           }
         }}
         placeholder={
@@ -1113,12 +1116,18 @@ export default function SongClient({
   const renderFxPicker = (targetId: string) => (
     // ONE glass object that WRAPS — nine words never scroll sideways; on an
     // iPhone they fold into rows, every word a whole tap target.
-    <div className="animate-fade-in relative flex w-full items-center justify-center py-2.5">
+    // `relative z-20` because the catcher below is a portal at z-10 and this
+    // wrapper is animated (transformed) — the page sees the WRAPPER, not the
+    // glass inside it.
+    <div className="animate-fade-in relative z-20 flex w-full items-center justify-center py-2.5">
+      {/* it closes the way everything closes: outside, Escape, or the pill
+          that opened it (2026-08-04c — this one used to have only its ✕) */}
+      <Scrim onClose={() => setFxPickerAt(null)} />
       <span
         aria-hidden
         className="absolute inset-x-4 top-1/2 h-px -translate-y-1/2 bg-accent/[0.18] sm:inset-x-8"
       />
-      <div className="relative flex max-w-full flex-wrap items-center justify-center gap-1 rounded-3xl border border-accent/25 bg-white/[0.03] px-2 py-1.5 backdrop-blur-xl">
+      <div className="relative z-20 flex max-w-full flex-wrap items-center justify-center gap-1 rounded-3xl border border-accent/25 bg-white/[0.03] px-2 py-1.5 backdrop-blur-xl">
         {FX_MOVES.map((m) => (
           <button
             key={m.word}
@@ -1144,13 +1153,15 @@ export default function SongClient({
   );
 
   const renderBreakPicker = (targetId: string) => (
-    // Same glass object as the effect picker — its own door, its own words.
-    <div className="animate-fade-in relative flex w-full items-center justify-center py-2.5">
+    // Same glass object as the effect picker — its own door, its own words,
+    // and the same three ways out.
+    <div className="animate-fade-in relative z-20 flex w-full items-center justify-center py-2.5">
+      <Scrim onClose={() => setBrkPickerAt(null)} />
       <span
         aria-hidden
         className="absolute inset-x-4 top-1/2 h-px -translate-y-1/2 bg-accent/[0.18] sm:inset-x-8"
       />
-      <div className="relative flex max-w-full flex-wrap items-center justify-center gap-1 rounded-3xl border border-accent/25 bg-white/[0.03] px-2 py-1.5 backdrop-blur-xl">
+      <div className="relative z-20 flex max-w-full flex-wrap items-center justify-center gap-1 rounded-3xl border border-accent/25 bg-white/[0.03] px-2 py-1.5 backdrop-blur-xl">
         {BREAK_MOVES.map((m) => (
           <button
             key={`brk-${m.tpl}`}
@@ -1222,8 +1233,9 @@ export default function SongClient({
                 onClick={() => {
                   setError(null);
                   setAddPrompt("");
-                  setAddOpen(side);
+                  setAddOpen((cur) => (cur === side ? null : side));
                 }}
+                aria-expanded={addOpen === side}
                 aria-label="Describe the new section instead"
                 className="grid place-items-center py-1.5 pl-3 pr-3.5 text-muted/50 transition duration-200 hover:text-foreground active:scale-95"
               >
@@ -1247,8 +1259,11 @@ export default function SongClient({
                   <button
                     onClick={() => {
                       setError(null);
-                      setFxPickerAt(fxTarget.id);
+                      setFxPickerAt((cur) =>
+                        cur === fxTarget.id ? null : fxTarget.id,
+                      );
                     }}
+                    aria-expanded={fxPickerAt === fxTarget.id}
                     title="An effect from the very first bar — yours to shape, no AI"
                     aria-label="Add an effect beginning at the first loop"
                     className="flex items-center gap-1.5 whitespace-nowrap py-1.5 pl-3 pr-4 text-[12.5px] font-medium text-muted/70 pointer-coarse:text-foreground/85 transition duration-200 hover:text-foreground active:scale-95"
@@ -1351,7 +1366,7 @@ export default function SongClient({
     // request round-trip shimmer (the pending loop card takes over via refresh).
     if (addOpen === `gap:${prev.id}`) {
       return (
-        <div className="animate-fade-in py-1.5">
+        <div className="animate-fade-in relative z-20 py-1.5">
           {renderComposer({ position, gapId: prev.id })}
         </div>
       );
@@ -1407,11 +1422,7 @@ export default function SongClient({
       );
       return (
         <>
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => setBreakOpen(null)}
-            aria-hidden
-          />
+          <Scrim onClose={() => setBreakOpen(null)} />
           <div className="animate-fade-in relative z-20">
             <div className="relative flex items-center justify-center">
               {/* the thread IS the play state: while a break sounds, a one-bar
@@ -1579,7 +1590,10 @@ export default function SongClient({
     const chosenChip = set?.options?.length ? (
       <>
         <button
-          onClick={() => void openBreaks(prev)}
+          onClick={() =>
+            breakOpen === prev.id ? setBreakOpen(null) : void openBreaks(prev)
+          }
+          aria-expanded={breakOpen === prev.id}
           disabled={gapBusy}
           title={
             chosen
@@ -1623,12 +1637,8 @@ export default function SongClient({
     // different promise.)
     if (gapOpen === prev.id) {
       return (
-        <div className="animate-fade-in group/gap relative flex w-full items-center justify-center py-2.5">
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => setGapOpen(null)}
-            aria-hidden
-          />
+        <div className="animate-fade-in group/gap relative z-20 flex w-full items-center justify-center py-2.5">
+          <Scrim onClose={() => setGapOpen(null)} />
           {seamThread}
           <div className={`z-20 ${capsuleShell}`}>
             {chosenChip}
@@ -1703,8 +1713,9 @@ export default function SongClient({
           <button
             onClick={() => {
               setError(null);
-              setGapOpen(prev.id);
+              setGapOpen((cur) => (cur === prev.id ? null : prev.id));
             }}
+            aria-expanded={gapOpen === prev.id}
             disabled={gapBusy}
             title="Add here — a new loop, or an effect"
             aria-label="Open this seam's choices"
@@ -1738,6 +1749,8 @@ export default function SongClient({
     // out of existence); only an empty song closes the surface.
     if (parts.length === 0) setArrange(false);
   }, [parts.length]);
+  // Escape puts the loops back — the ⇅ glyph and the key say the same thing.
+  useDismiss(arrange, () => setArrange(false));
   const arrangeHoldUntil = useRef(0);
   const arrangeDeleted = useRef<Map<string, number>>(new Map());
   const noteArrange = () => {
@@ -3224,24 +3237,22 @@ export default function SongClient({
     return () => document.body.classList.remove("immersive");
   }, [immersive]);
 
-  // While immersed, Esc or leaving browser-fullscreen drops back to the UI.
+  // While immersed, Esc drops back to the UI — through the same stack as every
+  // other overlay, so a card opened on top of it gives way first.
+  useDismiss(immersive, exitImmersive);
+  // Leaving browser-fullscreen by any other road drops it too.
   useEffect(() => {
     if (!immersive) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") exitImmersive();
-    };
     const onFs = () => {
       if (!document.fullscreenElement) setImmersive(false);
     };
-    window.addEventListener("keydown", onKey);
     document.addEventListener("fullscreenchange", onFs);
     document.addEventListener("webkitfullscreenchange", onFs); // older Safari
     return () => {
-      window.removeEventListener("keydown", onKey);
       document.removeEventListener("fullscreenchange", onFs);
       document.removeEventListener("webkitfullscreenchange", onFs);
     };
-  }, [immersive, exitImmersive]);
+  }, [immersive]);
 
   // A loop in the mix is EXACTLY the loop played solo — the player adds
   // nothing, ever (no sweeps, no fades). Blending is the loops' own job
@@ -3636,6 +3647,14 @@ export default function SongClient({
    * song-wide ask can never cost you the song.
    */
   const [songEdit, setSongEdit] = useState(false);
+  // The command bar has no scrim on purpose — it lives WITH the page, so you can
+  // tap another loop to point it somewhere else. But Escape must still put it
+  // away, whether or not the field still holds focus.
+  useDismiss(!!targetLoop || songEdit, () => {
+    setSongEdit(false);
+    setSelectedLoopId(null);
+    setEditText("");
+  });
   function onEditSong(text: string) {
     const r = text.trim();
     if (!r || busy || editSubmitting) return;
@@ -3802,15 +3821,13 @@ export default function SongClient({
                   {stageWord}
                 </span>
               )}
-              {arrange ? (
-                <button
-                  onClick={() => setArrange(false)}
-                  title="Back to the loops"
-                  className="flex h-8 items-center rounded-full bg-accent/12 px-3 text-[12.5px] font-medium leading-none text-accent transition duration-200 active:scale-95"
-                >
-                  Done
-                </button>
-              ) : sweep === "offer" ? (
+              {/* (No separate "Done" here any more — 2026-08-04c. Opening the
+                  hand-arrange surface used to swap this whole cluster for one
+                  word, so the way OUT was a different button in a different
+                  place from the way IN. The ⇅ glyph itself is the toggle now:
+                  lit while the surface is up, tapped again to put the loops
+                  back — the same gesture as every other control in the row.) */}
+              {sweep === "offer" ? (
                 <span className="animate-fade-in flex h-8 items-center gap-0.5 rounded-full bg-accent/12 px-1.5 text-[12.5px] font-medium leading-none">
                   <span className="px-1.5 text-foreground/80">
                     Re-hear the song?
@@ -3869,17 +3886,14 @@ export default function SongClient({
                   <WordBtn
                     onClick={() => setShapeOpen((v) => !v)}
                     active={shapeOpen}
+                    expanded={shapeOpen}
                     title="Shape the whole song"
                   >
                     Shape
                   </WordBtn>
                   {shapeOpen && (
                     <>
-                      <div
-                        className="fixed inset-0 z-10"
-                        onClick={() => setShapeOpen(false)}
-                        aria-hidden
-                      />
+                      <Scrim onClose={() => setShapeOpen(false)} />
                       {/* IT HAS TO BE ON THE SCREEN, AND IT HAS TO BE READ
                           (2026-08-04, the user: "the shape overlay is hard to
                           see when we are in mobile view"). Two faults, both
@@ -3986,33 +4000,56 @@ export default function SongClient({
                   the two can no longer be read as the same button. Visuals
                   stays a word: the song's look is a product concept, and
                   nobody has a symbol for it that a first hand could read. */}
-              {!visiting && !arrange && (
+              {/* A SECOND TAP CLOSES IT (2026-08-04c, the user). These three
+                  lit up when open like Shape did, but only Shape could be
+                  tapped shut — the same-looking button had two different
+                  gestures behind it. They all toggle now, and the two that used
+                  to VANISH while their surface was up stay where the hand left
+                  them (the standing law: controls never appear and vanish). */}
+              {!visiting && (
                 <WordBtn
-                  onClick={() => setVisualsOpen(true)}
+                  onClick={() => setVisualsOpen((v) => !v)}
                   active={visualsOpen}
+                  expanded={visualsOpen}
                   disabled={playableCount === 0}
-                  title="One living look across the whole piece"
+                  title={
+                    visualsOpen
+                      ? "Close the look"
+                      : "One living look across the whole piece"
+                  }
                 >
                   Visuals
                 </WordBtn>
               )}
-              {!arrange && (
-                <IconBtn
-                  onClick={() => setArrange(true)}
-                  title="Move loops by hand — order, repeats, deletes (no AI)"
-                >
-                  <ArrangeIcon />
-                </IconBtn>
-              )}
+              <IconBtn
+                onClick={() => setArrange((v) => !v)}
+                active={arrange}
+                expanded={arrange}
+                title={
+                  arrange
+                    ? "Done moving loops by hand"
+                    : "Move loops by hand — order, repeats, deletes (no AI)"
+                }
+              >
+                <ArrangeIcon />
+              </IconBtn>
               {/* ✎ — a pencil IS universal, and the field it opens says what
                   it reaches ("The whole song"), so the glyph carries no
                   product concept of its own. */}
               {!visiting && (
                 <IconBtn
-                  onClick={() => setSongEdit(true)}
+                  onClick={() => {
+                    setSongEdit((v) => !v);
+                    setEditText("");
+                  }}
                   active={songEdit}
+                  expanded={songEdit}
                   disabled={busy || playableCount === 0}
-                  title="Say a change — the whole song at once"
+                  title={
+                    songEdit
+                      ? "Close the field"
+                      : "Say a change — the whole song at once"
+                  }
                 >
                   <EditSongIcon />
                 </IconBtn>
@@ -4034,10 +4071,17 @@ export default function SongClient({
                   a glyph alone can't and touch has no hover. */}
               {!visiting && (
                 <div className="relative">
+                  {/* LIT MEANS OPEN, HERE TOO (2026-08-04c). This glyph lit
+                      whenever a link EXISTED, so in a row where every other lit
+                      control meant "its card is open" one button meant
+                      something else entirely. Open is the light; a live link is
+                      the small dot on the corner — one glyph, two facts, and
+                      neither borrows the other's signal. */}
                   <IconBtn
                     onClick={() => void onShare()}
                     disabled={shareBusy || playableCount === 0}
-                    active={!!shareUrl}
+                    active={shareOpen}
+                    expanded={shareOpen}
                     title={
                       playableCount === 0
                         ? "Share — once a loop has landed"
@@ -4048,10 +4092,19 @@ export default function SongClient({
                             : "Share — a link that needs no account; they play, they can't spend"
                     }
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M10 13a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1L11.5 4.5" />
-                      <path d="M14 11a5 5 0 0 0-7.1 0l-3 3a5 5 0 0 0 7.1 7.1l1.5-1.4" />
-                    </svg>
+                    <span className="relative flex">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M10 13a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1L11.5 4.5" />
+                        <path d="M14 11a5 5 0 0 0-7.1 0l-3 3a5 5 0 0 0 7.1 7.1l1.5-1.4" />
+                      </svg>
+                      {/* a link is out there in the world right now */}
+                      {shareUrl && (
+                        <span
+                          aria-hidden
+                          className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_6px_var(--accent)]"
+                        />
+                      )}
+                    </span>
                   </IconBtn>
                   {/* THE LINK, AS TEXT (2026-08-02, the user: "the link should
                       not automatically copy… we have the text to copy, and we
@@ -4061,13 +4114,11 @@ export default function SongClient({
                       already out there. */}
                   {shareOpen && shareUrl && (
                     <>
-                      <div
-                        className="fixed inset-0 z-10"
-                        onClick={() => {
+                      <Scrim
+                        onClose={() => {
                           setShareOpen(false);
                           setShareArmed(false);
                         }}
-                        aria-hidden
                       />
                       <div className="animate-fade-in absolute right-0 top-full z-20 mt-2 w-[19rem] overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-3 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
                         <p className="text-[10.5px] leading-snug text-muted/60">
@@ -4113,6 +4164,8 @@ export default function SongClient({
               <div className="relative">
                 <IconBtn
                   onClick={() => setExportMenu((m) => !m)}
+                  active={exportMenu}
+                  expanded={exportMenu}
                   disabled={playableCount === 0}
                   title={playableCount === 0 ? "Export — once a loop has landed" : "Export"}
                 >
@@ -4120,11 +4173,7 @@ export default function SongClient({
                 </IconBtn>
                 {exportMenu && (
                   <>
-                    <div
-                      className="fixed inset-0 z-10"
-                      onClick={() => setExportMenu(false)}
-                      aria-hidden
-                    />
+                    <Scrim onClose={() => setExportMenu(false)} />
                     <div className="absolute right-0 top-full z-20 mt-2 w-48 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
                       <button
                         onClick={() => {
@@ -4572,6 +4621,7 @@ export default function SongClient({
               <div className="relative">
                 <button
                   onClick={() => (visiting ? void flipEnding(ends ? "loop" : "stop") : setEndOpen((v) => !v))}
+                  aria-expanded={visiting ? undefined : endOpen}
                   className={`flex h-8 items-center gap-2 rounded-full px-4 text-[12.5px] font-medium leading-none transition duration-200 active:scale-95 ${
                     endOpen
                       ? "bg-accent/12 text-accent"
@@ -4591,7 +4641,7 @@ export default function SongClient({
                 </button>
                 {endOpen && !visiting && (
                   <>
-                    <div className="fixed inset-0 z-10" onClick={() => setEndOpen(false)} aria-hidden />
+                    <Scrim onClose={() => setEndOpen(false)} />
                     <div className="animate-fade-in absolute bottom-full left-1/2 z-20 mb-2 w-72 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
                       <MenuRow
                         word="Loops forever"
@@ -4719,13 +4769,11 @@ export default function SongClient({
               disabled={songEdit ? busy || editSubmitting : targetGenerating || editSubmitting}
               onChange={(e) => setEditText(e.target.value)}
               onKeyDown={(e) => {
+                // (Escape belongs to the dismiss law above — one place, one key.)
                 if (e.key === "Enter") {
                   e.preventDefault();
                   if (songEdit) onEditSong(editText);
                   else onEditLoop(editText);
-                } else if (e.key === "Escape") {
-                  setSongEdit(false);
-                  setSelectedLoopId(null);
                 }
               }}
               placeholder={
@@ -4752,6 +4800,7 @@ export default function SongClient({
                 }
                 setSongEdit(false);
                 setSelectedLoopId(null);
+                setEditText("");
               }}
               aria-label={editText.trim() && !targetGenerating && !editSubmitting ? "Apply change" : "Close editor"}
               className="group/act relative grid h-10 w-10 shrink-0 place-items-center rounded-full text-white transition-transform duration-200 hover:scale-[1.06] active:scale-95"
@@ -4939,12 +4988,15 @@ function WordBtn({
   onClick,
   title,
   active,
+  /** This word opens something, and that something is open right now. */
+  expanded,
   disabled,
   children,
 }: {
   onClick: () => void;
   title: string;
   active?: boolean;
+  expanded?: boolean;
   disabled?: boolean;
   children: React.ReactNode;
 }) {
@@ -4954,6 +5006,7 @@ function WordBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      aria-expanded={expanded}
       className={`flex h-8 items-center rounded-full px-3 text-[12.5px] font-medium leading-none transition duration-200 active:scale-95 disabled:opacity-40 ${
         active
           ? "bg-accent/12 text-accent"
@@ -4969,12 +5022,15 @@ function IconBtn({
   onClick,
   title,
   active,
+  /** This glyph opens something, and that something is open right now. */
+  expanded,
   disabled,
   children,
 }: {
   onClick: () => void;
   title: string;
   active?: boolean;
+  expanded?: boolean;
   disabled?: boolean;
   children: React.ReactNode;
 }) {
@@ -4985,6 +5041,7 @@ function IconBtn({
       disabled={disabled}
       title={title}
       aria-label={title}
+      aria-expanded={expanded}
       className={`flex h-8 w-8 items-center justify-center rounded-full transition duration-200 active:scale-95 disabled:opacity-40 ${
         active
           ? "bg-accent/12 text-accent"
@@ -5286,6 +5343,7 @@ function Settings({
     <div className="relative inline-block">
       <button
         onClick={toggleOpen}
+        aria-expanded={open}
         // Items NEVER break internally ("126 BPM" must stay one piece); the row
         // wraps BETWEEN items if it must, and runs smaller on phones so it
         // usually fits one quiet line.
@@ -5304,11 +5362,7 @@ function Settings({
 
       {open && (
         <>
-          <div
-            className="fixed inset-0 z-10"
-            onClick={commitClose}
-            aria-hidden
-          />
+          <Scrim onClose={commitClose} />
           <div className="absolute left-0 top-full z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_40px_100px_-32px_rgba(0,0,0,.95)] backdrop-blur-xl">
             <div className="flex items-center justify-between px-3 pb-1 pt-2">
               <span className="text-[10px] font-medium uppercase tracking-[0.24em] text-muted/45">
@@ -7000,6 +7054,9 @@ function LoopCodeSheet({
       setSaving(false);
     }
   }
+  // Escape leaves the sheet — unless the pane's ghost eats it first (it says so
+  // by preventing the default). Same key, same law, everywhere.
+  useDismiss(true, onClose);
   return (
     <>
       <div
@@ -7588,6 +7645,7 @@ function LoopCardImpl({
           <button
             onClick={() => setMenuOpen((o) => !o)}
             aria-label="Loop actions"
+            aria-expanded={menuOpen}
             className={`flex h-7 items-center gap-1.5 rounded-full px-2.5 leading-none transition active:scale-95 ${
               menuOpen
                 ? "bg-white/[0.08] text-foreground"
@@ -7602,7 +7660,7 @@ function LoopCardImpl({
           </button>
           {menuOpen && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} aria-hidden />
+              <Scrim onClose={() => setMenuOpen(false)} />
               <div className="absolute right-0 top-full z-20 mt-2 w-52 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
                 {/* Editing needs the finished loop — while it's still composing (or has no
                     music yet) the entry point is plainly OFF, not a bar that refuses. */}
@@ -7771,6 +7829,7 @@ function LoopCardImpl({
         <div className="border-t border-white/[0.04]">
           <button
             onClick={() => setLayersOpen((o) => !o)}
+            aria-expanded={layersOpen}
             className="flex w-full items-center gap-2 px-5 pb-1 pt-3.5 text-left transition hover:opacity-80"
           >
             <span className="text-[10px] font-medium uppercase tracking-[0.24em] text-muted/45">
@@ -7821,6 +7880,7 @@ function LoopCardImpl({
         <div className="border-t border-white/[0.04]">
           <button
             onClick={() => setInstOpen((o) => !o)}
+            aria-expanded={instOpen}
             className="flex w-full items-center gap-2 px-5 py-3.5 text-left transition hover:bg-white/[0.02]"
           >
             <span className="text-[10px] font-medium uppercase tracking-[0.24em] text-muted/45">
@@ -7976,6 +8036,8 @@ function VisualsPanel({
   onLocal: (id: string, code: string) => void;
   onClose: () => void;
 }) {
+  // Escape folds the look away — same key as everything else that opened.
+  useDismiss(true, onClose);
   // The "look" chip you tapped, lit until you nudge a slider (mirrors the layer cards).
   const [activeLook, setActiveLook] = useState<string | null>(null);
   // Knob values touched since the last persist — sent as a delta on commit.
@@ -8256,6 +8318,7 @@ function SwapRow({
       <div className="relative shrink-0">
         <button
           onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
           className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition active:scale-[.97] ${
             current.s === swap.find
               ? "bg-white/[0.05] text-foreground/80 hover:bg-white/[0.09]"
@@ -8271,11 +8334,7 @@ function SwapRow({
         </button>
         {open && (
           <>
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => setOpen(false)}
-              aria-hidden
-            />
+            <Scrim onClose={() => setOpen(false)} />
             <div className="absolute right-0 top-full z-20 mt-2 w-48 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
               {opts.map((opt, i) => (
                 <button

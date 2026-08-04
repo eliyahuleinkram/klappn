@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDismiss } from "@/components/Dismiss";
 import { open as unseal } from "@/lib/seal";
 import { diffLines, type LineDiff } from "@/lib/line-diff";
 
@@ -316,6 +317,9 @@ export default function RoomChat({
 
   // Leaving the room mid-answer must not leave a stream pulling tokens.
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Escape closes the panel whether or not the field still holds the caret.
+  useDismiss(open, onClose);
 
   if (!open) return null;
 

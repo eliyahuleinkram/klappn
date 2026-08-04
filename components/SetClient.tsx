@@ -15,6 +15,7 @@ import { openDeep } from "@/lib/seal";
 import { sentenceLabel } from "@/lib/labels";
 import type { SetEntry, SetRow, SetTransition } from "@/lib/sets";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { useDismiss } from "./Dismiss";
 import DeckSlider from "./DeckSlider";
 import {
   DeckChip,
@@ -1038,27 +1039,25 @@ export default function SetClient({
   useEffect(() => {
     if (!performMode) return;
     setStageControls(true); // every entrance starts with the controls up
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPerformMode(false);
-    };
+    // (Escape itself rides the app-wide dismiss stack below — so a card opened
+    // on the stage gives way first, and the stage survives that press.)
     // The browser CONSUMES Escape to leave native fullscreen — the keydown
-    // above never fires for that press, and the stage used to stay up until a
+    // never fires for that press, and the stage used to stay up until a
     // second Escape. Syncing to fullscreenchange (like the song page) makes
     // the FIRST Escape drop the whole stage. webkit prefix = older Safari.
     const onFs = () => {
       if (!document.fullscreenElement) setPerformMode(false);
     };
-    window.addEventListener("keydown", onKey);
     document.addEventListener("fullscreenchange", onFs);
     document.addEventListener("webkitfullscreenchange", onFs);
     document.documentElement.requestFullscreen?.().catch(() => {});
     return () => {
-      window.removeEventListener("keydown", onKey);
       document.removeEventListener("fullscreenchange", onFs);
       document.removeEventListener("webkitfullscreenchange", onFs);
       if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     };
   }, [performMode]);
+  useDismiss(performMode, () => setPerformMode(false));
 
   // Which performance pad is held (styling + release bookkeeping).
   const [heldPad, setHeldPad] = useState<string | null>(null);
@@ -1749,6 +1748,9 @@ export default function SetClient({
   // --- add songs -----------------------------------------------------------------
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
+  // Tap the dark, tap the ✕, or press Escape — the same three ways out the
+  // whole app uses.
+  useDismiss(pickerOpen, () => setPickerOpen(false));
   const [library, setLibrary] = useState<
     { id: string; title: string; status: string }[] | null
   >(null);
@@ -2143,7 +2145,8 @@ export default function SetClient({
         <div className="flex items-center gap-2">
         {mixActive && (
           <button
-            onClick={() => setPerformMode(true)}
+            onClick={() => setPerformMode((v) => !v)}
+            aria-expanded={performMode}
             aria-label="Perform — fullscreen visuals"
             title="Perform — the visuals full screen, controls floating"
             className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-[13px] text-foreground/70 transition hover:border-accent/40 hover:bg-white/[0.06] hover:text-accent-strong"
@@ -2309,7 +2312,8 @@ export default function SetClient({
           {live ? "❚❚ Pause" : "▶ Play"}
         </button>
         <button
-          onClick={() => setPickerOpen(true)}
+          onClick={() => setPickerOpen((v) => !v)}
+          aria-expanded={pickerOpen}
           className="rounded-full border border-white/[0.1] bg-white/[0.03] px-5 py-3 text-[14px] font-medium text-foreground/80 transition hover:border-white/[0.18] hover:bg-white/[0.06] active:scale-[.98]"
         >
           + Add songs
@@ -2545,7 +2549,15 @@ export default function SetClient({
               <input
                 value={pickerQuery}
                 onChange={(e) => setPickerQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Escape" && setPickerQuery("")}
+                // Escape clears what you typed FIRST (and says so by taking the
+                // key), then the next one closes the sheet — one key, unwinding
+                // one layer at a time.
+                onKeyDown={(e) => {
+                  if (e.key === "Escape" && pickerQuery) {
+                    e.preventDefault();
+                    setPickerQuery("");
+                  }
+                }}
                 placeholder="Search your songs"
                 className="mt-4 w-full rounded-2xl bg-white/[0.04] px-4 py-2.5 text-[14px] text-foreground outline-none transition placeholder:text-muted/45 focus:bg-white/[0.07]"
               />

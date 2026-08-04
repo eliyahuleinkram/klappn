@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { signOut } from "@/lib/auth-client";
 import AccountMenu from "./AccountMenu";
+import { useDismiss } from "./Dismiss";
 import type { SongRowRich } from "@/lib/songs";
 import { openDeep } from "@/lib/seal";
 import { sentenceLabel } from "@/lib/labels";
@@ -1090,6 +1091,10 @@ function CreateSheet({
     if (busy || !query.trim()) return;
     onCreate(query.trim(), model);
   }
+
+  // Escape leaves the sheet, exactly like tapping the dark behind it — and
+  // neither one can pull the rug out from under a run already spending.
+  useDismiss(!busy, onCancel);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
