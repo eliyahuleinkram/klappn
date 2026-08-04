@@ -3972,20 +3972,13 @@ export default function SongClient({
                   )}
                 </div>
               )}
-              {/* THE TWO THAT LEFT THE MENU ARE WORDS (2026-08-04). Arrange
-                  was a labelled pill before it was ever a glyph — it toggles
-                  into "Done", a state no mark can say — and Visuals is the
-                  song's look, not a verb anyone has a symbol for. The row
-                  reads words-then-glyphs: what this song IS, then the four
-                  things every app means by those marks. */}
-              {!arrange && (
-                <WordBtn
-                  onClick={() => setArrange(true)}
-                  title="Move loops by hand — order, repeats, deletes (no AI)"
-                >
-                  Arrange
-                </WordBtn>
-              )}
+              {/* ONE WORD, ONE MEANING (2026-08-04b, the user: "do not write
+                  arrange twice"). "Arrange" is the AI shape in the Shape menu
+                  — the whole-song call. Moving loops with your hands is a
+                  different verb and wears the mark of the surface it opens;
+                  the two can no longer be read as the same button. Visuals
+                  stays a word: the song's look is a product concept, and
+                  nobody has a symbol for it that a first hand could read. */}
               {!visiting && !arrange && (
                 <WordBtn
                   onClick={() => setVisualsOpen(true)}
@@ -3995,6 +3988,14 @@ export default function SongClient({
                 >
                   Visuals
                 </WordBtn>
+              )}
+              {!arrange && (
+                <IconBtn
+                  onClick={() => setArrange(true)}
+                  title="Move loops by hand — order, repeats, deletes (no AI)"
+                >
+                  <ArrangeIcon />
+                </IconBtn>
               )}
               {/* ✎ — a pencil IS universal, and the field it opens says what
                   it reaches ("The whole song"), so the glyph carries no
@@ -5011,12 +5012,29 @@ function ExpandIcon() {
   );
 }
 
-// (No glyphs for Arrange or Visuals — 2026-08-04. Both are PRODUCT CONCEPTS,
-// and the house law is the user's own from 07-05, when the ⇅ arrange icon was
-// removed as "confusing… must be frictionless": a product concept gets a WORD,
-// only universal verbs get glyphs. Drawing them as marks put two invented
-// symbols in a row of four self-evident ones — and invented symbols are
-// exactly what a first-time hand cannot read. They are words now.)
+/** MOVE LOOPS BY HAND — the drag surface (2026-08-04b, the user: the word
+ *  "Arrange" now belongs to the AI shape in the menu, and this one wants an
+ *  icon). It is NOT the 07-05 ⇅, which was two bare arrows meaning "sort" and
+ *  read as nothing: this is the surface itself in miniature — the song's rows,
+ *  unequal because loops are, the middle one shuffled out of line. Three
+ *  strokes, so it stays crisp at 17px, and it can't be mistaken for a
+ *  hamburger (those are three EQUAL bars, flush left). */
+function ArrangeIcon() {
+  return (
+    <svg {...iconProps}>
+      {/* rows, and the up-down that moves them. Hairline like every other
+          mark in this row — filled bars read three times heavier than a 1.5
+          stroke and broke the line-up. This is NOT the 07-05 ⇅ that was
+          removed: two bare arrows meant "sort" and said nothing; arrows
+          BESIDE the rows they move say which rows and which direction. */}
+      <path d="M5.5 5.5v13" />
+      <path d="M2.8 8.2L5.5 5.5l2.7 2.7" />
+      <path d="M2.8 15.8L5.5 18.5l2.7-2.7" />
+      <path d="M11.5 9h9" />
+      <path d="M11.5 15h9" />
+    </svg>
+  );
+}
 
 // say a change in words — the whole song at once
 function EditSongIcon() {
