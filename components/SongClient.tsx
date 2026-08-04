@@ -3894,7 +3894,7 @@ export default function SongClient({
                           never be wider than the viewport; and the glass is
                           TINTED DARK, so the rows read over a bright picture
                           instead of dissolving into it. */}
-                      <div className="animate-fade-in absolute left-0 top-full z-20 mt-2 w-[min(16rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/[0.12] bg-[#0c0d0f]/85 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.95)] backdrop-blur-2xl sm:left-auto sm:right-0">
+                      <div className="animate-fade-in absolute left-0 top-full z-20 mt-2 w-[min(16rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.95)] backdrop-blur-xl sm:left-auto sm:right-0">
                         {/* EVERY ROW IS ALWAYS HERE (2026-08-02, the user).
                             Controls that appear and vanish teach nothing: the
                             menu shows the same three from the first paint, and
@@ -4069,7 +4069,7 @@ export default function SongClient({
                         }}
                         aria-hidden
                       />
-                      <div className="animate-fade-in absolute right-0 top-full z-20 mt-2 w-[19rem] overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.05] p-3 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+                      <div className="animate-fade-in absolute right-0 top-full z-20 mt-2 w-[19rem] overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-3 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
                         <p className="text-[10.5px] leading-snug text-muted/60">
                           Anyone with this can open the song, take it apart and keep their
                           own version. They can&rsquo;t spend your tokens.
@@ -4125,7 +4125,7 @@ export default function SongClient({
                       onClick={() => setExportMenu(false)}
                       aria-hidden
                     />
-                    <div className="absolute right-0 top-full z-20 mt-2 w-48 overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.05] p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+                    <div className="absolute right-0 top-full z-20 mt-2 w-48 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
                       <button
                         onClick={() => {
                           setExportMenu(false);
@@ -4592,7 +4592,7 @@ export default function SongClient({
                 {endOpen && !visiting && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setEndOpen(false)} aria-hidden />
-                    <div className="animate-fade-in absolute bottom-full left-1/2 z-20 mb-2 w-72 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.05] p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+                    <div className="animate-fade-in absolute bottom-full left-1/2 z-20 mb-2 w-72 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
                       <MenuRow
                         word="Loops forever"
                         line="It comes back around and never lands"
@@ -5309,7 +5309,7 @@ function Settings({
             onClick={commitClose}
             aria-hidden
           />
-          <div className="absolute left-0 top-full z-20 mt-2 w-80 rounded-2xl border border-white/[0.1] bg-white/[0.05] p-1.5 shadow-[0_40px_100px_-32px_rgba(0,0,0,.95)] backdrop-blur-xl">
+          <div className="absolute left-0 top-full z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_40px_100px_-32px_rgba(0,0,0,.95)] backdrop-blur-xl">
             <div className="flex items-center justify-between px-3 pb-1 pt-2">
               <span className="text-[10px] font-medium uppercase tracking-[0.24em] text-muted/45">
                 Adjust
@@ -7127,6 +7127,15 @@ function LoopCardImpl({
   // The header's ⋯ menu (edit · repeat · delete — the loop's ONE control). While open, the card
   // lifts above its siblings so the dropdown isn't painted under the next section.
   const [menuOpen, setMenuOpen] = useState(false);
+  // the ⋯ menu's delete arms in place (the house two-step) — closing the menu
+  // always disarms, so a re-open never greets you mid-question
+  const [delArmed, setDelArmed] = useState(false);
+  const delTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (menuOpen) return;
+    setDelArmed(false);
+    if (delTimer.current) clearTimeout(delTimer.current);
+  }, [menuOpen]);
 
   async function call(method: string, url: string, body?: unknown) {
     setError(null);
@@ -7594,7 +7603,7 @@ function LoopCardImpl({
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} aria-hidden />
-              <div className="absolute right-0 top-full z-20 mt-2 w-52 overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.05] p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+              <div className="absolute right-0 top-full z-20 mt-2 w-52 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
                 {/* Editing needs the finished loop — while it's still composing (or has no
                     music yet) the entry point is plainly OFF, not a bar that refuses. */}
                 <button
@@ -7685,23 +7694,34 @@ function LoopCardImpl({
                 {total > 1 && (
                   <>
                     <div className="mx-3 my-1.5 h-px bg-white/[0.06]" />
+                    {/* ARMED IN PLACE, never a system dialog (2026-08-04):
+                        the row itself asks, exactly as the arrange surface's
+                        ✕ does — one grammar for every irreversible tap. The
+                        menu stays open so the question is where the hand
+                        already is; three seconds of not answering disarms. */}
                     <button
                       onClick={() => {
+                        if (!delArmed) {
+                          setDelArmed(true);
+                          if (delTimer.current) clearTimeout(delTimer.current);
+                          delTimer.current = setTimeout(() => setDelArmed(false), 3000);
+                          return;
+                        }
+                        setDelArmed(false);
                         setMenuOpen(false);
-                        if (
-                          confirm(
-                            "Delete this loop? The loops around it will meet directly.",
-                          )
-                        )
-                          call("DELETE", `/api/songs/${songId}/parts/${part.id}`);
+                        call("DELETE", `/api/songs/${songId}/parts/${part.id}`);
                       }}
                       disabled={busy || working}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] text-red-300/90 transition hover:bg-red-500/10 hover:text-red-300 disabled:opacity-40"
+                      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] transition disabled:opacity-40 ${
+                        delArmed
+                          ? "bg-red-500/15 text-red-200"
+                          : "text-red-300/90 hover:bg-red-500/10 hover:text-red-300"
+                      }`}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                         <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6" />
                       </svg>
-                      Delete loop
+                      {delArmed ? "Sure? The loops will meet" : "Delete loop"}
                     </button>
                   </>
                 )}
@@ -8256,7 +8276,7 @@ function SwapRow({
               onClick={() => setOpen(false)}
               aria-hidden
             />
-            <div className="absolute right-0 top-full z-20 mt-2 w-48 overflow-hidden rounded-2xl border border-white/[0.1] bg-white/[0.05] p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
+            <div className="absolute right-0 top-full z-20 mt-2 w-48 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#141416]/95 p-1.5 shadow-[0_30px_80px_-30px_rgba(0,0,0,.9)] backdrop-blur-xl">
               {opts.map((opt, i) => (
                 <button
                   key={opt.s}

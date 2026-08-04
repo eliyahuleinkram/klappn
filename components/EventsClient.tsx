@@ -357,8 +357,30 @@ export default function EventsClient({
     }
   }
 
+  /**
+   * ONE GRAMMAR FOR AN IRREVERSIBLE TAP (2026-08-04, the user: interactions
+   * "are not consistent"). The armed two-step is the house pattern everywhere
+   * else — the button itself asks, in the app's own words, where the hand
+   * already is — so a system dialog has no business here either. Keyed by
+   * `${id}:${verb}`, three seconds to answer, then it forgets.
+   */
+  const [armed, setArmed] = useState<string | null>(null);
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const arm = (key: string) => {
+    setArmed(key);
+    if (armTimer.current) clearTimeout(armTimer.current);
+    armTimer.current = setTimeout(() => setArmed(null), 3000);
+  };
+  useEffect(
+    () => () => {
+      if (armTimer.current) clearTimeout(armTimer.current);
+    },
+    [],
+  );
+
   async function cancelEvent(e: EventItem) {
-    if (!confirm(`Call off “${e.title}”? The page will say so.`)) return;
+    if (armed !== `${e.id}:off`) return void arm(`${e.id}:off`);
+    setArmed(null);
     await fetch(`/api/events/${e.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -368,7 +390,8 @@ export default function EventsClient({
   }
 
   async function deleteEvent(e: EventItem) {
-    if (!confirm(`Delete “${e.title}” for good? The link dies with it.`)) return;
+    if (armed !== `${e.id}:del`) return void arm(`${e.id}:del`);
+    setArmed(null);
     setEvents((list) => list.filter((x) => x.id !== e.id));
     await fetch(`/api/events/${e.id}`, { method: "DELETE" }).catch(() => {});
   }
@@ -795,16 +818,26 @@ export default function EventsClient({
                   {e.status === "live" && !past && (
                     <button
                       onClick={() => void cancelEvent(e)}
-                      className="rounded-full px-3 py-1.5 text-[12px] text-muted/60 transition hover:text-foreground"
+                      onBlur={() => armed === `${e.id}:off` && setArmed(null)}
+                      className={`rounded-full px-3 py-1.5 text-[12px] transition ${
+                        armed === `${e.id}:off`
+                          ? "bg-white/[0.08] text-foreground"
+                          : "text-muted/60 hover:text-foreground"
+                      }`}
                     >
-                      Call it off
+                      {armed === `${e.id}:off` ? "Sure? The page will say so" : "Call it off"}
                     </button>
                   )}
                   <button
                     onClick={() => void deleteEvent(e)}
-                    className="rounded-full px-3 py-1.5 text-[12px] text-muted/40 transition hover:text-red-400/80"
+                    onBlur={() => armed === `${e.id}:del` && setArmed(null)}
+                    className={`rounded-full px-3 py-1.5 text-[12px] transition ${
+                      armed === `${e.id}:del`
+                        ? "bg-red-500/15 text-red-200"
+                        : "text-muted/40 hover:text-red-400/80"
+                    }`}
                   >
-                    Delete
+                    {armed === `${e.id}:del` ? "Sure? The link dies" : "Delete"}
                   </button>
                 </div>
               </div>

@@ -93,6 +93,37 @@ export default function HomeClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /**
+   * ONE GRAMMAR FOR AN IRREVERSIBLE TAP (2026-08-04, the user: interactions
+   * "are not consistent… the user does not need to relearn").
+   *
+   * Deleting a loop inside the arrange surface armed itself in place — tap ✕,
+   * the button says "sure?", tap again — while deleting the SAME loop from
+   * its card threw a system dialog, which is a different object, a different
+   * place on screen, and a different set of words the app doesn't own. The
+   * armed two-step is the house pattern (ArrangeSurface, the share link, the
+   * set's end), so it is the pattern here too: the tap arms, the button says
+   * what the second tap will do, and three seconds of not-touching disarms it.
+   * Nothing irreversible ever happens on one tap.
+   */
+  const [armed, setArmed] = useState<string | null>(null);
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isArmed = (id: string) => armed === id;
+  const arm = (id: string) => {
+    setArmed(id);
+    if (armTimer.current) clearTimeout(armTimer.current);
+    armTimer.current = setTimeout(() => setArmed(null), 3000);
+  };
+  const disarm = () => {
+    setArmed(null);
+    if (armTimer.current) clearTimeout(armTimer.current);
+  };
+  useEffect(
+    () => () => {
+      if (armTimer.current) clearTimeout(armTimer.current);
+    },
+    [],
+  );
   // HOME PLAYBACK — hear the WHOLE SONG right here: every ready loop and its breaks, in
   // order, sequenced by the same playSong() the song page uses (one small request, cached),
   // VISUALS INCLUDED — pressing play puts the song's own backdrop behind the page, and the
@@ -300,16 +331,11 @@ export default function HomeClient({
     router.refresh();
   }
 
-  // Bulk delete the selection (irreversible → confirm).
+  // Bulk delete the selection — ARMED, never a system dialog (see `armed`).
   async function deleteSelected() {
     const ids = [...selected];
     if (ids.length === 0 || deleting) return;
-    if (
-      !confirm(
-        `Delete ${ids.length} hit${ids.length === 1 ? "" : "s"}? This can’t be undone.`,
-      )
-    )
-      return;
+    if (!isArmed("bulk")) return void arm("bulk");
     setDeleting(true);
     setError(null);
     // ONE request for the whole selection — the server deletes them in a single
@@ -371,9 +397,9 @@ export default function HomeClient({
       return false;
     }
   }
-  async function onDelete(id: string, title: string) {
+  async function onDelete(id: string) {
     if (busy || deleting) return;
-    if (!confirm(`Delete “${title}”? This can’t be undone.`)) return;
+    if (!isArmed(id)) return void arm(id);
     setDeleting(true);
     setError(null);
     if (!(await del(id))) setError("Couldn’t delete that hit.");
@@ -881,13 +907,18 @@ export default function HomeClient({
                       in bulk from the bar, so mobile never shows it unprompted. */}
                   {!selectMode && (
                     <button
-                      onClick={() => onDelete(s.id, s.title)}
+                      onClick={() => onDelete(s.id)}
+                      onBlur={() => isArmed(s.id) && disarm()}
                       disabled={busy || deleting}
-                      title="Delete hit"
-                      aria-label={`Delete ${s.title}`}
-                      className="absolute right-3.5 top-4 hidden h-7 w-7 items-center justify-center rounded-full text-muted opacity-0 transition hover:bg-white/[0.06] hover:text-red-400 disabled:opacity-30 sm:flex sm:group-hover:opacity-100"
+                      title={isArmed(s.id) ? "Tap again to delete" : "Delete hit"}
+                      aria-label={isArmed(s.id) ? `Delete ${s.title} — tap again` : `Delete ${s.title}`}
+                      className={`absolute right-3.5 top-4 hidden items-center justify-center rounded-full transition disabled:opacity-30 sm:flex ${
+                        isArmed(s.id)
+                          ? "h-7 px-2.5 bg-red-500/15 text-red-300 opacity-100 text-[11.5px] font-medium leading-none"
+                          : "h-7 w-7 text-muted opacity-0 hover:bg-white/[0.06] hover:text-red-400 sm:group-hover:opacity-100"
+                      }`}
                     >
-                      ✕
+                      {isArmed(s.id) ? "sure?" : "✕"}
                     </button>
                   )}
                 </div>
@@ -958,12 +989,24 @@ export default function HomeClient({
             <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-white/[0.08]" />
             <button
               onClick={deleteSelected}
+              onBlur={() => isArmed("bulk") && disarm()}
               disabled={deleting}
-              title="Delete the selected loops"
-              aria-label="Delete selected"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-rose-300/70 transition hover:bg-rose-500/10 hover:text-rose-300 active:scale-95 disabled:opacity-40"
+              title={
+                isArmed("bulk")
+                  ? `Tap again to delete ${selected.size} hit${selected.size === 1 ? "" : "s"}`
+                  : "Delete the selected loops"
+              }
+              aria-label={isArmed("bulk") ? "Confirm delete selected" : "Delete selected"}
+              className={`flex h-9 shrink-0 items-center justify-center rounded-full transition active:scale-95 disabled:opacity-40 ${
+                isArmed("bulk")
+                  ? "gap-1.5 bg-rose-500/15 px-3 text-[12px] font-medium leading-none text-rose-200"
+                  : "w-9 text-rose-300/70 hover:bg-rose-500/10 hover:text-rose-300"
+              }`}
             >
-              {deleting ? (
+              {/* the second tap is the one that deletes — the button says so */}
+              {isArmed("bulk") && !deleting ? (
+                `Delete ${selected.size}?`
+              ) : deleting ? (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden className="animate-spin">
                   <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.3" strokeWidth="3" />
                   <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
