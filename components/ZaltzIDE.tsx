@@ -940,6 +940,13 @@ export default function ZaltzIDE({
   };
   const transportRef = useRef(transport);
   transportRef.current = transport;
+  // The room-wide chords reach things declared much further down (the
+  // conversation, the pane with the hands) — these carry them up here without
+  // re-binding the listener on every render.
+  const openChatRef = useRef<(pane: PaneId, sel: { text: string } | null) => void>(
+    () => {},
+  );
+  const focusedPaneRef = useRef<PaneId>("strudel");
 
 
   // ⌘. stops from anywhere (not just inside a pane); Esc closes whatever's
@@ -955,6 +962,20 @@ export default function ZaltzIDE({
         e.preventDefault();
         // (Escape is not handled here — the app-wide dismiss law closes the
         // INNERMOST open thing, so a menu opened over a sheet goes first.)
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        // ⌘K FROM ANYWHERE IN THE ROOM (2026-08-04c). It lived only inside
+        // CodePane, so the room's headline chord answered while the caret was
+        // in a pane and went dead the moment a hand had touched the header, the
+        // desk, or the composer — the same key meaning "nothing" depending on
+        // where you last clicked. The pane keeps its own handler (it has the
+        // selection right there, and hands it over as a quote); this one covers
+        // everywhere else, exactly the way SPACE already does.
+        const el = document.activeElement as HTMLElement | null;
+        const inPane = !!el?.classList?.contains("code-input");
+        if (!inPane) {
+          e.preventDefault();
+          openChatRef.current(focusedPaneRef.current, null);
+        }
       } else if (e.key === " " || e.code === "Space") {
         // SPACE = the transport (user 07-27) — the player's oldest key. Never
         // while typing (space is a character there), and preventDefault stops
@@ -2995,6 +3016,10 @@ export default function ZaltzIDE({
     sel: string;
     text: string | null; // null = reading
   } | null>(null);
+  // Escape puts the lesson away too — its ✕ was the only door, and in a room
+  // where that key closes the crate, the sheet and the show, one capsule that
+  // ignores it is the odd one out.
+  useDismiss(!!lesson, () => setLesson(null));
   const explainSel = async (pane: PaneId, sel: string) => {
     if (spent) return setSheet("tokens");
     setLesson({ sel, text: null });
@@ -3074,6 +3099,17 @@ export default function ZaltzIDE({
    *  way (the machine reads both, always). */
   const openChat = useCallback(
     (pane: PaneId, sel: { text: string } | null) => {
+      // ⌘K WITH NOTHING SELECTED IS THE PANEL'S SWITCH (2026-08-04c). The chord
+      // only ever opened, so pressing it on an open panel did nothing you could
+      // see — and the door itself is hidden while the panel is up (doors hide,
+      // state never does), which left Esc and the ✕ as the only ways back from
+      // the key that brought you here. A selection still always OPENS: you
+      // picked something and asked for it, so re-pressing with a span in hand
+      // re-seeds the quote rather than throwing the panel away.
+      if (!sel?.text && chatOpen) {
+        setChatOpen(false);
+        return;
+      }
       if (spent) return setSheet("tokens");
       // A fresh object every time, even with nothing selected: the panel takes
       // it as "the hands are coming here now" and puts the caret in the
@@ -3086,8 +3122,12 @@ export default function ZaltzIDE({
       // park a dismiss-layer over the panel you just summoned.)
       setLineupOpen(false);
     },
-    [spent],
+    [spent, chatOpen],
   );
+  useEffect(() => {
+    openChatRef.current = openChat;
+    focusedPaneRef.current = focusedPane;
+  }, [openChat, focusedPane]);
   /** WHICH LINES THE MACHINE JUST WROTE, per pane. A whole-pane rewrite lands
    *  invisibly — a two-character change inside forty lines is a change you did
    *  not see yourself make — so the pane beds those lines in faint accent until
@@ -3897,23 +3937,32 @@ export default function ZaltzIDE({
              which is a rumour of a button, not a button. Now it wears the
              room's own glass: a machined circle with a rim, an inset crown and
              a real hit area, so it reads on any frame the hydra throws. */
-          /* THE CHAT OWNS THIS CORNER WHILE IT IS OPEN. Its composer lands on
-             exactly this spot at every width (a sheet on the bottom edge, a
-             column on the right), and two glass objects on one corner is a
-             pile, not a room — the send button was measurably ON TOP of this
-             one. Nothing is lost: the show hides every panel including the
-             chat, so you were never going to enter it mid-sentence. */
-          className={`ide-live group fixed z-[19] h-11 w-11 place-items-center rounded-full border backdrop-blur-2xl backdrop-saturate-[1.6] transition active:scale-[.94] ${
-            chatOpen ? "hidden" : "grid"
+          /* THE CHAT OWNS THIS CORNER — SO THE DOOR MOVES, IT DOES NOT VANISH
+             (2026-08-04c). The composer lands on exactly this spot and two glass
+             objects on one corner is a pile, not a room (the send button was
+             measurably ON TOP of this one), so the door was simply hidden while
+             the panel was up. But the panel now DEFAULTS OPEN on a wide desk
+             (07-28, "furniture, not a mode") — which quietly meant a fresh
+             desktop visit had no way into the show at all. A headline door that
+             a default setting deletes is the same fault as a pill that will not
+             close: the control is not where the hand expects it.
+             So: at lg the conversation is a real COLUMN, and the door steps left
+             of it — still the far corner of the picture it opens, just the
+             picture that is actually there. Below lg the panel is a sheet across
+             the whole bottom edge and there is genuinely no corner to stand in;
+             the sheet's own ✕ gives it back. And in the SHOW it always returns:
+             every panel is dimmed away on stage, so nothing is left to pile on —
+             and a phone in the show has no Esc and no browser chrome to escape
+             from, so hiding its one way out is how a room locks its own exit. */
+          className={`ide-live group fixed z-[19] h-11 w-11 place-items-center rounded-full border backdrop-blur-2xl backdrop-saturate-[1.6] transition active:scale-[.94] bottom-[max(0.75rem,env(safe-area-inset-bottom))] ${
+            chatOpen && !show
+              ? "hidden lg:grid lg:right-[25.25rem]"
+              : "grid right-[max(0.75rem,env(safe-area-inset-right))]"
           } ${
             show
               ? "border-accent/40 bg-accent/[0.14] text-accent-strong shadow-[0_0_34px_-8px_rgba(224,49,156,.75),inset_0_1px_0_rgba(255,255,255,.14)]"
               : "border-white/[0.16] bg-black/45 text-foreground/80 shadow-[0_6px_22px_-8px_rgba(0,0,0,.75),inset_0_1px_0_rgba(255,255,255,.11)] hover:border-white/[0.26] hover:bg-black/60 hover:text-foreground"
           }`}
-          style={{
-            right: "max(0.75rem, env(safe-area-inset-right))",
-            bottom: "max(0.75rem, env(safe-area-inset-bottom))",
-          }}
         >
           <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" fill="none"
             stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -3984,6 +4033,7 @@ export default function ZaltzIDE({
               setDiscardArmed(false);
               setTakeFolded(false);
             }}
+            aria-expanded={false}
             title="The grains — pour them back out"
             className="flex items-center gap-1.5 py-1.5 pl-3 pr-2.5 text-[11.5px] text-muted/70 transition hover:bg-white/[0.05] hover:text-accent-strong active:scale-[.97]"
           >
@@ -4030,6 +4080,7 @@ export default function ZaltzIDE({
               <button
                 onClick={() => setTakeFolded(true)}
                 className="-m-1.5 p-1.5 text-[13px] text-muted/60 transition hover:text-foreground active:scale-[.92]"
+                aria-expanded={true}
                 aria-label="Put the grains away"
                 title="Put them away — they wait in the corner"
               >
@@ -4108,7 +4159,6 @@ export default function ZaltzIDE({
             verb. Esc stays as the keyboard's word for the same exit. */}
         <ZaltzMixer
           open={mixerOpen}
-          onToggle={() => (show ? exitShow() : enterShow())}
           tab={mixerTab}
           onTab={setMixerTab}
           playing={playing}

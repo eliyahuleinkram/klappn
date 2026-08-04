@@ -499,6 +499,7 @@ function Seam({
         <span className="h-px flex-1 bg-white/[0.07]" />
         <button
           onClick={onToggle}
+          aria-expanded={false}
           title={`${move.word} — ${move.hint}`}
           className={`flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] leading-none transition ${
             armed

@@ -167,7 +167,6 @@ function HoldPad({
 
 export default function ZaltzMixer({
   open,
-  onToggle,
   tab,
   onTab,
   playing,
@@ -213,7 +212,9 @@ export default function ZaltzMixer({
   micDotRef,
 }: {
   open: boolean;
-  onToggle: () => void;
+  /* (No `onToggle` — the salt-shaker FAB that carried it was deleted
+     2026-07-29d and the prop rode on as dead weight. The desk is opened by the
+     show and folded by its own grabber; nothing else opens it.) */
   tab: MixerTab;
   onTab: (t: MixerTab) => void;
   playing: boolean;
@@ -303,6 +304,7 @@ export default function ZaltzMixer({
         <button
           onClick={() => setFolded(false)}
           aria-label="Raise the desk"
+          aria-expanded={false}
           title="Raise the desk"
           className="desk-pour fixed z-20 flex h-7 w-28 items-center justify-center rounded-full border border-white/[0.14] bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,.09)] backdrop-blur-xl backdrop-saturate-[1.6] transition hover:bg-black/50 active:scale-[.96]"
           style={{
@@ -335,6 +337,7 @@ export default function ZaltzMixer({
           <button
             onClick={() => setFolded(true)}
             aria-label="Fold the desk"
+            aria-expanded={true}
             title="Fold the desk — the picture stays"
             className="group mb-1 flex w-full items-center justify-center py-1.5"
           >
@@ -343,7 +346,7 @@ export default function ZaltzMixer({
           {/* ONE segmented capsule — equal slices of the same machined
               control, not loose pills. MIDI earns its slice only where the
               browser can actually speak it. */}
-          <div className="mb-3.5 flex rounded-full bg-white/[0.04] p-1">
+          <div role="tablist" className="mb-3.5 flex rounded-full bg-white/[0.04] p-1">
             {([
               "music",
               "light",
@@ -352,6 +355,8 @@ export default function ZaltzMixer({
             ] as MixerTab[]).map((t) => (
               <button
                 key={t}
+                role="tab"
+                aria-selected={tab === t}
                 onClick={() => onTab(t)}
                 className={`flex-1 rounded-full px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.18em] transition active:scale-[.98] ${
                   tab === t
