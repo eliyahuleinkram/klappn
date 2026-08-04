@@ -3972,11 +3972,33 @@ export default function SongClient({
                   )}
                 </div>
               )}
-              {/* THE THREE THAT LEFT THE MENU (2026-08-04, the user). Each is
-                  its own verb, so each is its own button — and only one of
-                  them costs anything (the picture), which the sheet says
-                  before it spends. Disabled rather than hidden: a control that
-                  vanishes teaches nothing (a visitor sees why on hover/title). */}
+              {/* THE TWO THAT LEFT THE MENU ARE WORDS (2026-08-04). Arrange
+                  was a labelled pill before it was ever a glyph — it toggles
+                  into "Done", a state no mark can say — and Visuals is the
+                  song's look, not a verb anyone has a symbol for. The row
+                  reads words-then-glyphs: what this song IS, then the four
+                  things every app means by those marks. */}
+              {!arrange && (
+                <WordBtn
+                  onClick={() => setArrange(true)}
+                  title="Move loops by hand — order, repeats, deletes (no AI)"
+                >
+                  Arrange
+                </WordBtn>
+              )}
+              {!visiting && !arrange && (
+                <WordBtn
+                  onClick={() => setVisualsOpen(true)}
+                  active={visualsOpen}
+                  disabled={playableCount === 0}
+                  title="One living look across the whole piece"
+                >
+                  Visuals
+                </WordBtn>
+              )}
+              {/* ✎ — a pencil IS universal, and the field it opens says what
+                  it reaches ("The whole song"), so the glyph carries no
+                  product concept of its own. */}
               {!visiting && (
                 <IconBtn
                   onClick={() => setSongEdit(true)}
@@ -3985,21 +4007,6 @@ export default function SongClient({
                   title="Say a change — the whole song at once"
                 >
                   <EditSongIcon />
-                </IconBtn>
-              )}
-              <IconBtn
-                onClick={() => setArrange(true)}
-                title="Move loops by hand — order, repeats, deletes (no AI)"
-              >
-                <ArrangeHandIcon />
-              </IconBtn>
-              {!visiting && (
-                <IconBtn
-                  onClick={() => setVisualsOpen(true)}
-                  disabled={playableCount === 0}
-                  title="Visuals — one living look across the piece"
-                >
-                  <VisualsIcon />
                 </IconBtn>
               )}
               {anyHydra && (
@@ -4917,6 +4924,39 @@ function MenuRow({
   );
 }
 
+/** A WORD in the corner — the same object as "Shape", for the things that are
+ *  product concepts rather than universal verbs (the house law, 07-05). Same
+ *  height and rhythm as IconBtn so words and glyphs sit on one line. */
+function WordBtn({
+  onClick,
+  title,
+  active,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  title: string;
+  active?: boolean;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`flex h-8 items-center rounded-full px-3 text-[12.5px] font-medium leading-none transition duration-200 active:scale-95 disabled:opacity-40 ${
+        active
+          ? "bg-accent/12 text-accent"
+          : "text-muted/80 hover:bg-white/[0.06] hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function IconBtn({
   onClick,
   title,
@@ -4971,28 +5011,12 @@ function ExpandIcon() {
   );
 }
 
-// the song's picture — one living look across the piece (its own button since
-// 2026-08-04: a look is not a shape, so it left the Shape menu)
-function VisualsIcon() {
-  return (
-    <svg {...iconProps}>
-      <circle cx="12" cy="12" r="8.5" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-// move loops by hand — the drag surface (zero AI, so it never sits in Shape)
-function ArrangeHandIcon() {
-  return (
-    <svg {...iconProps}>
-      <path d="M4 7h11" />
-      <path d="M4 17h11" />
-      <path d="M18 4l3 3-3 3" />
-      <path d="M18 14l3 3-3 3" />
-    </svg>
-  );
-}
+// (No glyphs for Arrange or Visuals — 2026-08-04. Both are PRODUCT CONCEPTS,
+// and the house law is the user's own from 07-05, when the ⇅ arrange icon was
+// removed as "confusing… must be frictionless": a product concept gets a WORD,
+// only universal verbs get glyphs. Drawing them as marks put two invented
+// symbols in a row of four self-evident ones — and invented symbols are
+// exactly what a first-time hand cannot read. They are words now.)
 
 // say a change in words — the whole song at once
 function EditSongIcon() {
