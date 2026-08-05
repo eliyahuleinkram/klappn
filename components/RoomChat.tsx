@@ -320,6 +320,9 @@ export default function RoomChat({
 
   // Escape closes the panel whether or not the field still holds the caret.
   useDismiss(open, onClose);
+  // A thumb, not a keyboard — the hints have to say so (the house copy law).
+  const coarse =
+    typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 
   if (!open) return null;
 
@@ -361,7 +364,9 @@ export default function RoomChat({
         <button
           onClick={onClose}
           aria-label="Close the chat"
-          title="Close (⌘K reopens)"
+          /* a phone has no ⌘K — there the way back in is the chat pill, and
+             naming a chord that isn't there is worse than naming nothing */
+          title={coarse ? "Close" : "Close (⌘K reopens)"}
           className="-mr-1 grid h-7 w-7 place-items-center rounded-full text-[12px] text-muted/50 transition hover:bg-white/[0.07] hover:text-foreground active:scale-[.92]"
         >
           ✕

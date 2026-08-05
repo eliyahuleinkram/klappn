@@ -3927,9 +3927,15 @@ export default function ZaltzIDE({
         <button
           onClick={() => (show ? exitShow() : enterShow())}
           aria-expanded={show}
+          /* The hint reads the hand that holds it (the house copy law): a
+             phone has no Esc — and a touch show never enters browser
+             fullscreen either, so there is no system chrome to escape from.
+             Naming a key that isn't there is how a door looks locked. */
           title={
             show
-              ? "Leave the show — back to the bench (Esc)"
+              ? touch
+                ? "Leave the show — back to the bench"
+                : "Leave the show — back to the bench (Esc)"
               : "The show — the picture full-on, the desk in hand"
           }
           /* A CONTROL YOU CAN SEE (2026-07-30, the user: "barely visible").

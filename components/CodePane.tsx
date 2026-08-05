@@ -835,7 +835,7 @@ const CodePane = forwardRef<
             <button
               key={h.at}
               aria-label="Silence or wake this layer"
-              title="Silence this layer (⌘/)"
+              title={coarse ? "Silence this layer" : "Silence this layer (⌘/)"}
               onPointerDown={(e) => {
                 e.preventDefault(); // keep focus + selection; never blur the pane
                 const ta = taRef.current;

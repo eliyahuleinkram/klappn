@@ -2991,7 +2991,8 @@ export default function SetClient({
             <button
               onClick={() => setPerformMode(false)}
               aria-label="Leave the stage"
-              title="Leave the stage (Esc)"
+              /* the hint reads the hand that holds it — a phone has no Esc */
+              title={isMobile ? "Leave the stage" : "Leave the stage (Esc)"}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-black/30 text-[13px] text-foreground/70 backdrop-blur-md transition hover:bg-black/50 hover:text-foreground"
             >
               ✕
