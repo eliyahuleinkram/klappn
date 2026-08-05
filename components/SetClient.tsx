@@ -1493,35 +1493,44 @@ export default function SetClient({
     void persistEntries(next);
   }
 
-  /* PULLING A SONG OUT ASKS FIRST (2026-08-04c) — the same two-step the loop
-     cards use in the song's own arrange surface. It is not just a row: the
-     hand-off composed INTO it goes with it (transitions are pair-specific and
-     get pruned), so a mis-tap on a hover-revealed ✕ costs an AI call to undo.
-     Keyed by entry id, not index — a re-order under an armed question must
-     never re-point it at a different song. */
-  const [rmArmed, setRmArmed] = useState<string | null>(null);
-  const rmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const armRemove = (id: string) => {
-    setRmArmed(id);
-    if (rmTimer.current) clearTimeout(rmTimer.current);
-    rmTimer.current = setTimeout(() => setRmArmed(null), 3000);
+  /* THE ARRANGEMENT'S TWO IRREVERSIBLE TAPS, ONE GRAMMAR (2026-08-04c).
+     Pulling a song out takes the hand-off composed INTO it with it
+     (transitions are pair-specific and get pruned); cutting a hand-off throws
+     away a written take. Both cost an AI call to undo, both are hover-revealed
+     ✕ marks a hand can hit by accident, so both ask first.
+     ONE armed slot, keyed `${verb}:${id}` (the house rule for a list that
+     shares one) — arming a second question always retires the first, so two
+     "sure?"s can never sit open at once. Keyed by ENTRY ID, never index: a
+     re-order under an open question must not re-point it at another song. */
+  const [armed, setArmed] = useState<string | null>(null);
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const arm = (key: string) => {
+    setArmed(key);
+    if (armTimer.current) clearTimeout(armTimer.current);
+    armTimer.current = setTimeout(() => setArmed(null), 3000);
   };
-  const disarmRemove = () => {
-    setRmArmed(null);
-    if (rmTimer.current) clearTimeout(rmTimer.current);
+  const disarm = () => {
+    setArmed(null);
+    if (armTimer.current) clearTimeout(armTimer.current);
   };
   useEffect(
     () => () => {
-      if (rmTimer.current) clearTimeout(rmTimer.current);
+      if (armTimer.current) clearTimeout(armTimer.current);
     },
     [],
   );
   function removeEntry(i: number) {
     const id = entries[i]?.id;
     if (!id) return;
-    if (rmArmed !== id) return armRemove(id);
-    disarmRemove();
+    if (armed !== `rm:${id}`) return arm(`rm:${id}`);
+    disarm();
     void persistEntries(entries.filter((_, x) => x !== i));
+  }
+  /** Cut the hand-off at this seam — the songs meet hard. Asks once first. */
+  function cutTransition(id: string) {
+    if (armed !== `cut:${id}`) return arm(`cut:${id}`);
+    disarm();
+    void clearTransition(id);
   }
 
   async function saveTitle() {
@@ -2502,24 +2511,24 @@ export default function SetClient({
                   </button>
                   <button
                     onClick={() => removeEntry(i)}
-                    onBlur={() => rmArmed === e.id && disarmRemove()}
+                    onBlur={() => armed === `rm:${e.id}` && disarm()}
                     title={
-                      rmArmed === e.id
+                      armed === `rm:${e.id}`
                         ? "Tap again — it leaves the set"
                         : "Remove from set"
                     }
                     aria-label={
-                      rmArmed === e.id
+                      armed === `rm:${e.id}`
                         ? "Remove from set — tap again"
                         : "Remove from set"
                     }
                     className={`flex h-8 items-center justify-center rounded-full leading-none transition ${
-                      rmArmed === e.id
+                      armed === `rm:${e.id}`
                         ? "bg-red-500/15 px-2.5 text-[11.5px] font-medium text-red-300"
                         : "w-7 text-[12px] text-muted hover:bg-white/[0.07] hover:text-rose-300 sm:w-8"
                     }`}
                   >
-                    {rmArmed === e.id ? "sure?" : "✕"}
+                    {armed === `rm:${e.id}` ? "sure?" : "✕"}
                   </button>
                 </div>
                 </div>
@@ -2559,7 +2568,18 @@ export default function SetClient({
                         style={{ boxShadow: "0 0 8px rgba(255,99,193,0.8)" }}
                       />
                       {sentenceLabel(worn.label)}
-                      <span className="flex items-center transition sm:opacity-0 sm:group-hover/t:opacity-100">
+                      {/* AN OPEN QUESTION CANNOT HIDE (2026-08-04c): these
+                          marks only appear under the pointer, so while one is
+                          armed the cluster is pinned visible — a "sure?" that
+                          vanishes when the hand drifts is worse than no
+                          question at all. */}
+                      <span
+                        className={`flex items-center transition ${
+                          armed === `cut:${e.id}`
+                            ? "opacity-100"
+                            : "sm:opacity-0 sm:group-hover/t:opacity-100"
+                        }`}
+                      >
                         <button
                           onClick={() => void composeTransition(e.id, true)}
                           disabled={busy}
@@ -2569,11 +2589,25 @@ export default function SetClient({
                           {busy ? "…" : "↻"}
                         </button>
                         <button
-                          onClick={() => void clearTransition(e.id)}
-                          title="Remove (hard cut)"
-                          className="flex h-6 w-6 items-center justify-center rounded-full text-muted transition hover:bg-white/[0.08] hover:text-foreground"
+                          onClick={() => cutTransition(e.id)}
+                          onBlur={() => armed === `cut:${e.id}` && disarm()}
+                          title={
+                            armed === `cut:${e.id}`
+                              ? "Tap again — the songs meet hard"
+                              : "Remove (hard cut)"
+                          }
+                          aria-label={
+                            armed === `cut:${e.id}`
+                              ? "Remove the hand-off — tap again"
+                              : "Remove the hand-off"
+                          }
+                          className={`flex h-6 items-center justify-center rounded-full leading-none transition ${
+                            armed === `cut:${e.id}`
+                              ? "bg-red-500/15 px-2 text-[10.5px] font-medium text-red-300"
+                              : "w-6 text-muted hover:bg-white/[0.08] hover:text-foreground"
+                          }`}
                         >
-                          ✕
+                          {armed === `cut:${e.id}` ? "sure?" : "✕"}
                         </button>
                       </span>
                     </span>

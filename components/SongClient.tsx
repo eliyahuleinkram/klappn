@@ -702,12 +702,36 @@ export default function SongClient({
   // The seam's ONE button, opened — holds prev.id of the gap whose choices show.
   const [gapOpen, setGapOpen] = useState<string | null>(null);
   const [breakBusy, setBreakBusy] = useState<string | null>(null);
+  /* REMOVING A BREAK ASKS FIRST (2026-08-04c, the user, on the set page's twin).
+     The ✕ throws away a written take — a real AI call to get back — and it sits
+     8px from the ↻ that rewrites one and the segments that play them. Tap once
+     and the mark becomes the question; three seconds of not touching it, or the
+     panel closing, puts it away (a re-opened seam must never greet you
+     mid-question). */
+  const [breakCutArmed, setBreakCutArmed] = useState<string | null>(null);
+  const breakCutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armBreakCut = (id: string) => {
+    setBreakCutArmed(id);
+    if (breakCutTimer.current) clearTimeout(breakCutTimer.current);
+    breakCutTimer.current = setTimeout(() => setBreakCutArmed(null), 3000);
+  };
+  const disarmBreakCut = () => {
+    setBreakCutArmed(null);
+    if (breakCutTimer.current) clearTimeout(breakCutTimer.current);
+  };
+  useEffect(
+    () => () => {
+      if (breakCutTimer.current) clearTimeout(breakCutTimer.current);
+    },
+    [],
+  );
 
   // Open a gap's break picker — composing ITS break first if this gap has never had
   // one (once per gap; it auto-applies the moment it lands; ↻ replaces it). A break
   // is a regenerate-only object — it can't be steered with words (removed 2026-07-13).
   async function openBreaks(prevPart: Part, regenerate = false, prompt?: string) {
     setError(null);
+    disarmBreakCut(); // a re-opened seam never greets you mid-question
     // The seam's own capsule steps ASIDE for this one — the break panel is
     // where that tap led, not a second card stacked on the first, so one tap
     // outside puts the whole seam back to quiet.
@@ -1422,7 +1446,12 @@ export default function SongClient({
       );
       return (
         <>
-          <Scrim onClose={() => setBreakOpen(null)} />
+          <Scrim
+            onClose={() => {
+              disarmBreakCut(); // the question closes with the panel
+              setBreakOpen(null);
+            }}
+          />
           <div className="animate-fade-in relative z-20">
             <div className="relative flex items-center justify-center">
               {/* the thread IS the play state: while a break sounds, a one-bar
@@ -1513,17 +1542,36 @@ export default function SongClient({
                     </button>
                     <button
                       onClick={() => {
+                        if (breakCutArmed !== prev.id) return armBreakCut(prev.id);
+                        disarmBreakCut();
                         chooseBreak(prev.id, null);
                         setHold(`break:${prev.id}`, undefined);
                         setBreakOpen(null);
                       }}
-                      title="No break — the loops meet directly"
-                      aria-label="Remove the break"
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted/55 transition hover:bg-white/[0.06] hover:text-foreground active:scale-95"
+                      onBlur={() => breakCutArmed === prev.id && disarmBreakCut()}
+                      title={
+                        breakCutArmed === prev.id
+                          ? "Tap again — the loops will meet directly"
+                          : "No break — the loops meet directly"
+                      }
+                      aria-label={
+                        breakCutArmed === prev.id
+                          ? "Remove the break — tap again"
+                          : "Remove the break"
+                      }
+                      className={`flex h-8 shrink-0 items-center justify-center rounded-full leading-none transition active:scale-95 ${
+                        breakCutArmed === prev.id
+                          ? "bg-red-500/15 px-2.5 text-[11px] font-medium text-red-300"
+                          : "w-8 text-muted/55 hover:bg-white/[0.06] hover:text-foreground"
+                      }`}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
-                        <path d="M6 6l12 12M18 6L6 18" />
-                      </svg>
+                      {breakCutArmed === prev.id ? (
+                        "sure?"
+                      ) : (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+                          <path d="M6 6l12 12M18 6L6 18" />
+                        </svg>
+                      )}
                     </button>
                   </div>
                 )}
