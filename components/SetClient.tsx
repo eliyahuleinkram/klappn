@@ -750,6 +750,13 @@ export default function SetClient({
   );
   const [title, setTitle] = useState(initialSet.title);
   const [editingTitle, setEditingTitle] = useState(false);
+  /* A RENAME YOU CAN BACK OUT OF (2026-08-04c) — the song page's own pattern.
+     This field wrote straight into the title, so Escape did nothing and there
+     was nothing to go back TO: half a new name typed and second thoughts left
+     you re-typing the old one from memory (and a blur would have saved the
+     mangled one). The draft is what you type; the title only changes when you
+     say so. */
+  const [titleDraft, setTitleDraft] = useState(initialSet.title);
   const [entries, setEntries] = useState<SetEntry[]>(plan.entries ?? []);
   const [transitions, setTransitions] = useState<Record<string, SetTransition>>(
     plan.transitions ?? {},
@@ -1486,14 +1493,42 @@ export default function SetClient({
     void persistEntries(next);
   }
 
+  /* PULLING A SONG OUT ASKS FIRST (2026-08-04c) — the same two-step the loop
+     cards use in the song's own arrange surface. It is not just a row: the
+     hand-off composed INTO it goes with it (transitions are pair-specific and
+     get pruned), so a mis-tap on a hover-revealed ✕ costs an AI call to undo.
+     Keyed by entry id, not index — a re-order under an armed question must
+     never re-point it at a different song. */
+  const [rmArmed, setRmArmed] = useState<string | null>(null);
+  const rmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armRemove = (id: string) => {
+    setRmArmed(id);
+    if (rmTimer.current) clearTimeout(rmTimer.current);
+    rmTimer.current = setTimeout(() => setRmArmed(null), 3000);
+  };
+  const disarmRemove = () => {
+    setRmArmed(null);
+    if (rmTimer.current) clearTimeout(rmTimer.current);
+  };
+  useEffect(
+    () => () => {
+      if (rmTimer.current) clearTimeout(rmTimer.current);
+    },
+    [],
+  );
   function removeEntry(i: number) {
+    const id = entries[i]?.id;
+    if (!id) return;
+    if (rmArmed !== id) return armRemove(id);
+    disarmRemove();
     void persistEntries(entries.filter((_, x) => x !== i));
   }
 
   async function saveTitle() {
     setEditingTitle(false);
-    const t = title.trim() || "untitled set";
+    const t = titleDraft.trim() || "untitled set";
     setTitle(t);
+    setTitleDraft(t);
     await fetch(`/api/sets/${setId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -2267,15 +2302,26 @@ export default function SetClient({
         {editingTitle ? (
           <input
             autoFocus
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={saveTitle}
-            onKeyDown={(e) => e.key === "Enter" && saveTitle()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveTitle();
+              if (e.key === "Escape") {
+                e.preventDefault(); // the field's own Escape, not the room's
+                setTitleDraft(title);
+                setEditingTitle(false);
+              }
+            }}
+            maxLength={80}
             className="wordmark w-full bg-transparent text-[36px] leading-tight tracking-tight text-foreground outline-none sm:text-[46px]"
           />
         ) : (
           <h1
-            onClick={() => setEditingTitle(true)}
+            onClick={() => {
+              setTitleDraft(title);
+              setEditingTitle(true);
+            }}
             className="wordmark text-gradient text-glow cursor-text text-[36px] leading-tight tracking-tight sm:text-[46px]"
             title="Rename set"
           >
@@ -2318,20 +2364,35 @@ export default function SetClient({
         >
           + Add songs
         </button>
-        {entries.length >= 2 && (
-          <button
-            onClick={() => void onArrange()}
-            disabled={arranging}
-            title="Let the AI order the songs into one flowing night"
-            className="rounded-full border border-white/[0.1] bg-white/[0.03] px-5 py-3 text-[14px] font-medium text-foreground/80 transition hover:border-accent/40 hover:bg-white/[0.06] hover:text-accent-strong active:scale-[.98] disabled:opacity-60"
-          >
-            {arranging ? (
-              <span className="shimmer-text">hearing the flow</span>
-            ) : (
-              "Arrange"
-            )}
-          </button>
-        )}
+        {/* IT SPENDS, SO IT WEARS THE ORB — and it stays where it is
+            (2026-08-04c, the two house laws this row was missing). The button
+            appeared only once a second song landed, so the one control that
+            shapes the night blinked into existence beside the two that never
+            move; now it is always in the row and simply says when it can't run
+            yet. And the gradient dot is how every AI-spending control in the
+            app announces itself before the tap. */}
+        <button
+          onClick={() => void onArrange()}
+          disabled={arranging || entries.length < 2}
+          title={
+            entries.length < 2
+              ? "Arrange — once there are two songs to order"
+              : "Let the AI order the songs into one flowing night"
+          }
+          className="flex items-center gap-2 rounded-full border border-white/[0.1] bg-white/[0.03] px-5 py-3 text-[14px] font-medium text-foreground/80 transition hover:border-accent/40 hover:bg-white/[0.06] hover:text-accent-strong active:scale-[.98] disabled:cursor-default disabled:opacity-40 disabled:hover:border-white/[0.1] disabled:hover:bg-white/[0.03] disabled:hover:text-foreground/80"
+        >
+          {arranging ? (
+            <span className="shimmer-text">hearing the flow</span>
+          ) : (
+            <>
+              <span
+                aria-hidden
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-gradient-to-br from-[#ff63c1] via-accent to-[#b3126f] shadow-[0_0_8px_rgba(224,49,156,.85)]"
+              />
+              Arrange
+            </>
+          )}
+        </button>
       </div>
 
       {/* the arrangement — one continuous thread from the first song to the last */}
@@ -2441,10 +2502,24 @@ export default function SetClient({
                   </button>
                   <button
                     onClick={() => removeEntry(i)}
-                    aria-label="Remove from set"
-                    className="flex h-8 w-7 items-center justify-center rounded-full text-[12px] text-muted transition hover:bg-white/[0.07] hover:text-rose-300 sm:w-8"
+                    onBlur={() => rmArmed === e.id && disarmRemove()}
+                    title={
+                      rmArmed === e.id
+                        ? "Tap again — it leaves the set"
+                        : "Remove from set"
+                    }
+                    aria-label={
+                      rmArmed === e.id
+                        ? "Remove from set — tap again"
+                        : "Remove from set"
+                    }
+                    className={`flex h-8 items-center justify-center rounded-full leading-none transition ${
+                      rmArmed === e.id
+                        ? "bg-red-500/15 px-2.5 text-[11.5px] font-medium text-red-300"
+                        : "w-7 text-[12px] text-muted hover:bg-white/[0.07] hover:text-rose-300 sm:w-8"
+                    }`}
                   >
-                    ✕
+                    {rmArmed === e.id ? "sure?" : "✕"}
                   </button>
                 </div>
                 </div>
@@ -2507,14 +2582,34 @@ export default function SetClient({
                       composing the hand-off
                     </span>
                   ) : (
+                    /* ONE WORD, TWO ACTS — so the word says which (2026-08-04c,
+                       the house law: what a tap will spend is legible BEFORE
+                       the tap, and a button that spends wears the orb). With
+                       nothing composed for this seam yet, tapping writes a
+                       hand-off: that costs a call, and it now says so with the
+                       gradient dot every spending control in the app wears.
+                       Once takes exist, the same word only PUTS ONE ON — free,
+                       and bare. Same button, same place; only the mark and the
+                       tooltip change with what it is about to do. */
                     <button
                       onClick={() =>
                         t?.options.length
                           ? void wearTransition(e.id)
                           : void composeTransition(e.id)
                       }
-                      className="rounded-full px-3.5 py-1 text-[11px] uppercase tracking-[0.14em] text-muted/50 transition hover:text-accent-strong"
+                      title={
+                        t?.options.length
+                          ? "Wear the hand-off already written for this seam"
+                          : "Write a hand-off for this seam — the AI composes it"
+                      }
+                      className="flex items-center gap-1.5 rounded-full px-3.5 py-1 text-[11px] uppercase tracking-[0.14em] text-muted/50 transition hover:text-accent-strong"
                     >
+                      {!t?.options.length && (
+                        <span
+                          aria-hidden
+                          className="h-1.5 w-1.5 shrink-0 rounded-full bg-gradient-to-br from-[#ff63c1] via-accent to-[#b3126f] shadow-[0_0_8px_rgba(224,49,156,.85)]"
+                        />
+                      )}
                       transition{isLast ? " · loops back" : ""}
                     </button>
                   )}

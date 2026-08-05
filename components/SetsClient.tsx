@@ -59,6 +59,32 @@ export default function SetsClient({ initialSets }: { initialSets: SetCard[] }) 
   const [sets, setSets] = useState(initialSets);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * AN IRREVERSIBLE TAP ARMS IN PLACE (the house law, 2026-08-04) — and this ✕
+   * was the last one in the app that didn't. It sits in the same corner, wears
+   * the same glyph and the same grey as the one on a hit's card at home, which
+   * asks "sure?" first — so two identical marks on two list pages meant "ask
+   * me" and "gone, and a whole night's order with it". The set is deleted from
+   * the server on the second tap only; three seconds of not touching it puts
+   * the question away, and so does looking somewhere else.
+   */
+  const [armed, setArmed] = useState<string | null>(null);
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const arm = (id: string) => {
+    setArmed(id);
+    if (armTimer.current) clearTimeout(armTimer.current);
+    armTimer.current = setTimeout(() => setArmed(null), 3000);
+  };
+  const disarm = () => {
+    setArmed(null);
+    if (armTimer.current) clearTimeout(armTimer.current);
+  };
+  useEffect(
+    () => () => {
+      if (armTimer.current) clearTimeout(armTimer.current);
+    },
+    [],
+  );
   // --- inline set playback (mirrors home's per-card song playback) -----------
   const [loadingPlay, setLoadingPlay] = useState<string | null>(null);
   const ctxCache = useRef(new Map<string, SetLiveCtx>());
@@ -272,6 +298,9 @@ export default function SetsClient({ initialSets }: { initialSets: SetCard[] }) 
   }
 
   async function deleteSet(id: string) {
+    // First tap asks; only the second one goes through.
+    if (armed !== id) return arm(id);
+    disarm();
     if (playingId === id) dockStop(); // a deleted set can't keep sounding
     setSets((prev) => prev.filter((s) => s.id !== id));
     await fetch(`/api/sets/${id}`, { method: "DELETE" }).catch(() => {});
@@ -422,10 +451,20 @@ export default function SetsClient({ initialSets }: { initialSets: SetCard[] }) 
               </Link>
               <button
                 onClick={() => void deleteSet(s.id)}
-                aria-label="Delete set"
-                className="mr-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[13px] text-muted transition hover:bg-white/[0.07] hover:text-rose-300 sm:opacity-0 sm:group-hover:opacity-100"
+                onBlur={() => armed === s.id && disarm()}
+                title={armed === s.id ? "Tap again to delete" : "Delete set"}
+                aria-label={
+                  armed === s.id
+                    ? `Delete ${s.title} — tap again`
+                    : `Delete ${s.title}`
+                }
+                className={`mr-4 flex shrink-0 items-center justify-center rounded-full leading-none transition ${
+                  armed === s.id
+                    ? "h-8 bg-red-500/15 px-2.5 text-[11.5px] font-medium text-red-300 opacity-100"
+                    : "h-8 w-8 text-[13px] text-muted hover:bg-white/[0.07] hover:text-rose-300 sm:opacity-0 sm:group-hover:opacity-100"
+                }`}
               >
-                ✕
+                {armed === s.id ? "sure?" : "✕"}
               </button>
             </div>
           );
