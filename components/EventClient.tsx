@@ -322,6 +322,7 @@ export default function EventClient(p: Props) {
       {p.trail && (
         <button
           onClick={() => void toggleTrail()}
+          aria-pressed={trailOn}
           className={`animate-rise mt-6 flex items-center gap-2.5 rounded-full border px-6 py-2.5 text-[13.5px] font-semibold backdrop-blur-md transition duration-300 active:scale-95 ${
             trailOn
               ? "border-accent/45 bg-accent/[0.12] text-accent-strong shadow-[0_0_44px_-10px_rgba(224,49,156,.7)]"

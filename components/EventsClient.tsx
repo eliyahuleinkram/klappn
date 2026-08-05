@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDismiss } from "@/components/Dismiss";
 import { openDeep } from "@/lib/seal";
 
 /**
@@ -297,9 +298,31 @@ export default function EventsClient({
     }
   }
 
+  /** Put the sheet away — the one place that does it, so every door out of it
+   *  (Cancel, the button that opened it, Escape) leaves the same state behind. */
+  function closeSheet() {
+    setCreating(false);
+    setEditing(null);
+    setError(null);
+  }
+
+  const sheetRef = useRef<HTMLElement | null>(null);
+  /** Bring the sheet into view — it lives at the top of the page whichever card
+   *  summoned it, and a door has to lead somewhere you can see. */
+  function revealSheet() {
+    requestAnimationFrame(() =>
+      sheetRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+    );
+  }
+
   function openEdit(e: EventItem) {
+    // Edit is this card's own door: tapping it while ITS sheet is up closes it,
+    // the way every other trigger in the app does. Tapping another card's Edit
+    // simply moves the sheet to that night.
+    if (creating && editing === e.id) return closeSheet();
     setEditing(e.id);
     setCreating(true);
+    revealSheet();
     setPosterFile(null);
     setSoundSongId("");
     setSoundParts(null);
@@ -364,6 +387,9 @@ export default function EventsClient({
    * already is — so a system dialog has no business here either. Keyed by
    * `${id}:${verb}`, three seconds to answer, then it forgets.
    */
+  // Escape folds the sheet away, exactly like Cancel and the header button —
+  // never mid-save, so a slow round trip can't be yanked out from under itself.
+  useDismiss(creating && !busy, closeSheet);
   const [armed, setArmed] = useState<string | null>(null);
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const arm = (key: string) => {
@@ -432,24 +458,43 @@ export default function EventsClient({
             Name a night. Share one link. Watch the room fill.
           </p>
         </div>
-        {!creating && (
-          <button
-            onClick={() => {
-              setEditing(null);
-              setDraft(emptyDraft);
-              setPosterFile(null);
-              setSoundSongId("");
-              setSoundParts(null);
-              setSoundPartId("");
-              setCreating(true);
-              setError(null);
-              void loadSongs();
-            }}
-            className="btn-primary shrink-0 rounded-full px-5 py-2.5 text-[14px] font-semibold"
-          >
-            + New event
-          </button>
-        )}
+        {/* IT STAYS, AND IT TOGGLES (2026-08-04c, the house laws). The button
+            deleted itself the moment the sheet opened, so the control that
+            opened the thing was never the control that closed it — you had to
+            go find Cancel at the far end of a form. Now it holds its place in
+            the header, lights while the sheet is up, and a second tap folds it
+            away (Escape does too). While EDITING a night it says so, because
+            pressing "+ New event" and getting someone else's form back would be
+            a lie about what the button does. */}
+        <button
+          onClick={() => {
+            if (creating) return closeSheet();
+            setEditing(null);
+            setDraft(emptyDraft);
+            setPosterFile(null);
+            setSoundSongId("");
+            setSoundParts(null);
+            setSoundPartId("");
+            setCreating(true);
+            setError(null);
+            void loadSongs();
+          }}
+          aria-expanded={creating}
+          title={
+            creating
+              ? editing
+                ? "Close the night you're editing"
+                : "Close the new night"
+              : "Name a night"
+          }
+          className={`shrink-0 rounded-full px-5 py-2.5 text-[14px] font-semibold transition ${
+            creating
+              ? "border border-accent/35 bg-accent/[0.1] text-accent-strong hover:bg-accent/[0.18]"
+              : "btn-primary"
+          }`}
+        >
+          {creating ? (editing ? "Editing…" : "Close") : "+ New event"}
+        </button>
       </header>
 
       {/* payouts — one quiet line, only while there's something to say */}
@@ -480,9 +525,15 @@ export default function EventsClient({
         </div>
       )}
 
-      {/* the create/edit sheet — one machined card */}
+      {/* the create/edit sheet — one machined card. IT COMES TO YOU
+          (2026-08-04c): the sheet always opens at the TOP of the page, so
+          tapping Edit on the fourth card down did its work off-screen and read
+          as a button that did nothing. */}
       {creating && (
-        <section className="animate-fade-in mt-8 rounded-3xl border border-white/[0.09] bg-[#101115]/85 p-6 shadow-[0_30px_90px_-40px_rgba(0,0,0,.9),inset_0_1px_0_rgba(255,255,255,.05)] backdrop-blur-xl">
+        <section
+          ref={sheetRef}
+          className="animate-fade-in mt-8 rounded-3xl border border-white/[0.09] bg-[#101115]/85 p-6 shadow-[0_30px_90px_-40px_rgba(0,0,0,.9),inset_0_1px_0_rgba(255,255,255,.05)] backdrop-blur-xl"
+        >
           <div className="grid gap-4">
             <div>
               <label className={label}>The night</label>
@@ -650,11 +701,7 @@ export default function EventsClient({
             {error && <p className="text-[13px] text-red-400/90">{error}</p>}
             <div className="mt-1 flex items-center justify-end gap-3">
               <button
-                onClick={() => {
-                  setCreating(false);
-                  setEditing(null);
-                  setError(null);
-                }}
+                onClick={closeSheet}
                 className="rounded-full px-4 py-2 text-[13px] font-medium text-muted transition hover:text-foreground"
               >
                 Cancel
@@ -811,7 +858,12 @@ export default function EventsClient({
                   </button>
                   <button
                     onClick={() => openEdit(e)}
-                    className="rounded-full border border-white/[0.1] px-3.5 py-1.5 text-[12px] font-medium text-foreground/70 transition hover:bg-white/[0.06]"
+                    aria-expanded={creating && editing === e.id}
+                    className={`rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition ${
+                      creating && editing === e.id
+                        ? "border-accent/35 bg-accent/[0.1] text-accent-strong"
+                        : "border-white/[0.1] text-foreground/70 hover:bg-white/[0.06]"
+                    }`}
                   >
                     Edit
                   </button>
