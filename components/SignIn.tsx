@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { useDismiss } from "@/components/Dismiss";
 import DoorGallery, { type DoorSong } from "@/components/DoorGallery";
 
 /**
@@ -123,6 +124,18 @@ export default function SignIn({
   }
 
   const gateUp = state === "sent" || state === "verifying";
+  /** Back to the email step — the one way out of the code gate, wherever it is
+   *  asked for (this component paints the gate twice: the door and the claim). */
+  function backToEmail() {
+    setState("idle");
+    setCode("");
+    setCodeError(null);
+  }
+  // Escape steps BACK, it does not sign you out of a half-finished attempt:
+  // the code gate is the innermost thing on this page, and everywhere else in
+  // the app that key unwinds exactly one layer. Never while the code is in
+  // flight — a door being opened is not a door you yank.
+  useDismiss(state === "sent", backToEmail);
   const canResend = now >= resendAt;
 
   // THE DOOR — when curated songs exist, the signed-out page IS the
@@ -203,11 +216,7 @@ export default function SignIn({
                 )}
                 <div className="mt-2.5 flex items-center justify-between text-[13px]">
                   <button
-                    onClick={() => {
-                      setState("idle");
-                      setCode("");
-                      setCodeError(null);
-                    }}
+                    onClick={backToEmail}
                     className="text-muted transition hover:text-foreground"
                   >
                     Different email
@@ -362,11 +371,7 @@ export default function SignIn({
             )}
             <div className="mt-3 flex items-center justify-between text-[13px]">
               <button
-                onClick={() => {
-                  setState("idle");
-                  setCode("");
-                  setCodeError(null);
-                }}
+                onClick={backToEmail}
                 className="text-muted transition hover:text-foreground"
               >
                 Different email
